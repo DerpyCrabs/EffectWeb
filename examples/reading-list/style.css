@@ -1,0 +1,89 @@
+:root {
+  font:
+    17px/1.5 system-ui,
+    sans-serif;
+  color: #223431;
+  background: #f3f1e9;
+}
+body {
+  margin: 0;
+  padding: 2rem 1rem;
+}
+main {
+  max-width: 42rem;
+  margin: auto;
+}
+h1 {
+  font-size: 2.8rem;
+  line-height: 1.1;
+  margin: 0.5rem 0;
+}
+header {
+  margin-bottom: 2rem;
+}
+label {
+  display: block;
+}
+input:not([type='checkbox']) {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.7rem;
+  border: 1px solid #899a91;
+  border-radius: 0.3rem;
+  font: inherit;
+  background: white;
+}
+button {
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #396c5d;
+  border-radius: 0.3rem;
+  background: #245848;
+  color: white;
+  font: inherit;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.8rem;
+  align-items: end;
+  margin-bottom: 1.5rem;
+}
+ul {
+  padding: 0;
+  list-style: none;
+}
+li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-top: 1px solid #c7cdc2;
+}
+li label {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+.read {
+  text-decoration: line-through;
+  color: #61726a;
+}
+aside {
+  padding: 1rem;
+  background: #fae2d5;
+}
+aside button {
+  margin-left: 1rem;
+}
+@media (max-width: 480px) {
+  form {
+    grid-template-columns: 1fr;
+  }
+}

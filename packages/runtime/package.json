@@ -1,0 +1,137 @@
+{
+  "name": "effectweb",
+  "version": "0.1.0",
+  "description": "Immutable Effect models and compiled JSX with direct DOM rendering",
+  "homepage": "https://github.com/DerpyCrabs/EffectWeb",
+  "bugs": {
+    "url": "https://github.com/DerpyCrabs/EffectWeb/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DerpyCrabs/EffectWeb.git",
+    "directory": "packages/runtime"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./jsx-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "import": "./dist/jsx-runtime.js"
+    },
+    "./jsx-dev-runtime": {
+      "types": "./dist/jsx-runtime.d.ts",
+      "import": "./dist/jsx-runtime.js"
+    },
+    "./collection": {
+      "types": "./dist/collection.d.ts",
+      "import": "./dist/collection.js"
+    },
+    "./program": {
+      "types": "./dist/program.d.ts",
+      "import": "./dist/program.js"
+    },
+    "./dom": {
+      "types": "./dist/dom.d.ts",
+      "import": "./dist/dom.js"
+    },
+    "./jsx": {
+      "types": "./dist/jsx.d.ts",
+      "import": "./dist/jsx.js"
+    },
+    "./component": {
+      "types": "./dist/component.d.ts",
+      "import": "./dist/component.js"
+    },
+    "./mount": {
+      "types": "./dist/mount.d.ts",
+      "import": "./dist/mount.js"
+    },
+    "./pages": {
+      "types": "./dist/pages.d.ts",
+      "import": "./dist/pages.js"
+    },
+    "./share": {
+      "types": "./dist/share.d.ts",
+      "import": "./dist/share.js"
+    },
+    "./load": {
+      "types": "./dist/load.d.ts",
+      "import": "./dist/load.js"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "import": "./dist/errors.js"
+    },
+    "./diagnostics": {
+      "types": "./dist/diagnostics.d.ts",
+      "import": "./dist/diagnostics.js"
+    },
+    "./state": {
+      "types": "./dist/state.d.ts",
+      "import": "./dist/state.js"
+    },
+    "./actions": {
+      "types": "./dist/actions.d.ts",
+      "import": "./dist/actions.js"
+    },
+    "./task": {
+      "types": "./dist/task.d.ts",
+      "import": "./dist/task.js"
+    },
+    "./effectEvent": {
+      "types": "./dist/effectEvent.d.ts",
+      "import": "./dist/effectEvent.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
+    },
+    "./form": {
+      "types": "./dist/form.d.ts",
+      "import": "./dist/form.js"
+    },
+    "./query": {
+      "types": "./dist/query.d.ts",
+      "import": "./dist/query.js"
+    },
+    "./tasks": {
+      "types": "./dist/tasks.d.ts",
+      "import": "./dist/tasks.js"
+    },
+    "./resource": {
+      "types": "./dist/resource.d.ts",
+      "import": "./dist/resource.js"
+    },
+    "./cache": {
+      "types": "./dist/cache.d.ts",
+      "import": "./dist/cache.js"
+    },
+    "./session": {
+      "types": "./dist/session.d.ts",
+      "import": "./dist/session.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-rc.112"
+  },
+  "engines": {
+    "node": ">=22.14"
+  }
+}

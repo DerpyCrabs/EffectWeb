@@ -1,0 +1,95 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to npm (requires configured trusted publishers)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: effectweb-release
+  cancel-in-progress: false
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            suffix: linux-x64-gnu
+          - runner: ubuntu-24.04-arm
+            suffix: linux-arm64-gnu
+          - runner: macos-15-intel
+            suffix: darwin-x64
+          - runner: macos-15
+            suffix: darwin-arm64
+          - runner: windows-2022
+            suffix: win32-x64-msvc
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: rustup toolchain install 1.96.0 --profile minimal
+      - run: rustup override set 1.96.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: packages/compiler/native -> target
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm test -- packages/compiler/src/snapshotJsx.test.ts
+      - run: node scripts/stage-native.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-${{ matrix.suffix }}
+          path: artifacts/native/native-${{ matrix.suffix }}
+          if-no-files-found: error
+  packages:
+    needs: [verify, native]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: native-*
+          path: artifacts/native
+      - run: cp artifacts/native/native-linux-x64-gnu/compiler.node packages/compiler/native/snapshot-compiler.node
+      - run: npm run build:js
+      - run: npm run pack:release
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-packages
+          path: artifacts/packages/*.tgz
+          if-no-files-found: error
+  publish:
+    needs: packages
+    if: github.repository == 'DerpyCrabs/EffectWeb' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish))
+    runs-on: ubuntu-22.04
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: npm-packages
+          path: artifacts/packages
+      - run: node scripts/publish-release.mjs

@@ -1,0 +1,184 @@
+# Component authoring
+
+The compiler accepts snapshot JSX: read plain immutable values, derive constants, and return JSX. It generates dependency checks and DOM updates. State changes still go through messages or an owned Effect; there is no implicit signal tracking.
+
+## Named actions without a second payload declaration
+
+`defineActions<Model>()` derives message payloads and dispatch methods from handlers:
+
+```ts
+const actions = defineActions<{ query: string }>()({
+  Query: (model, query: string) => ({ model: { ...model, query } }),
+  Clear: () => ({ model: { query: '' } }),
+});
+type Message = ActionMessage<typeof actions>;
+```
+
+Pass `actions.update` to a program's update function. Bind once in a compiled view:
+
+```tsx
+const dispatch = actions.bind(send);
+return <input value={model.query} onInput={inputText(dispatch.Query)} />;
+```
+
+Outside the view, `source.send(actions.message.Query('hello'))` uses the same payload types. Handlers return ordinary transitions, including commands and cancellations. The existing queue preserves ordering; the methods do not mutate the model directly. Search combines these actions with the shared pagination messages.
+
+## Children and typed slots
+
+Ordinary component children and named markup props are compiled templates:
+
+```tsx
+<Dialog title="Search messages" onClose={dispatch.Close} footer={<p>Search this chat</p>}>
+  <SearchForm query={model.query} onQuery={dispatch.Query} />
+</Dialog>
+```
+
+A receiving view declares `children?: JSX.Element` or `footer?: JSX.Element` and renders `{props.children}` or `{props.footer}`. Each placement has its own DOM and local state, even when the same content is placed twice. Captured caller values and event handlers use the latest snapshot without remounting the content. Placement removal runs its cleanups.
+
+Use `slot` when the receiver supplies a value to the markup:
+
+```tsx
+const content = slot((count: number) => (
+  <strong>
+    {model.label}: {count}
+  </strong>
+));
+return <Counter content={content} />;
+```
+
+`Counter` declares `content: Slot<number>` and renders `{props.content(model.count)}`. Type checks reject a wrong argument or rendering a required-value slot bare. Declare slots inside a `view` or directly in a JSX prop; they belong to that view's lifetime. A slot callback accepts one named parameter; destructure it inside its body if needed. Zero-argument slots and ordinary markup props need no argument at placement.
+
+The native compiler still requires pure snapshot derivations. Slots do not introduce a virtual tree or an implicit reactive context. Dialog shares focus containment, overlay dismissal and accessible labeling across the two deletion dialogs and message search.
+
+## Named tasks with inferred results
+
+Use `defineTasks` for editable fields and independently owned operations. Define tasks before the view so TypeScript can infer each operation's input, success and error type without a result annotation:
+
+```tsx
+const editor = defineTasks({
+  init: (_props: { save: (text: string) => Effect.Effect<number, SaveError> }) => ({ text: '' }),
+}).tasks({
+  save: { policy: 'drop', run: (model) => model.props.save(model.text) },
+  preview: { policy: 'replace', run: (model) => Effect.succeed(model.text.toUpperCase()) },
+});
+const Editor = editor.view(
+  view((model, send) => {
+    const actions = editor.controls(send);
+    return (
+      <form onSubmit={submit(() => actions.run('save'))}>
+        <input value={model.text} onInput={inputText((text) => actions.patch({ text }))} />
+        <button disabled={model.tasks.save.waiting}>Save</button>
+        <p role="status">{resourceError(model.tasks.save)}</p>
+      </form>
+    );
+  }),
+);
+```
+
+`SaveError` above is the application's expected error type. An input annotation on `run(model, input: Input)` establishes the second argument to `actions.run('name', input)`. A run without an input parameter needs no placeholder `void` argument. Result snapshots are ordinary Effect `AsyncResult<A, E>` values. Editable patches cannot overwrite props or task results; completion messages are private to the task owner.
+
+Choose concurrency and identity deliberately:
+
+- `drop` ignores another run while that named task is pending.
+- `replace` interrupts that task's previous run and accepts the new one.
+- `identity(props)` on `defineTasks` resets all fields/results and cancels all work when the component entity changes.
+- `identity(model)` on one task resets/cancels only that operation when its domain identity changes.
+- `cancel('name')` interrupts work, stops waiting and retains an available result. `reset('name')` also clears its result.
+
+Each accepted run reads one immutable snapshot. Different task names can run independently. Unmount interrupts all of them. Throwing factories and defects settle pending state as a failed `AsyncResult` with a `Cause`; expected errors retain their declared type. Completion side effects belong in the Effect chain so interruption suppresses later steps. An underlying Promise aborts external work only if its API honors the signal passed by `fromPromise`.
+
+Authentication and image editing use named tasks. The older `taskComponent` remains compatible, but new code should use staged definitions. Keep ordinary `component`/`program` transitions for workflows that need atomic domain updates, such as optimistic edits and persistence.
+
+## Application services
+
+Bind services once with `uiRuntime(context)` and pass that runtime before declaring service-using tasks:
+
+```ts
+const runtime = uiRuntime(Context.make(Drafts, draftsService));
+const editor = defineTasks({ runtime, init: (_props: { id: string }) => ({ text: '' }) }).tasks({
+  save: {
+    policy: 'drop',
+    run: (model) => Effect.flatMap(Drafts, (drafts) => drafts.save(model.props.id, model.text)),
+  },
+});
+```
+
+`Drafts` is an application `Context.Service`. Missing service requirements fail type checking in the task definition. The runtime provides a context; it does not create a service scope per component. The application must acquire and release any scoped services for the lifetime of the app. Individual command fibers belong to their program or component and are interrupted independently.
+
+Use `runtime.program(...)` for manual transitions requiring services; `component` and `resourceComponent` also accept `runtime`. `runtime.provide(effect)` adapts smaller integrations such as an `effectEvent`. `UiLoad<A, E, R>` and commands preserve the Effect error and requirement parameters. The [reading-list example](../examples/reading-list/app.tsx) supplies a typed storage service once, retaining its atomic optimistic reducer.
+
+## Async content and forms
+
+`AsyncContent` renders an existing result; loading, resource identity and caching remain with its owner:
+
+```tsx
+<AsyncContent
+  result={model.result}
+  content={slot((items: readonly Item[]) => (
+    <Results items={items} />
+  ))}
+  pending={<p role="status">Loading…</p>}
+  pendingDelay={150}
+  refreshing={<p role="status">Refreshing…</p>}
+  failure={slot((cause: Cause.Cause<LoadError>) => (
+    <ErrorDetails cause={cause} />
+  ))}
+/>
+```
+
+Available success keeps its DOM through a refresh and a failed refresh. A failure slot appears alongside retained content, or on its own if no data exists. `pendingDelay` delays only the initial pending indicator; it defaults to zero. `empty` renders an initial, nonwaiting result. Successful `undefined`, `false`, zero and empty strings are available data, not pending states.
+
+This component cannot infer entity identity. `resourceComponent` publishes an initial result on key changes. If an owner swaps directly between two cached successes, editable children must use their own explicit entity identity to reset local state. GIF search uses the shared presentation and displays failed searches instead of silently presenting an empty list.
+
+`inputText`, `inputChecked` and `inputNumber` capture native values synchronously and dispatch immutable changes. Numeric empty/invalid input becomes `undefined`; raw editable strings can remain strings when formatting matters. `submit` synchronously prevents the native form submission before dispatching or returning an owned Effect event request. These helpers add no validation state or proxies. Keep specialized contenteditable/composer behavior in its existing owner. Schema decoding belongs at the domain boundary.
+
+## Shared query definitions
+
+A query groups logical identity, loading, freshness and types:
+
+```ts
+const profile = query({
+  name: 'profile',
+  key: (id: string) => id,
+  load: (id: string) => Effect.flatMap(Profiles, (service) => service.get(id)),
+  staleTime: 30_000,
+});
+const cache = makeQueryCache(runtime);
+const selected = queryResource({ cache, changed }, profile);
+selected.select('alice');
+// Commands use the same cache and definition:
+cache.prefetch(profile, 'alice'); // an Effect; run it through an owner
+cache.invalidateQuery(profile, 'alice');
+```
+
+Share the definition at module or application scope. Its private identity distinguishes definitions even when diagnostic names match; `key(args)` distinguishes resources within it. Declare singleton reads as `query({ name, load: () => effect })` and activate with `select(true)`. `select(undefined)` clears a selection.
+
+`queryResource.select` reconciles identity idempotently. Freshness is checked on activation, reactivation and prefetch; repeated same-key snapshot updates do not refetch. Call `refresh()` to explicitly refresh an active selection. Freshness defaults to explicit invalidation, and the existing cache still expires idle values after its 30-second TTL. `invalidateQuery(definition)` invalidates that definition's entries; adding arguments targets one entry. Prefetch and views deduplicate through the same AtomRegistry and preserve unchanged result references.
+
+An application owns cache isolation and disposal. Query helpers cache resources in memory; they do not persist data or coordinate browser tabs. Call `cache.dispose()` when its application lifetime ends.
+
+## Program tests and diagnostics
+
+Import `programDriver` and `controlledEffect` from `effectweb/testing` in tests. The driver uses the real program queue, exposes `model`, `send`, `activeSlots`, `awaitSlot('task:save')` and `awaitIdle()`, and disposes its source. A controlled Effect lets a test explicitly succeed, fail or interrupt work without constructing private settlement messages. Supply a runtime containing Effect's test services to advance `TestClock` through `driver.run(...)`.
+
+`observePrograms(100)` records a bounded, opt-in history of program IDs, optional names, message discriminants and command slot lifecycle. Call `.events()` to inspect and `.dispose()` to stop. It retains no payloads or model snapshots and cannot replay commands. Pair it with `observeBindings` for compiler source locations and changed dependency paths. Without program observers, updates skip diagnostic metadata allocation.
+
+## Effect event handlers
+
+For an Effect with no view-owned result, use an explicitly owned event:
+
+```tsx
+<button onClick={effectEvent('drop', () => props.retry())}>Retry</button>
+```
+
+The factory runs synchronously on **every event**, including dropped events. Capture native event fields and call `preventDefault()` there. Return a cold Effect for the actual operation; `drop`/`replace` controls its execution. The fiber belongs to that DOM listener and is interrupted when its branch or component is removed. Failures and defects use the scope's error reporter. This is appropriate for small actions; use task state when the UI needs pending/error/result feedback.
+
+JSX event types reject directly returned Effects and Promises. The runtime also reports them if JavaScript or a cast bypasses the type check. `effecttsgo/floating-effect` is an error in `npm run check` and catches discarded Effect expression statements. Explicit `void effect`, `any`, and callbacks already typed `() => void` can conceal a discarded value; these remain escape hatches, not checked guarantees. Do not use `void` to launch a cold Effect. Adapt Promise APIs with `fromPromise` and provide an owner.
+
+## Ordinary control flow
+
+Views, JSX helpers, and list callbacks can use pure constants, early `if`/`else` returns, and returning `switch` cases. Each selected branch has its own scope. Updates within the same branch preserve DOM and child state; changing branches disposes the old scope. Grouped empty case labels share a branch. Nonempty fallthrough, `break`, incomplete returns, and unreachable statements receive compiler diagnostics.
+
+Use branch constants for union narrowing and keep helper declarations after the constants they capture. Effects and imperative mutations belong in events or commands. Domain collections still declare stable identity once; the compiler cannot invent the identity of messages or attachments.
+
+Use fragments when they group multiple children or preserve meaningful whitespace.

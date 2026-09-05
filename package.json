@@ -1,0 +1,44 @@
+{
+  "name": "effectweb-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "packages/runtime",
+    "packages/compiler"
+  ],
+  "type": "module",
+  "scripts": {
+    "prepare": "effect-tsgo patch --no-typescript --oxlint",
+    "build:compiler": "node scripts/build-native.mjs",
+    "build": "npm run build:compiler && node scripts/build.mjs",
+    "build:js": "node scripts/build.mjs",
+    "test": "vp test --run",
+    "test:compiler": "cargo test --manifest-path packages/compiler/native/Cargo.toml --locked",
+    "test:package": "node scripts/package-smoke.mjs",
+    "fmt": "cargo fmt --manifest-path packages/compiler/native/Cargo.toml && vp fmt",
+    "check": "cargo fmt --manifest-path packages/compiler/native/Cargo.toml --check && cargo clippy --manifest-path packages/compiler/native/Cargo.toml --locked --all-targets -- -D warnings && vp check",
+    "pack:release": "node scripts/pack-release.mjs",
+    "version:release": "node scripts/version-release.mjs",
+    "test:browser": "playwright test",
+    "dev:example": "vp dev --config examples/reading-list/vite.config.ts",
+    "build:example": "vp build --config examples/reading-list/vite.config.ts",
+    "check:browser": "tsc --noEmit -p tsconfig.browser.json"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "0.32.1",
+    "@playwright/test": "1.62.1",
+    "@types/node": "^26.2.0",
+    "effect": "4.0.0-rc.112",
+    "idb": "8.0.3",
+    "oxfmt": "0.62.0",
+    "typescript": "5.9.3",
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.9",
+    "vite-plus": "0.2.9"
+  },
+  "overrides": {
+    "vite": "npm:@voidzero-dev/vite-plus-core@0.2.9"
+  },
+  "engines": {
+    "node": ">=22.14"
+  }
+}

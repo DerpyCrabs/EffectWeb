@@ -1,0 +1,9 @@
+node_modules/
+dist/
+artifacts/
+*.tgz
+packages/compiler/native/target/
+packages/compiler/native/*.node
+packages/compiler/native/*.tmp
+test-results/
+playwright-report/

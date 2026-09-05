@@ -1,0 +1,54 @@
+{
+  "name": "effectweb-compiler",
+  "version": "0.1.0",
+  "description": "Native Oxc compiler and Vite plugin for effectweb",
+  "homepage": "https://github.com/DerpyCrabs/EffectWeb",
+  "bugs": {
+    "url": "https://github.com/DerpyCrabs/EffectWeb/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DerpyCrabs/EffectWeb.git",
+    "directory": "packages/compiler"
+  },
+  "files": [
+    "dist",
+    "native.cjs",
+    "native.d.cts",
+    "LICENSE",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "vite": "*"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "optionalDependencies": {
+    "effectweb-compiler-darwin-arm64": "0.1.0",
+    "effectweb-compiler-darwin-x64": "0.1.0",
+    "effectweb-compiler-linux-arm64-gnu": "0.1.0",
+    "effectweb-compiler-linux-x64-gnu": "0.1.0",
+    "effectweb-compiler-win32-x64-msvc": "0.1.0"
+  },
+  "engines": {
+    "node": ">=22.14"
+  }
+}

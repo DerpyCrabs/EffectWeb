@@ -1,0 +1,196 @@
+import { Effect, Option } from 'effect';
+import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import { programView } from './component.js';
+import type { View } from './dom.js';
+import { effectCommand, program, type Send, type RunningProgram } from './program.js';
+import { defaultUiRuntime, type UiRuntime } from './runtime.js';
+import { patchModel } from './state.js';
+
+export interface TaskDefinition<Model, Input, A, E, R = never> {
+  readonly policy: 'drop' | 'replace';
+  readonly run: (model: Model, input: Input) => Effect.Effect<A, E, R>;
+  /** Domain identity, compared after fields or props change. Resets this slot only. */
+  readonly identity?: (model: Model) => unknown;
+}
+type Definitions<Model, R> = Record<string, TaskDefinition<Model, never, unknown, unknown, R>>;
+type AnyDefinitions = Definitions<never, unknown>;
+type Input<T extends AnyDefinitions[string]> =
+  Parameters<T['run']> extends [unknown, infer I, ...unknown[]] ? I : void;
+export type TaskResults<T extends AnyDefinitions> = {
+  readonly [K in keyof T]: AsyncResult.AsyncResult<
+    Effect.Success<ReturnType<T[K]['run']>>,
+    Effect.Error<ReturnType<T[K]['run']>>
+  >;
+};
+export type TasksModel<Props, State, T extends AnyDefinitions> = State & {
+  readonly props: Props;
+  readonly tasks: TaskResults<T>;
+};
+export type TasksMessage<State, T extends AnyDefinitions> =
+  | {
+      readonly type: 'Fields';
+      readonly fields: Partial<State> & { readonly props?: never; readonly tasks?: never };
+    }
+  | { readonly type: 'Cancel' | 'Reset'; readonly task: keyof T }
+  | {
+      [K in keyof T]: { readonly type: 'Run'; readonly task: K; readonly input: Input<T[K]> };
+    }[keyof T];
+
+type Init<Props, State> = {
+  init: (props: Props) => State & { readonly props?: never; readonly tasks?: never };
+  /** Changing the component entity also resets editable fields and all its tasks. */
+  identity?: (props: Props) => unknown;
+  name?: string;
+};
+export function defineTasks<Props, State extends object, R>(
+  definition: Init<Props, State> & { runtime: UiRuntime<R> },
+): ReturnType<typeof taskBuilder<Props, State, R>>;
+export function defineTasks<Props, State extends object>(
+  definition: Init<Props, State>,
+): ReturnType<typeof taskBuilder<Props, State, never>>;
+export function defineTasks<Props, State extends object, R>(
+  definition: Init<Props, State> & { runtime?: UiRuntime<R> },
+) {
+  return taskBuilder(definition, definition.runtime ?? (defaultUiRuntime as UiRuntime<R>));
+}
+function stopWaiting<A, E>(result: AsyncResult.AsyncResult<A, E>): AsyncResult.AsyncResult<A, E> {
+  if (!result.waiting) return result;
+  if (AsyncResult.isInitial(result)) return AsyncResult.initial();
+  if (AsyncResult.isSuccess(result)) return AsyncResult.success(result.value);
+  return AsyncResult.failureWithPrevious(result.cause, { previous: Option.some(result) });
+}
+function taskBuilder<Props, State extends object, R>(
+  definition: Init<Props, State>,
+  runtime: UiRuntime<R>,
+) {
+  type Base = State & { readonly props: Props };
+  return {
+    tasks<T extends Definitions<Base, R>>(definitions: T) {
+      type Model = TasksModel<Props, State, T>;
+      type Message = TasksMessage<State, T>;
+      type Internal =
+        | Message
+        | { type: 'Input'; props: Props }
+        | { type: 'Settled'; task: keyof T; result: AsyncResult.AsyncResult<unknown, unknown> };
+      const names = Object.keys(definitions) as Array<keyof T & string>;
+      const slot = (name: keyof T) => `task:${String(name)}`;
+      const initialResults = () =>
+        Object.fromEntries(names.map((name) => [name, AsyncResult.initial()])) as TaskResults<T>;
+      const init = (props: Props): Model => ({
+        ...definition.init(props),
+        props,
+        tasks: initialResults(),
+      });
+      const withResult = (
+        model: Model,
+        task: keyof T,
+        result: AsyncResult.AsyncResult<unknown, unknown>,
+      ): Model => ({ ...model, tasks: { ...model.tasks, [task]: result } });
+      const resetIdentities = (before: Model, model: Model) => {
+        const cancel: string[] = [];
+        for (const name of names) {
+          const identity = definitions[name]!.identity;
+          if (identity && !Object.is(identity(before), identity(model))) {
+            model = withResult(model, name, AsyncResult.initial());
+            cancel.push(slot(name));
+          }
+        }
+        return { model, cancel };
+      };
+      const owners = new WeakMap<RunningProgram<Model, Message>, RunningProgram<Model, Internal>>();
+      const create = (props: Props): RunningProgram<Model, Message> => {
+        const source = program<Model, Internal>({
+          initial: init(props),
+          ...(definition.name ? { name: definition.name } : {}),
+          update: (model, message) => {
+            switch (message.type) {
+              case 'Input':
+                if (
+                  definition.identity &&
+                  !Object.is(definition.identity(model.props), definition.identity(message.props))
+                )
+                  return { model: init(message.props), cancel: names.map(slot) };
+                return resetIdentities(model, { ...model, props: message.props });
+              case 'Fields': {
+                const next = patchModel<State>(model, message.fields);
+                return resetIdentities(
+                  model,
+                  next === model ? model : { ...next, props: model.props, tasks: model.tasks },
+                );
+              }
+              case 'Run': {
+                const task = definitions[message.task]!;
+                const previous = model.tasks[message.task];
+                if (task.policy === 'drop' && previous.waiting) return { model };
+                return {
+                  model: withResult(model, message.task, AsyncResult.waiting(previous)),
+                  commands: [
+                    effectCommand(
+                      slot(message.task),
+                      () => runtime.provide(task.run(model, message.input as never)),
+                      {
+                        onSuccess: (value): Internal => ({
+                          type: 'Settled',
+                          task: message.task,
+                          result: AsyncResult.success(value),
+                        }),
+                        onFailure: (cause): Internal => ({
+                          type: 'Settled',
+                          task: message.task,
+                          result: AsyncResult.failureWithPrevious(cause, {
+                            previous: Option.some(previous),
+                          }),
+                        }),
+                      },
+                    ),
+                  ],
+                };
+              }
+              case 'Cancel':
+                return {
+                  model: withResult(model, message.task, stopWaiting(model.tasks[message.task])),
+                  cancel: [slot(message.task)],
+                };
+              case 'Reset':
+                return {
+                  model: withResult(model, message.task, AsyncResult.initial()),
+                  cancel: [slot(message.task)],
+                };
+              case 'Settled':
+                return { model: withResult(model, message.task, message.result) };
+            }
+          },
+        });
+        const exposed: RunningProgram<Model, Message> = { ...source, send: source.send };
+        owners.set(exposed, source);
+        return exposed;
+      };
+      const receive = (source: RunningProgram<Model, Message>, props: Props) => {
+        const owner = owners.get(source);
+        if (!owner) throw new Error('Task source belongs to a different definition');
+        owner.send({ type: 'Input', props });
+      };
+      const controls = (send: Send<Message>) => ({
+        run: <K extends keyof T>(
+          task: K,
+          ...input: Input<T[K]> extends void ? [input?: Input<T[K]>] : [input: Input<T[K]>]
+        ) => send({ type: 'Run', task, input: input[0] } as Message),
+        patch: (fields: Partial<State> & { readonly props?: never; readonly tasks?: never }) =>
+          send({ type: 'Fields', fields }),
+        cancel: (task: keyof T) => send({ type: 'Cancel', task }),
+        reset: (task: keyof T) => send({ type: 'Reset', task }),
+      });
+      return {
+        create,
+        receive,
+        controls,
+        view: (view: View<Model, Message>): View<Props, never> =>
+          programView({
+            create,
+            receive: (source, props) => receive(source as RunningProgram<Model, Message>, props),
+            view,
+          }),
+      };
+    },
+  };
+}
