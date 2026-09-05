@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import ts from 'typescript';
 import { compile } from '../packages/compiler/native.cjs';
 
-for (const name of ['compiler', 'runtime']) {
+for (const name of ['compiler', 'runtime', 'lucide']) {
   const root = resolve(`packages/${name}`);
   rmSync(`${root}/dist`, { recursive: true, force: true });
   mkdirSync(`${root}/dist`, { recursive: true });
@@ -36,3 +36,4 @@ for (const name of ['compiler', 'runtime']) {
   );
   if (check.status !== 0) process.exit(check.status ?? 1);
 }
+await import('./build-lucide.mjs');

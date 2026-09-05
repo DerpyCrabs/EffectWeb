@@ -1,0 +1,54 @@
+{
+  "name": "@effectweb/lucide",
+  "version": "0.1.1",
+  "description": "Lucide icons compiled to direct DOM views for EffectWeb",
+  "homepage": "https://github.com/DerpyCrabs/EffectWeb/tree/main/packages/lucide",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DerpyCrabs/EffectWeb.git",
+    "directory": "packages/lucide"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./icons/*": {
+      "types": "./dist/icons/*.d.ts",
+      "import": "./dist/icons/*.js"
+    },
+    "./dynamic": {
+      "types": "./dist/dynamic.d.ts",
+      "import": "./dist/dynamic.js"
+    },
+    "./data": {
+      "types": "./dist/data.d.ts",
+      "import": "./dist/data.js"
+    },
+    "./build": {
+      "types": "./dist/build.d.ts",
+      "import": "./dist/build.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@lucide/icons": "1.41.0"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-rc.112",
+    "effectweb": "^0.1.1"
+  },
+  "engines": {
+    "node": ">=22.14"
+  }
+}

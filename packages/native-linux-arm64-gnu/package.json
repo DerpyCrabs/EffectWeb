@@ -1,6 +1,6 @@
 {
-  "name": "effectweb-compiler-linux-arm64-gnu",
-  "version": "0.1.0",
+  "name": "@effectweb/compiler-linux-arm64-gnu",
+  "version": "0.1.1",
   "private": true,
   "description": "Development workspace placeholder; scripts/stage-native.mjs creates the release package."
 }

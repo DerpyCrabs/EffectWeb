@@ -30,6 +30,6 @@ writeFileSync(
 );
 writeFileSync(
   `${root}/README.md`,
-  `# EffectWeb native compiler\n\nPlatform package for ${platform.suffix}. Install effectweb-compiler instead; npm selects this dependency automatically.\n`,
+  `# EffectWeb native compiler\n\nPlatform package for ${platform.suffix}. Install @effectweb/compiler instead; npm selects this dependency automatically.\n`,
 );
 process.stdout.write(`${root}\n`);

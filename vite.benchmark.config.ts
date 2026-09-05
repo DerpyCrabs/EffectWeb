@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite-plus';
-import { snapshotCompiler } from 'effectweb-compiler/vite';
+import { snapshotCompiler } from '@effectweb/compiler/vite';
 export default defineConfig({
   plugins: [snapshotCompiler()],
   build: {

@@ -4,12 +4,13 @@ Immutable Effect models and JSX compiled to direct DOM updates. No virtual DOM, 
 
 EffectWeb separates state transitions and scoped Effect work from pure snapshot views. Its Rust/Oxc compiler caches view derivations and emits granular DOM bindings. Collections declare domain identity once, and immutable structural sharing lets unchanged rows and bindings stay untouched.
 
-Extracted from [TeleVecha](https://github.com/DerpyCrabs/TeleVecha), where it renders the complete application. This is an early framework with real application coverage, not yet a stable API. `0.1.0` is available on npm.
+Extracted from [TeleVecha](https://github.com/DerpyCrabs/TeleVecha), where it renders the complete application. This is an early framework with real application coverage, not yet a stable API. The runtime stays `effectweb`; compiler tooling and integrations use the `@effectweb` npm scope. All packages share one release version.
 
 ## Packages
 
 - `effectweb`: views, immutable programs, tasks, async presentation, query cache, DOM lifetimes, and test helpers.
-- `effectweb-compiler`: Rust/Oxc compiler and the `effectweb-compiler/vite` plugin. Native binaries install as optional platform dependencies; application developers do not need Rust.
+- `@effectweb/compiler`: Rust/Oxc compiler and the `@effectweb/compiler/vite` plugin. Native binaries install as optional platform dependencies; application developers do not need Rust.
+- [`@effectweb/lucide`](packages/lucide): precompiled Lucide views, per-icon imports, optional Effect-based lazy loading, and raw SVG builders.
 
 The runtime currently requires **Effect 4.0.0-rc.112**. Compiler tooling requires Node.js 22.14+. The release workflow builds glibc Linux x64/arm64, macOS x64/arm64, and Windows x64 binaries. musl Linux and other architectures have no prebuilt package.
 
@@ -19,13 +20,13 @@ Install the runtime and compiler:
 
 ```sh
 npm install effectweb effect@4.0.0-rc.112
-npm install --save-dev effectweb-compiler vite typescript
+npm install --save-dev @effectweb/compiler vite typescript
 ```
 
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite';
-import { snapshotCompiler } from 'effectweb-compiler/vite';
+import { snapshotCompiler } from '@effectweb/compiler/vite';
 
 export default defineConfig({ plugins: [snapshotCompiler()] });
 ```

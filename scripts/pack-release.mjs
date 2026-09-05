@@ -6,8 +6,9 @@ const local = process.argv.includes('--local');
 const targets = local ? [hostPlatform()] : platforms;
 const compiler = JSON.parse(readFileSync('packages/compiler/package.json', 'utf8'));
 const runtime = JSON.parse(readFileSync('packages/runtime/package.json', 'utf8'));
-if (compiler.version !== runtime.version)
-  throw new Error('Runtime and compiler versions must match.');
+const lucide = JSON.parse(readFileSync('packages/lucide/package.json', 'utf8'));
+if (compiler.version !== runtime.version || lucide.version !== runtime.version)
+  throw new Error('Runtime, compiler, and Lucide versions must match.');
 if (process.env.GITHUB_REF_TYPE === 'tag' && process.env.GITHUB_REF_NAME !== `v${compiler.version}`)
   throw new Error('Release tag must match package versions.');
 const directories = targets.map((target) => `artifacts/native/native-${target.suffix}`);
@@ -23,12 +24,17 @@ for (const [index, directory] of directories.entries()) {
   if (compiler.optionalDependencies[metadata.name] !== metadata.version)
     throw new Error(`Incorrect optional dependency ${metadata.name}`);
 }
-for (const directory of ['packages/runtime', 'packages/compiler']) {
+for (const directory of ['packages/runtime', 'packages/compiler', 'packages/lucide']) {
   if (!existsSync(`${directory}/dist/index.js`) || !existsSync(`${directory}/dist/index.d.ts`))
     throw new Error(`Build ${directory} before packing.`);
 }
 mkdirSync('artifacts/packages', { recursive: true });
-for (const directory of [...directories, 'packages/runtime', 'packages/compiler']) {
+for (const directory of [
+  ...directories,
+  'packages/runtime',
+  'packages/compiler',
+  'packages/lucide',
+]) {
   const result = spawnSync(
     process.platform === 'win32' ? 'npm.cmd' : 'npm',
     [

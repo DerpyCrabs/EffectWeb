@@ -14,6 +14,6 @@ npm run build:example
 
 Failed saves keep the edited list visible and offer Retry. Replacement saves cancel the previous caller. The IndexedDB adapter checks cancellation before starting a write; an already-started transaction finishes in database order. This example has one tab's local state and does not implement concurrent editing across tabs.
 
-The example imports `effectweb` and `effectweb-compiler/vite` through the workspace packages. Run `npm ci && npm run build` in the repository root before starting it.
+The example imports `effectweb` and `@effectweb/compiler/vite` through the workspace packages. Run `npm ci && npm run build` in the repository root before starting it.
 
 The app supplies `ReadingStorage` once through `uiRuntime(Context.make(...)).program(...)`. Command Effects read that service directly; their required service is checked before the program is created. The storage boundary converts expected failures to the tagged `StorageError` type. This runtime binds an existing context and does not allocate another cache or own the storage service lifetime.
