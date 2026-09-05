@@ -153,3 +153,80 @@ it('formats query errors without exposing the Error constructor prefix', () => {
   expect(resourceError(AsyncResult.failure(Cause.fail('offline')))).toBe('offline');
   expect(resourceError(AsyncResult.failure(Cause.die(new Error('defect'))))).toBe('defect');
 });
+
+it('never delivers a superseded result after a listener selects another query', async () => {
+  const cache = makeQueryCache();
+  const definition = query({ name: 'selection', key: (id: string) => id, load: Effect.succeed });
+  await Effect.runPromise(cache.prefetch(definition, 'A'));
+  await Effect.runPromise(cache.prefetch(definition, 'B'));
+  const source = queryResource({ cache }, definition);
+  const seen: string[] = [];
+  source.subscribe((result) => {
+    if (AsyncResult.isSuccess(result) && result.value === 'A') source.select('B');
+  });
+  source.subscribe((result) => {
+    if (AsyncResult.isSuccess(result)) seen.push(result.value);
+  });
+  source.select('A');
+  expect(seen).toEqual(['B']);
+  source.dispose();
+  cache.dispose();
+});
+
+it.each(['select', 'reset', 'dispose'] as const)(
+  'releases subscriptions after reentrant %s during setup',
+  (action) => {
+    const cache = makeQueryCache();
+    const original = cache.registry.subscribe.bind(cache.registry);
+    const releases: Array<ReturnType<typeof vi.fn>> = [];
+    vi.spyOn(cache.registry, 'subscribe').mockImplementation((...args) => {
+      const release = vi.fn(original(...args));
+      releases.push(release);
+      return release;
+    });
+    const definition = query({ name: 'selection', key: (id: string) => id, load: Effect.succeed });
+    let triggered = false;
+    const source = queryResource(
+      {
+        cache,
+        changed() {
+          if (triggered) return;
+          triggered = true;
+          if (action === 'select') source.select('B');
+          else if (action === 'reset') cache.resetResources();
+          else source.dispose();
+        },
+      },
+      definition,
+    );
+    source.select('A');
+    if (action === 'select')
+      expect(Option.getOrUndefined(AsyncResult.value(source.read()))).toBe('B');
+    else expect(source.read()._tag).toBe('Initial');
+    source.dispose();
+    for (const release of releases) expect(release).toHaveBeenCalledTimes(1);
+    cache.dispose();
+  },
+);
+
+it('isolates throwing query listeners and stops publication when disposed', () => {
+  const report = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const cache = makeQueryCache();
+  const definition = query({ name: 'listeners', load: () => Effect.succeed(1) });
+  const source = queryResource({ cache }, definition);
+  const seen = vi.fn();
+  source.subscribe(() => {
+    throw new Error('observer');
+  });
+  source.subscribe(seen);
+  source.select(true);
+  expect(seen).toHaveBeenCalled();
+  expect(report).toHaveBeenCalled();
+  source.dispose();
+  const calls = seen.mock.calls.length;
+  source.refresh();
+  source.select(true);
+  expect(seen).toHaveBeenCalledTimes(calls);
+  cache.dispose();
+  report.mockRestore();
+});

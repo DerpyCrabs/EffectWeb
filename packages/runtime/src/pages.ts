@@ -1,7 +1,8 @@
+import { shareValue } from './share.js';
 import { Cause, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import type { UiLoad, UiPage } from './load.js';
-import { effectCommand, type Transition } from './program.js';
+import { effectCommand, program, type Transition, type Send } from './program.js';
 import { available } from './resource.js';
 export interface PagesModel<Props, A, Cursor> {
   readonly props: Props;
@@ -43,7 +44,7 @@ export function pages<Props, A, Cursor>(definition: {
       ],
     };
   };
-  return {
+  const pagination = {
     init: (props: Props): Model => ({
       props,
       key: undefined,
@@ -57,7 +58,8 @@ export function pages<Props, A, Cursor>(definition: {
     ): Transition<Model, Message> {
       const key = definition.key(props);
       if (key === model.key) {
-        const next = { ...model, props };
+        const shared = shareValue(model.props, props);
+        const next = shared === model.props ? model : { ...model, props: shared };
         return options.refresh ? request(next, false) : { model: next };
       }
       const next = {
@@ -102,6 +104,23 @@ export function pages<Props, A, Cursor>(definition: {
           return { model: { ...model, result: AsyncResult.success(page) } };
         }
       }
+    },
+  };
+  return {
+    ...pagination,
+    /** Own pagination directly in a controller; components can use the same reducer. */
+    create(props: Props) {
+      type Internal = Message | { type: 'Input'; props: Props };
+      const source = program<Model, Internal>({
+        initial: pagination.init(props),
+        update: (model, message) =>
+          message.type === 'Input'
+            ? pagination.receive(model, message.props)
+            : pagination.update(model, message),
+      });
+      const receive = (props: Props) => source.send({ type: 'Input', props });
+      receive(props);
+      return { ...source, send: source.send as Send<Message>, receive };
     },
   };
 }

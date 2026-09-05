@@ -126,3 +126,36 @@ observeQuery(ownedModel, ownedCache, ownedQuery, (result) => {
 });
 // @ts-expect-error Query observation preserves service requirements.
 observeQuery(ownedModel, makeQueryCache(), ownedQuery, () => {});
+
+const controllerTasks = defineTasks(ownedModel, {
+  save: {
+    policy: 'drop',
+    run: (text: string, suffix = '!') =>
+      Effect.flatMap(Storage, (storage) => storage.save(text + suffix)),
+  },
+});
+controllerTasks.save('text');
+controllerTasks.save('text', '?');
+// @ts-expect-error Bound controller task arguments remain inferred.
+controllerTasks.save(1);
+// @ts-expect-error Bound controller task names remain inferred.
+controllerTasks.missing();
+defineTasks(modelOwner({}), {
+  // @ts-expect-error Controller tasks cannot erase missing services.
+  save: { policy: 'drop', run: () => Storage },
+});
+defineTasks(ownedModel, {
+  // @ts-expect-error An unrelated service cannot run in this owner.
+  missing: { policy: 'drop', run: () => Missing },
+});
+
+const closedOwner = modelOwner({});
+const genericRun = <A, E>(slot: string, effect: Effect.Effect<A, E>) =>
+  closedOwner.run(slot, effect);
+const genericBound = defineTasks(
+  { run: genericRun },
+  { save: { policy: 'drop', run: (text: string) => Effect.succeed(text) } },
+);
+genericBound.save('text');
+// @ts-expect-error Generic owned runners preserve task argument types.
+genericBound.save(1);

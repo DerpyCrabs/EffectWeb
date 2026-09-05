@@ -211,3 +211,28 @@ describe('owned pagination', () => {
     expect(canceled).toBe(true);
   });
 });
+
+it('owns controller pagination and reconciles unchanged inputs without another publication', async () => {
+  const definition = pages<{ id?: string }, Item, number>({
+    key: (props) => props.id,
+    itemKey: (item) => String(item.id),
+    load: () => Effect.succeed(page([1], 2)),
+  });
+  const source = definition.create({ id: 'one' });
+  await source.awaitIdle();
+  let publications = 0;
+  source.subscribe(() => {
+    publications++;
+  });
+  source.receive({ id: 'one' });
+  expect(publications).toBe(0);
+  source.receive({});
+  expect(available(source.model().result)).toBeUndefined();
+  source.send({ type: 'More' });
+  expect(source.activeSlots()).toEqual([]);
+  source.dispose();
+  const finalPublications = publications;
+  source.receive({ id: 'two' });
+  expect(source.activeSlots()).toEqual([]);
+  expect(publications).toBe(finalPublications);
+});

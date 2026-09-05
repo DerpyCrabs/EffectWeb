@@ -2,7 +2,7 @@ import { Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { makePagedResource, makeQueryCache, shareValue, type QueryCache } from './cache.js';
+import { makeQueryCache, shareValue, type QueryCache } from './cache.js';
 
 const models: QueryCache[] = [];
 const model = () => {
@@ -129,45 +129,5 @@ describe('UI resources', () => {
     );
     current.dispose();
     await vi.waitFor(() => expect(interrupted).toHaveBeenCalledTimes(1));
-  });
-});
-
-describe('UI pagination', () => {
-  it('retains successful pages across failure, retries the same cursor and deduplicates items', async () => {
-    const { registry } = model();
-    let fail = true;
-    const cursors: Array<number | undefined> = [];
-    const pages = makePagedResource(
-      registry,
-      (cursor: number | undefined) => {
-        cursors.push(cursor);
-        if (cursor === 2 && fail) return Effect.fail(new Error('offline'));
-        return Effect.succeed({
-          items: cursor === undefined ? ['one', 'two'] : ['two', 'three'],
-          next: cursor === undefined ? 2 : undefined,
-        });
-      },
-      (item) => item,
-    );
-    registry.mount(pages.atom);
-    pages.more();
-    expect(AsyncResult.isFailure(registry.get(pages.atom))).toBe(true);
-    expect(Option.getOrThrow(AsyncResult.value(registry.get(pages.atom))).items).toEqual([
-      'one',
-      'two',
-    ]);
-    fail = false;
-    pages.more();
-    const result = await Effect.runPromise(AtomRegistry.getResult(registry, pages.atom));
-    expect(result.items).toEqual(['one', 'two', 'three']);
-    expect(result.next).toBeUndefined();
-    expect(cursors).toEqual([undefined, 2, 2]);
-    pages.more();
-    expect(cursors).toHaveLength(3);
-    pages.refresh();
-    expect(Option.getOrThrow(AsyncResult.value(registry.get(pages.atom))).items).toEqual([
-      'one',
-      'two',
-    ]);
   });
 });

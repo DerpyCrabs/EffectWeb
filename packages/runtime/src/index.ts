@@ -48,12 +48,10 @@ export {
 export { uiRuntime, type UiRuntime } from './runtime.js';
 export { query, type Query } from './query.js';
 
-export { makeQueryCache, type QueryCache, makePagedResource } from './cache.js';
+export { makeQueryCache, type QueryCache } from './cache.js';
 export {
   queryResource,
   observeQuery,
-  resource,
-  pagedResource,
   lifetime,
   projectionCache,
   sessionGroup,

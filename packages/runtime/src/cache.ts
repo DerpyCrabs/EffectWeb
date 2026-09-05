@@ -3,11 +3,11 @@ import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import * as Atom from 'effect/unstable/reactivity/Atom';
 import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
 
-import { loadEffect, type UiLoad, type UiPage } from './load.js';
+import { loadEffect, type UiLoad } from './load.js';
 import { shareValue } from './share.js';
 import type { Query } from './query.js';
 import type { UiRuntime } from './runtime.js';
-export { loadEffect, type UiLoad, type UiPage } from './load.js';
+export { loadEffect, type UiLoad } from './load.js';
 export { shareValue } from './share.js';
 
 interface ResourceEntry {
@@ -120,54 +120,3 @@ function createQueryCache<R>(runtime?: UiRuntime<R>) {
 }
 
 export type QueryCache<R = never> = ReturnType<typeof createQueryCache<R>>;
-
-/** Cursor progress and prior successful pages belong to the resource, including retries. */
-export function makePagedResource<A, Cursor>(
-  registry: AtomRegistry.AtomRegistry,
-  load: (cursor: Cursor | undefined) => UiLoad<UiPage<A, Cursor>>,
-  itemKey: (item: A) => string,
-) {
-  type Page = UiPage<A, Cursor> & { pageCount: number };
-  const requested = Atom.make(1);
-  const atom = Atom.make((get) => {
-    const count = get(requested);
-    const previous = Option.getOrUndefined(
-      Option.flatMap(get.self<AsyncResult.AsyncResult<Page, unknown>>(), AsyncResult.value),
-    );
-    const append = previous && count === previous.pageCount + 1 ? previous : undefined;
-    return loadEffect(() => load(append?.next)).pipe(
-      Effect.map((page): Page => {
-        const known = new Set(append?.items.map(itemKey));
-        const incoming = page.items.filter((item) => {
-          const key = itemKey(item);
-          if (known.has(key)) return false;
-          known.add(key);
-          return true;
-        });
-        return {
-          ...page,
-          items: append ? [...append.items, ...incoming] : incoming,
-          pageCount: append ? count : 1,
-        };
-      }),
-    );
-  }).pipe(Atom.setIdleTTL(0));
-  return {
-    atom,
-    more() {
-      const result = registry.get(atom);
-      const previous = Option.getOrUndefined(AsyncResult.value(result));
-      if (result.waiting || !previous || previous.next === undefined) return;
-      Atom.batch(() => {
-        registry.set(requested, previous.pageCount + 1);
-        registry.refresh(atom);
-      });
-    },
-    refresh() {
-      Atom.batch(() => {
-        registry.set(requested, 1);
-        registry.refresh(atom);
-      });
-    },
-  };
-}

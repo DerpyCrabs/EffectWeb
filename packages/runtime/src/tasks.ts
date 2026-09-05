@@ -1,3 +1,4 @@
+import type { ModelOwner, TaskPolicy } from './owner.js';
 import { Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { programView } from './component.js';
@@ -42,6 +43,19 @@ type Init<Props, State> = {
   identity?: (props: Props) => unknown;
   name?: string;
 };
+interface ControllerTask<R> {
+  readonly run: (...args: never[]) => Effect.Effect<unknown, unknown, R>;
+  readonly policy: TaskPolicy;
+  /** Actions sharing a slot share cancellation and concurrency rules. Defaults to the action name. */
+  readonly slot?: string;
+}
+export function defineTasks<
+  Owner extends Pick<ModelOwner<object>, 'run'>,
+  T extends Record<string, ControllerTask<Effect.Services<Parameters<Owner['run']>[1]>>>,
+>(
+  owner: Owner,
+  definitions: T,
+): { readonly [K in keyof T]: (...args: Parameters<T[K]['run']>) => void };
 export function defineTasks<Props, State extends object, R>(
   definition: Init<Props, State> & { runtime: UiRuntime<R> },
 ): ReturnType<typeof taskBuilder<Props, State, R>>;
@@ -49,10 +63,26 @@ export function defineTasks<Props, State extends object>(
   definition: Init<Props, State>,
 ): ReturnType<typeof taskBuilder<Props, State, never>>;
 export function defineTasks<Props, State extends object, R>(
-  definition: Init<Props, State> & { runtime?: UiRuntime<R> },
-) {
+  definition:
+    | (Init<Props, State> & { runtime?: UiRuntime<R> })
+    | Pick<ModelOwner<object, R>, 'run'>,
+  definitions?: Record<string, ControllerTask<R>>,
+): unknown {
+  if ('run' in definition) {
+    const actions: Record<string, (...args: never[]) => void> = Object.create(null);
+    for (const [name, task] of Object.entries(definitions!)) {
+      actions[name] = (...args) =>
+        definition.run(
+          task.slot ?? name,
+          Effect.suspend(() => task.run(...args)),
+          task.policy,
+        );
+    }
+    return actions;
+  }
   return taskBuilder(definition, definition.runtime ?? (defaultUiRuntime as UiRuntime<R>));
 }
+
 function stopWaiting<A, E>(result: AsyncResult.AsyncResult<A, E>): AsyncResult.AsyncResult<A, E> {
   if (!result.waiting) return result;
   if (AsyncResult.isInitial(result)) return AsyncResult.initial();

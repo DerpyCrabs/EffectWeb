@@ -206,6 +206,19 @@ Readers see staged state inside a transaction. Subscribers see one committed sna
 
 `run` accepts an Effect and defaults to replacing the previous task in that slot. `drop` ignores a new request while the slot is busy. `parallel` permits independent tasks in the same slot. `cancel(slot)` cancels the entire slot, and `isRunning(slot)` reports whether it is busy. These policies also work within a transaction. Error reporting can be supplied through `onDefect`; service requirements can be supplied through `runtime: uiRuntime(context)`.
 
+Controller actions can use the same `defineTasks` entry point. Bind an existing owner instead of creating component state:
+
+```ts
+const actions = defineTasks(app, {
+  send: { run: sendMessage, policy: 'drop', slot: 'generation' },
+  retry: { run: retryMessage, policy: 'drop', slot: 'generation' },
+  upload: { run: uploadFile, policy: 'parallel' },
+});
+actions.send('Hello');
+```
+
+Arguments are inferred from each `run` function. Producers execute only after the owner accepts the task, so dropped requests cannot read stale state or perform setup work. The slot defaults to the action name. Explicit shared slots coordinate related actions. Bound actions return void; compose Effects inside the workflow when later work depends on a result. Existing owners still control disposal, services, error reporting, and transactions. A controller with a custom owned `run` wrapper can pass `{ run }` instead of the full owner.
+
 Mount `app.source` as a program source. Disposing either `app` or `app.source` cancels its tasks and disposes resources registered with `app.own(resource)`. Methods are bound functions and can be destructured. Use ordinary `program` reducers for explicit domain messages; both authoring interfaces share its publication and command semantics.
 
 ## Owned query subscriptions
@@ -275,3 +288,9 @@ app.edit('items', (items) => items.map((item) => ({ ...item, title: 'Saved' })))
 ```
 
 `program` and `uiRuntime(...).program` accept the same option. Tests should verify the immutable publication contract through normal reads, edits, and subscriptions.
+
+## Pagination in controllers
+
+`pages(definition).create(props)` owns the same pagination reducer used by components. Use `receive(props)` to reconcile inputs and `send({ type: 'More' | 'Retry' | 'Refresh' })` for commands. Read the Effect result through `model().result`, subscribe to the source, and register it with the controller's owner. Repeated equivalent inputs preserve the model. A missing key clears results and interrupts the request. Disposal cancels pending work.
+
+Cached session reads use `queryResource` or `observeQuery`. Define identity and loading together with `query`, and invalidate through that definition. Cache resets clear observed results immediately. Query callbacks can select, refresh, reset, unsubscribe, or dispose without delivering superseded results or losing cleanup. A throwing callback is reported and does not block other observers.

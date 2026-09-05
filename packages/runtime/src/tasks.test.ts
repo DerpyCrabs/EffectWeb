@@ -125,3 +125,56 @@ describe('named owned tasks', () => {
     },
   );
 });
+
+it('binds controller tasks with lazy arguments, shared slots, parallel work and owner disposal', async () => {
+  const { modelOwner } = await import('./owner.js');
+  const app = modelOwner({ count: 0 });
+  const pending = controlledEffect<void>();
+  const calls: string[] = [];
+  const actions = defineTasks(app, {
+    send: {
+      slot: 'generation',
+      policy: 'drop',
+      run: (text: string) => {
+        calls.push(text);
+        return pending.effect;
+      },
+    },
+    retry: {
+      slot: 'generation',
+      policy: 'drop',
+      run: () => {
+        calls.push('retry');
+        return Effect.void;
+      },
+    },
+    update: {
+      policy: 'replace',
+      run: (by = 1) => Effect.sync(() => app.patch({ count: app.read().count + by })),
+    },
+    upload: {
+      policy: 'parallel',
+      run: (text: string) => {
+        calls.push(text);
+        return pending.effect;
+      },
+    },
+  });
+  expect(calls).toEqual([]);
+  actions.send('first');
+  actions.retry();
+  expect(calls).toEqual(['first']);
+  app.transaction(() => {
+    actions.update(2);
+    actions.update(3);
+  });
+  expect(app.read().count).toBe(3);
+  actions.upload('one');
+  actions.upload('two');
+  expect(calls).toEqual(['first', 'one', 'two']);
+  app.dispose();
+  await app.awaitIdle();
+  actions.send('after disposal');
+  expect(calls).not.toContain('after disposal');
+  expect(app.isRunning('generation')).toBe(false);
+});

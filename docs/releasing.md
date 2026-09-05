@@ -43,16 +43,16 @@ GitHub's `npm` environment may also have approval rules if desired. The workflow
 ## Subsequent releases
 
 ```sh
-npm run version:release -- 0.1.1
+npm run version:release -- 0.2.0
 npm run build
 npm run check
 npm test
 npm run test:package
 git add .
-git commit -m "Release 0.1.1"
+git commit -m "Release 0.2.0"
 git push origin main
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 The version script updates all packages, native dependency versions, Cargo metadata, and lockfiles. Pushing a `v*` tag runs validation, builds all native artifacts, packs them, and publishes via npm OIDC. The tag must match the package version. Prerelease versions use npm's `next` tag; stable versions use `latest`.
@@ -62,3 +62,7 @@ A manual Release run with `publish=true` is also an explicit publishing action, 
 ## Migrating existing consumers
 
 To use the scoped compiler, replace the `effectweb-compiler` dev dependency with `@effectweb/compiler` and change imports from `effectweb-compiler/vite` to `@effectweb/compiler/vite`. Runtime imports stay `effectweb`. npm selects the scoped native package automatically. The old published packages are not removed or modified by this repository change.
+
+### 0.2 migration
+
+This release removes the legacy `resource`, `pagedResource`, and `makePagedResource` helpers without aliases. Use `queryResource`/`observeQuery` for cached selections, and `pages` for pagination. The compiler entry points are `compile()` and `effectweb()` from `@effectweb/compiler/vite`; the cache factory is `makeQueryCache()`. Enable `effectweb/valid-view` through `@effectweb/compiler/oxlint` for the same diagnostics in the editor and CI. Development Vite builds check published plain snapshots for mutation. Runtime, compiler, native binaries and Lucide must be upgraded together.
