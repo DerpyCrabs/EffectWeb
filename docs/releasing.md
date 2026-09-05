@@ -18,12 +18,21 @@ Linux x64 is built on Ubuntu 22.04; Linux arm64 on Ubuntu 24.04. No musl binarie
 
 ## First publication
 
+Version `0.1.0` was published on September 5, 2026. All seven packages now trust `DerpyCrabs/EffectWeb`, workflow `release.yml`, environment `npm`, with direct publishing enabled. The bootstrap steps below are retained for reference.
+
 The npm package names must exist before their settings can be configured for trusted publishing. An npm maintainer must bootstrap them using an authenticated account with publishing rights and any required two-factor authentication:
 
 1. Download the `npm-packages` artifact from a successful Release run into `artifacts/packages` in the matching checkout.
 2. Run `npm login` locally. Never put passwords, OTPs, or npm tokens in this repository.
 3. Run `node scripts/publish-release.mjs`. It checks that all seven tarballs exist, publishes native packages first, then `effectweb` and `effectweb-compiler`. Existing versions are skipped so interrupted publication can resume. Check the registry if a name has been claimed since setup.
-4. On npm, configure a GitHub Actions trusted publisher for **each of the seven packages** with owner `DerpyCrabs`, repository `EffectWeb`, workflow filename `release.yml`, and environment `npm`. Enable direct `npm publish` in the trusted publisher's allowed actions.
+4. With npm 11.19+, configure each package through the CLI:
+
+   ```sh
+   npm trust github PACKAGE --file release.yml --repository DerpyCrabs/EffectWeb --environment npm --allow-publish --yes
+   npm trust list PACKAGE
+   ```
+
+   Alternatively, on npm configure a GitHub Actions trusted publisher for **each of the seven packages** with owner `DerpyCrabs`, repository `EffectWeb`, workflow filename `release.yml`, and environment `npm`. Enable direct `npm publish` in the trusted publisher's allowed actions.
 
 The packages are `effectweb`, `effectweb-compiler`, and `effectweb-compiler-` followed by `linux-x64-gnu`, `linux-arm64-gnu`, `darwin-x64`, `darwin-arm64`, or `win32-x64-msvc`.
 

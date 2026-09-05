@@ -4,7 +4,7 @@ Immutable Effect models and JSX compiled to direct DOM updates. No virtual DOM, 
 
 EffectWeb separates state transitions and scoped Effect work from pure snapshot views. Its Rust/Oxc compiler caches view derivations and emits granular DOM bindings. Collections declare domain identity once, and immutable structural sharing lets unchanged rows and bindings stay untouched.
 
-Extracted from [TeleVecha](https://github.com/DerpyCrabs/TeleVecha), where it renders the complete application. This is an early framework with real application coverage, not yet a stable API. The first npm release is being prepared.
+Extracted from [TeleVecha](https://github.com/DerpyCrabs/TeleVecha), where it renders the complete application. This is an early framework with real application coverage, not yet a stable API. `0.1.0` is available on npm.
 
 ## Packages
 
@@ -15,7 +15,7 @@ The runtime currently requires **Effect 4.0.0-rc.112**. Compiler tooling require
 
 ## Vite setup
 
-After the initial npm release:
+Install the runtime and compiler:
 
 ```sh
 npm install effectweb effect@4.0.0-rc.112
