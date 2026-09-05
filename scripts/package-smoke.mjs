@@ -74,6 +74,27 @@ for (const name of ['effectweb', '@effectweb/compiler', '@effectweb/lucide']) {
       assert.ok(existsSync(join(directory, target)), `${name}: missing export ${target}`);
   }
 }
+const { collection } = await import(
+  pathToFileURL(join(temp, 'node_modules/effectweb/dist/collection.js')).href
+);
+const { shareValue } = await import(
+  pathToFileURL(join(temp, 'node_modules/effectweb/dist/share.js')).href
+);
+const entities = collection((item) => item.id);
+const previousEntities = {
+  items: [
+    { id: 1, name: 'One' },
+    { id: 2, name: 'Two' },
+  ],
+};
+const refreshedEntities = shareValue(
+  previousEntities,
+  { items: structuredClone([...previousEntities.items].reverse()) },
+  { items: entities.share },
+);
+assert.equal(refreshedEntities.items[0], previousEntities.items[1]);
+assert.equal(refreshedEntities.items[1], previousEntities.items[0]);
+
 writeFileSync(
   join(temp, 'vite.config.mjs'),
   "import { effectweb } from '@effectweb/compiler/vite'; export default { plugins: [effectweb()] };\n",

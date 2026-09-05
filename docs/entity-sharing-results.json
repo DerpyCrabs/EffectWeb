@@ -1,0 +1,477 @@
+{
+  "presenters": {
+    "node": "v26.7.0",
+    "cpu": "13th Gen Intel(R) Core(TM) i7-13700K",
+    "measuredAt": "2026-09-05T22:30:44.021Z",
+    "description": "Real TeleVecha snapshot sharing and cached dialog/message presenters; no DOM; fresh pairs, clone outside timer; 200 dialogs/500 messages; alternating order",
+    "scenarios": {
+      "unchanged": {
+        "medianMs": { "baseline": 2.743793000000096, "candidate": 0.7360289999999168 },
+        "reuse": {
+          "baseline": { "dialogs": 200, "messages": 500 },
+          "candidate": { "dialogs": 200, "messages": 500 }
+        }
+      },
+      "reordered": {
+        "medianMs": { "baseline": 17.570642000000134, "candidate": 1.0410320000000866 },
+        "reuse": {
+          "baseline": { "dialogs": 0, "messages": 0 },
+          "candidate": { "dialogs": 200, "messages": 500 }
+        }
+      },
+      "refetchedEdit": {
+        "medianMs": { "baseline": 17.268677000000025, "candidate": 0.8102790000002642 },
+        "reuse": {
+          "baseline": { "dialogs": 0, "messages": 0 },
+          "candidate": { "dialogs": 199, "messages": 499 }
+        }
+      },
+      "localEdit": {
+        "medianMs": { "baseline": 0.4388819999999214, "candidate": 0.09425000000010186 },
+        "reuse": {
+          "baseline": { "dialogs": 200, "messages": 499 },
+          "candidate": { "dialogs": 200, "messages": 499 }
+        }
+      }
+    }
+  },
+  "ownerTab": {
+    "metadata": {
+      "browser": "151.0.7922.34",
+      "node": "v26.7.0",
+      "platform": "linux",
+      "cpu": "13th Gen Intel(R) Core(TM) i7-13700K",
+      "totalMemoryGB": 62.55237579345703,
+      "firstRound": 1,
+      "pairs": 3,
+      "idleMs": 0,
+      "followerMode": false,
+      "baselineDir": "/tmp/ew-entity-experiment/baseline",
+      "experimentDir": "/tmp/ew-entity-experiment/candidate",
+      "startedAt": "2026-09-05T22:30:47.464Z"
+    },
+    "workloads": {
+      "openLarge": {
+        "baseline": {
+          "samples": 3,
+          "medianCpuMs": 39.995000000000005,
+          "medianDomReadyMs": 34.69999998807907,
+          "medianSettledMs": 45.099999994039536,
+          "maxReplacedNodes": 0,
+          "medianMutations": 12
+        },
+        "experiment": {
+          "samples": 3,
+          "medianCpuMs": 46.101000000000006,
+          "medianDomReadyMs": 34.30000001192093,
+          "medianSettledMs": 42.5,
+          "maxReplacedNodes": 0,
+          "medianMutations": 13
+        },
+        "cpuChangePercent": 15.26690836354545
+      },
+      "historyPage": {
+        "baseline": {
+          "samples": 57,
+          "medianCpuMs": 48.205,
+          "medianDomReadyMs": 38.599999994039536,
+          "medianSettledMs": 52.20000001788139,
+          "maxReplacedNodes": 0,
+          "medianMutations": 154
+        },
+        "experiment": {
+          "samples": 57,
+          "medianCpuMs": 50.23,
+          "medianDomReadyMs": 37.099999994039536,
+          "medianSettledMs": 50.5,
+          "maxReplacedNodes": 0,
+          "medianMutations": 154
+        },
+        "cpuChangePercent": 4.200809044704901
+      },
+      "edit1000": {
+        "baseline": {
+          "samples": 60,
+          "medianCpuMs": 21.808499999999896,
+          "medianDomReadyMs": 17.899999991059303,
+          "medianSettledMs": 31.399999991059303,
+          "maxReplacedNodes": 0,
+          "medianMutations": 1.0
+        },
+        "experiment": {
+          "samples": 60,
+          "medianCpuMs": 21.801999999999875,
+          "medianDomReadyMs": 17.299999997019768,
+          "medianSettledMs": 31.299999997019768,
+          "maxReplacedNodes": 0,
+          "medianMutations": 1.0
+        },
+        "cpuChangePercent": -0.02980489258784802
+      },
+      "burst20": {
+        "baseline": {
+          "samples": 30,
+          "medianCpuMs": 809.9009999999996,
+          "medianDomReadyMs": 871.7500000149012,
+          "medianSettledMs": 890.8000000119209,
+          "maxReplacedNodes": 0,
+          "medianMutations": 40.0
+        },
+        "experiment": {
+          "samples": 30,
+          "medianCpuMs": 828.8924999999998,
+          "medianDomReadyMs": 884.3499999940395,
+          "medianSettledMs": 900.3999999910593,
+          "maxReplacedNodes": 0,
+          "medianMutations": 40.0
+        },
+        "cpuChangePercent": 2.344916230502281
+      },
+      "inactiveUpdate": {
+        "baseline": {
+          "samples": 30,
+          "medianCpuMs": 16.68499999999984,
+          "medianDomReadyMs": 8.649999991059303,
+          "medianSettledMs": 30.900000005960464,
+          "maxReplacedNodes": 0,
+          "medianMutations": 0.0
+        },
+        "experiment": {
+          "samples": 30,
+          "medianCpuMs": 16.495000000000815,
+          "medianDomReadyMs": 8.600000008940697,
+          "medianSettledMs": 30.700000002980232,
+          "maxReplacedNodes": 0,
+          "medianMutations": 0.0
+        },
+        "cpuChangePercent": -1.1387473778784907
+      },
+      "warmSwitch": {
+        "baseline": {
+          "samples": 9,
+          "medianCpuMs": 38.30099999999881,
+          "medianDomReadyMs": 19.19999998807907,
+          "medianSettledMs": 31,
+          "maxReplacedNodes": 50,
+          "medianMutations": 60
+        },
+        "experiment": {
+          "samples": 9,
+          "medianCpuMs": 37.95600000000121,
+          "medianDomReadyMs": 17.5,
+          "medianSettledMs": 31.100000023841858,
+          "maxReplacedNodes": 50,
+          "medianMutations": 54
+        },
+        "cpuChangePercent": -0.9007597712791027
+      },
+      "switch": {
+        "baseline": {
+          "samples": 120,
+          "medianCpuMs": 23.844500000000046,
+          "medianDomReadyMs": 13.649999991059303,
+          "medianSettledMs": 30.0,
+          "maxReplacedNodes": 0,
+          "medianMutations": 57.5
+        },
+        "experiment": {
+          "samples": 120,
+          "medianCpuMs": 23.787000000000447,
+          "medianDomReadyMs": 13.400000005960464,
+          "medianSettledMs": 29.50000001490116,
+          "maxReplacedNodes": 0,
+          "medianMutations": 55.0
+        },
+        "cpuChangePercent": -0.24114575688145568
+      },
+      "search": {
+        "baseline": {
+          "samples": 60,
+          "medianCpuMs": 9.845999999999577,
+          "medianDomReadyMs": 9.299999997019768,
+          "medianSettledMs": 35.60000002384186,
+          "maxReplacedNodes": 0,
+          "medianMutations": 0.0
+        },
+        "experiment": {
+          "samples": 60,
+          "medianCpuMs": 9.67249999999975,
+          "medianDomReadyMs": 8.549999997019768,
+          "medianSettledMs": 35.0,
+          "maxReplacedNodes": 0,
+          "medianMutations": 0.0
+        },
+        "cpuChangePercent": -1.7621369083875127
+      },
+      "sharedMedia": {
+        "baseline": {
+          "samples": 60,
+          "medianCpuMs": 41.74550000000021,
+          "medianDomReadyMs": 4.750000014901161,
+          "medianSettledMs": 41.80000001192093,
+          "maxReplacedNodes": 0,
+          "medianMutations": 0.0
+        },
+        "experiment": {
+          "samples": 60,
+          "medianCpuMs": 42.79550000000043,
+          "medianDomReadyMs": 5.1500000059604645,
+          "medianSettledMs": 43.20000000298023,
+          "maxReplacedNodes": 0,
+          "medianMutations": 0.0
+        },
+        "cpuChangePercent": 2.515241163718751
+      }
+    },
+    "errors": [],
+    "largeHeapMB": { "baseline": 39.309814453125, "experiment": 39.2580680847168 }
+  },
+  "followerTab": {
+    "metadata": {
+      "browser": "151.0.7922.34",
+      "node": "v26.7.0",
+      "platform": "linux",
+      "cpu": "13th Gen Intel(R) Core(TM) i7-13700K",
+      "totalMemoryGB": 62.55237579345703,
+      "firstRound": 1,
+      "pairs": 3,
+      "idleMs": 0,
+      "followerMode": true,
+      "baselineDir": "/tmp/ew-entity-experiment/baseline",
+      "experimentDir": "/tmp/ew-entity-experiment/candidate",
+      "startedAt": "2026-09-05T22:32:37.986Z"
+    },
+    "workloads": {
+      "openLarge": {
+        "baseline": {
+          "samples": 3,
+          "medianCpuMs": 34.031000000000006,
+          "medianDomReadyMs": 25.30000001192093,
+          "medianSettledMs": 35.80000001192093,
+          "maxReplacedNodes": 0,
+          "medianMutations": 13
+        },
+        "experiment": {
+          "samples": 3,
+          "medianCpuMs": 33.53,
+          "medianDomReadyMs": 23.700000017881393,
+          "medianSettledMs": 38,
+          "maxReplacedNodes": 0,
+          "medianMutations": 13
+        },
+        "cpuChangePercent": -1.4721871235050532
+      },
+      "historyPage": {
+        "baseline": {
+          "samples": 57,
+          "medianCpuMs": 68.59800000000004,
+          "medianDomReadyMs": 50.89999997615814,
+          "medianSettledMs": 64.5,
+          "maxReplacedNodes": 0,
+          "medianMutations": 154
+        },
+        "experiment": {
+          "samples": 57,
+          "medianCpuMs": 51.161000000000016,
+          "medianDomReadyMs": 35.5,
+          "medianSettledMs": 50.5,
+          "maxReplacedNodes": 0,
+          "medianMutations": 154
+        },
+        "cpuChangePercent": -25.419108428817193
+      },
+      "edit1000": {
+        "baseline": {
+          "samples": 60,
+          "medianCpuMs": 49.167499999999805,
+          "medianDomReadyMs": 63.900000005960464,
+          "medianSettledMs": 71.0,
+          "maxReplacedNodes": 0,
+          "medianMutations": 1.0
+        },
+        "experiment": {
+          "samples": 60,
+          "medianCpuMs": 18.63099999999995,
+          "medianDomReadyMs": 33.0,
+          "medianSettledMs": 49.349999994039536,
+          "maxReplacedNodes": 0,
+          "medianMutations": 1.0
+        },
+        "cpuChangePercent": -62.107082930797745
+      },
+      "burst20": {
+        "baseline": {
+          "samples": 30,
+          "medianCpuMs": 249.86799999999977,
+          "medianDomReadyMs": 257.70000000298023,
+          "medianSettledMs": 267.59999999403954,
+          "maxReplacedNodes": 0,
+          "medianMutations": 24.0
+        },
+        "experiment": {
+          "samples": 30,
+          "medianCpuMs": 203.19449999999995,
+          "medianDomReadyMs": 210.0,
+          "medianSettledMs": 221.6499999910593,
+          "maxReplacedNodes": 0,
+          "medianMutations": 28.0
+        },
+        "cpuChangePercent": -18.679262650679508
+      },
+      "inactiveUpdate": {
+        "baseline": {
+          "samples": 30,
+          "medianCpuMs": 19.66000000000001,
+          "medianDomReadyMs": 29.799999982118607,
+          "medianSettledMs": 37.55000001192093,
+          "maxReplacedNodes": 0,
+          "medianMutations": 0.0
+        },
+        "experiment": {
+          "samples": 30,
+          "medianCpuMs": 18.618000000000023,
+          "medianDomReadyMs": 28.450000002980232,
+          "medianSettledMs": 36.29999998211861,
+          "maxReplacedNodes": 0,
+          "medianMutations": 0.0
+        },
+        "cpuChangePercent": -5.3001017293997315
+      },
+      "warmSwitch": {
+        "baseline": {
+          "samples": 9,
+          "medianCpuMs": 37.12900000000019,
+          "medianDomReadyMs": 22.69999998807907,
+          "medianSettledMs": 32.900000005960464,
+          "maxReplacedNodes": 50,
+          "medianMutations": 62
+        },
+        "experiment": {
+          "samples": 9,
+          "medianCpuMs": 35.029999999999895,
+          "medianDomReadyMs": 24.400000005960464,
+          "medianSettledMs": 37.099999994039536,
+          "maxReplacedNodes": 50,
+          "medianMutations": 62
+        },
+        "cpuChangePercent": -5.653262948100634
+      },
+      "switch": {
+        "baseline": {
+          "samples": 120,
+          "medianCpuMs": 28.00849999999988,
+          "medianDomReadyMs": 17.549999982118607,
+          "medianSettledMs": 31.649999991059303,
+          "maxReplacedNodes": 0,
+          "medianMutations": 50.0
+        },
+        "experiment": {
+          "samples": 120,
+          "medianCpuMs": 28.73000000000081,
+          "medianDomReadyMs": 17.25,
+          "medianSettledMs": 31.700000017881393,
+          "maxReplacedNodes": 0,
+          "medianMutations": 50.0
+        },
+        "cpuChangePercent": 2.576003713161845
+      },
+      "search": {
+        "baseline": {
+          "samples": 60,
+          "medianCpuMs": 7.9160000000007,
+          "medianDomReadyMs": 8.950000002980232,
+          "medianSettledMs": 34.5,
+          "maxReplacedNodes": 0,
+          "medianMutations": 0.0
+        },
+        "experiment": {
+          "samples": 60,
+          "medianCpuMs": 8.33449999999969,
+          "medianDomReadyMs": 8.5,
+          "medianSettledMs": 35.5,
+          "maxReplacedNodes": 0,
+          "medianMutations": 0.0
+        },
+        "cpuChangePercent": 5.286760990385964
+      },
+      "sharedMedia": {
+        "baseline": {
+          "samples": 60,
+          "medianCpuMs": 42.44549999999991,
+          "medianDomReadyMs": 6.499999985098839,
+          "medianSettledMs": 45.69999998807907,
+          "maxReplacedNodes": 0,
+          "medianMutations": 0.0
+        },
+        "experiment": {
+          "samples": 60,
+          "medianCpuMs": 44.48950000000007,
+          "medianDomReadyMs": 6.0999999940395355,
+          "medianSettledMs": 43.400000005960464,
+          "maxReplacedNodes": 0,
+          "medianMutations": 0.0
+        },
+        "cpuChangePercent": 4.8155870469193784
+      }
+    },
+    "errors": [],
+    "largeHeapMB": { "baseline": 39.845603942871094, "experiment": 39.33363342285156 }
+  },
+  "openingSupplement": {
+    "metadata": {
+      "browser": "151.0.7922.34",
+      "node": "v26.7.0",
+      "platform": "linux",
+      "cpu": "13th Gen Intel(R) Core(TM) i7-13700K",
+      "totalMemoryGB": 62.55237579345703,
+      "firstRound": 1,
+      "pairs": 12,
+      "idleMs": 0,
+      "followerMode": false,
+      "baselineDir": "/tmp/ew-entity-experiment/baseline",
+      "experimentDir": "/tmp/ew-entity-experiment/candidate",
+      "startedAt": "2026-09-05T22:34:55.321Z",
+      "openingOnly": true
+    },
+    "workloads": {
+      "openLarge": {
+        "baseline": {
+          "samples": 12,
+          "medianCpuMs": 45.115500000000004,
+          "medianDomReadyMs": 33.099999979138374,
+          "medianSettledMs": 42.25,
+          "maxReplacedNodes": 0,
+          "medianMutations": 13.0
+        },
+        "experiment": {
+          "samples": 12,
+          "medianCpuMs": 45.613,
+          "medianDomReadyMs": 36.25,
+          "medianSettledMs": 47.8500000089407,
+          "maxReplacedNodes": 0,
+          "medianMutations": 13.0
+        },
+        "cpuChangePercent": 1.1027252274717014
+      }
+    },
+    "errors": []
+  },
+  "bundleGzipBytes": {
+    "baseline": 433595,
+    "candidate": 433865,
+    "note": "Clean production fixture builds; every clean candidate asset matches the benchmarked build byte for byte."
+  },
+  "candidateRuntimeCollectionSha256": "01463be7c8f1b27fe7eadad7e12112bc8c6b176981a4e448c84eba127c7c6e25",
+  "validation": {
+    "effectweb": {
+      "unit": 160,
+      "rust": 9,
+      "browser": 28,
+      "packageSmoke": true,
+      "bundleBudgets": true
+    },
+    "TeleVecha": { "unit": 320, "browser": 302, "focusedRepeats": 10 },
+    "LocalChat": { "unit": 29, "browser": 23, "existingBrowserSkips": 13 },
+    "Inbox": { "unit": 22, "browser": 37 }
+  }
+}

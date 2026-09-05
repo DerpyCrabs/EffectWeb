@@ -27,7 +27,11 @@ function createQueryCache<R>(runtime?: UiRuntime<R>) {
   const registry = AtomRegistry.make({ defaultIdleTTL: 30_000 });
   const generation = Atom.keepAlive(Atom.make(0));
   const resources = new Map<string, ResourceEntry>();
-  const acquire = <A, E>(key: string, load: () => Effect.Effect<A, E>) => {
+  const acquire = <A, E>(
+    key: string,
+    load: () => Effect.Effect<A, E>,
+    share: (previous: A, next: A) => A = shareValue,
+  ) => {
     let entry = resources.get(key);
     if (entry) entry.load = load;
     else {
@@ -41,7 +45,7 @@ function createQueryCache<R>(runtime?: UiRuntime<R>) {
           return loadEffect(() => next.load()).pipe(
             Effect.map((value) => {
               next.loadedAt = Date.now();
-              return Option.isSome(previous) ? shareValue(previous.value, value) : value;
+              return Option.isSome(previous) ? share(previous.value as A, value as A) : value;
             }),
           );
         }),
@@ -61,10 +65,14 @@ function createQueryCache<R>(runtime?: UiRuntime<R>) {
   const queryKey = <Args, A, E>(definition: Query<Args, A, E, R>, args: Args) =>
     `query:${definition.id}:${definition.key(args)}`;
   const selectQuery = <Args, A, E>(definition: Query<Args, A, E, R>, args: Args) => {
-    const { entry, atom } = acquire(queryKey(definition, args), () => {
-      const effect = Effect.suspend(() => definition.load(args));
-      return runtime ? runtime.provide(effect) : (effect as Effect.Effect<A, E>);
-    });
+    const { entry, atom } = acquire(
+      queryKey(definition, args),
+      () => {
+        const effect = Effect.suspend(() => definition.load(args));
+        return runtime ? runtime.provide(effect) : (effect as Effect.Effect<A, E>);
+      },
+      definition.share,
+    );
     entry.queryId = definition.id;
     if (
       registry.getNodes().has(atom) &&

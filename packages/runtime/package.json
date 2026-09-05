@@ -1,6 +1,6 @@
 {
   "name": "effectweb",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Immutable Effect models and compiled JSX with direct DOM rendering",
   "homepage": "https://github.com/DerpyCrabs/EffectWeb",
   "bugs": {

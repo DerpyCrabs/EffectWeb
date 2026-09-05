@@ -131,3 +131,51 @@ describe('UI resources', () => {
     await vi.waitFor(() => expect(interrupted).toHaveBeenCalledTimes(1));
   });
 });
+
+it('applies explicit field sharing without polluting ordinary comparison caching', async () => {
+  const { collection } = await import('./collection.js');
+  const rows = collection<{ id: number; text: string }>((item) => item.id);
+  const previous = {
+    items: [
+      { id: 1, text: 'a' },
+      { id: 2, text: 'b' },
+    ],
+    meta: { count: 2 },
+    removed: true as boolean | undefined,
+  };
+  const next = { items: structuredClone([...previous.items].reverse()), meta: { count: 2 } };
+  const positional = shareValue(previous, next);
+  const keyed = shareValue(previous, next, { items: rows.share });
+  expect(keyed).toEqual(next);
+  expect(keyed.items[0]).toBe(previous.items[1]);
+  expect(keyed.meta).toBe(previous.meta);
+  expect('removed' in keyed).toBe(false);
+  expect(shareValue(previous, next)).toBe(positional);
+  expect(shareValue(previous, structuredClone(previous), { items: rows.share })).toBe(previous);
+});
+
+it('shares query results by domain identity for both observers and prefetch', async () => {
+  const { collection } = await import('./collection.js');
+  const { query } = await import('./query.js');
+  const rows = collection<{ id: number; text: string }>((item) => item.id);
+  let incoming = [
+    { id: 1, text: 'a' },
+    { id: 2, text: 'b' },
+  ];
+  const definition = query({
+    name: 'entities',
+    load: () => Effect.sync(() => structuredClone(incoming)),
+    share: rows.share,
+  });
+  const cache = model();
+  const first = await Effect.runPromise(cache.prefetch(definition, true));
+  const atom = cache.query(definition, true);
+  const release = cache.registry.mount(atom);
+  incoming = [...incoming].reverse();
+  cache.invalidateQuery(definition);
+  const refreshed = await Effect.runPromise(AtomRegistry.getResult(cache.registry, atom));
+  expect(refreshed[0]).toBe(first[1]);
+  expect(refreshed[1]).toBe(first[0]);
+  expect(await Effect.runPromise(cache.prefetch(definition, true))).toBe(refreshed);
+  release();
+});

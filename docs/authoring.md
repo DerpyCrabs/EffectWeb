@@ -294,3 +294,25 @@ app.edit('items', (items) => items.map((item) => ({ ...item, title: 'Saved' })))
 `pages(definition).create(props)` owns the same pagination reducer used by components. Use `receive(props)` to reconcile inputs and `send({ type: 'More' | 'Retry' | 'Refresh' })` for commands. Read the Effect result through `model().result`, subscribe to the source, and register it with the controller's owner. Repeated equivalent inputs preserve the model. A missing key clears results and interrupts the request. Disposal cancels pending work.
 
 Cached session reads use `queryResource` or `observeQuery`. Define identity and loading together with `query`, and invalidate through that definition. Cache resets clear observed results immediately. Query callbacks can select, refresh, reset, unsubscribe, or dispose without delivering superseded results or losing cleanup. A throwing callback is reported and does not block other observers.
+
+## Share entities before projections
+
+A collection can share incoming immutable data using the identity already declared for its rendered rows:
+
+```ts
+import { collection, query } from 'effectweb';
+import { shareValue } from 'effectweb/share';
+
+const books = collection<Book>((book) => book.id);
+const catalog = query({
+  name: 'catalog',
+  load: loadCatalog, // Effect<{ items: Book[]; total: number }, LoadError>
+  share: (previous, next) => shareValue(previous, next, { items: books.share }),
+});
+```
+
+Render with `books.from(result.items)`. Controllers can call `books.share(previousItems, incomingItems)` directly. Equal refreshes retain the array; reorders and insertions retain unchanged entities in the new order. A changed entity receives its new fields and can still reuse equal nested data. This happens before presentation functions run, so caches keyed by entity references can reuse their work.
+
+`shareValue` accepts field-specific sharing functions as its optional third argument. Other fields keep ordinary structural sharing, including removal of optional properties. The custom query `share` function replaces the default result comparison and is shared by observers and prefetch for that query entry. It must preserve the incoming data's meaning; it is not a place to merge optimistic state or discard server changes.
+
+Collections do not retain a global entity store. Sharing compares the two supplied arrays; repeated comparisons use weak caches scoped to the collection definition. Inputs must be immutable, identities must be stable and unique, and key functions must be pure. Use compound identity when IDs are only unique within a parent. Index-based collections retain positional semantics. Opaque values such as files, typed arrays, Effects and class instances keep their own identity.

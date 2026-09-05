@@ -2,8 +2,11 @@
 // already compared object pair without retaining either snapshot after its owners release it.
 const sharedPairs = new WeakMap<object, WeakMap<object, unknown>>();
 
+/** Override sharing for selected fields, for example a collection keyed by domain identity. */
+export type ShareFields<T> = { readonly [K in keyof T]?: (previous: T[K], next: T[K]) => T[K] };
+
 /** Share JSON-shaped data; Blob, typed arrays and class instances retain their own identity. */
-export function shareValue<T>(previous: T, next: T): T {
+export function shareValue<T>(previous: T, next: T, fields?: ShareFields<T>): T {
   if (Object.is(previous, next)) return previous;
   if (!previous || !next || typeof previous !== 'object' || typeof next !== 'object') return next;
   const array = Array.isArray(next);
@@ -15,7 +18,7 @@ export function shareValue<T>(previous: T, next: T): T {
   )
     return next;
   let pairs = sharedPairs.get(previous);
-  if (pairs?.has(next)) return pairs.get(next) as T;
+  if (!fields && pairs?.has(next)) return pairs.get(next) as T;
   const old = previous as Record<string, unknown>;
   const value = next as Record<string, unknown>;
   const keys = Object.keys(value);
@@ -23,11 +26,16 @@ export function shareValue<T>(previous: T, next: T): T {
   let unchangedNext = true;
   const shared: Record<string, unknown> = array ? ([] as unknown as Record<string, unknown>) : {};
   for (const key of keys) {
-    shared[key] = shareValue(old[key], value[key]);
+    const custom = fields && Object.hasOwn(fields, key) ? fields[key as keyof T] : undefined;
+    shared[key] =
+      custom && Object.hasOwn(old, key)
+        ? custom(old[key] as T[keyof T], value[key] as T[keyof T])
+        : shareValue(old[key], value[key]);
     if (!Object.hasOwn(old, key) || shared[key] !== old[key]) equal = false;
     if (shared[key] !== value[key]) unchangedNext = false;
   }
   const result = equal ? previous : unchangedNext ? next : (shared as T);
+  if (fields) return result;
   if (!pairs) {
     pairs = new WeakMap();
     sharedPairs.set(previous, pairs);
