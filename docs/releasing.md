@@ -43,16 +43,16 @@ GitHub's `npm` environment may also have approval rules if desired. The workflow
 ## Subsequent releases
 
 ```sh
-npm run version:release -- 0.2.0
+npm run version:release -- 0.2.1
 npm run build
 npm run check
 npm test
 npm run test:package
 git add .
-git commit -m "Release 0.2.0"
+git commit -m "Release 0.2.1"
 git push origin main
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 The version script updates all packages, native dependency versions, Cargo metadata, and lockfiles. Pushing a `v*` tag runs validation, builds all native artifacts, packs them, and publishes via npm OIDC. The tag must match the package version. Prerelease versions use npm's `next` tag; stable versions use `latest`.

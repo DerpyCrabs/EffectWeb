@@ -1,6 +1,6 @@
 # Query ownership and controller tasks
 
-Version 0.2.0 incorporates the changes from the three-consumer audit.
+Version 0.2.1 incorporates the changes from the three-consumer audit.
 
 Query notifications now serialize callback-driven changes and stop delivering a superseded result. Subscription setup checks whether selection changed before taking ownership of its cleanup. Reset, disposal, and throwing callbacks have regression coverage. Constructing a query observer no longer invokes application callbacks before the observer has been returned.
 
@@ -12,7 +12,7 @@ TeleVecha's wallpaper, chat appearance, wallpaper bytes and bot commands use typ
 
 This batch does not replace TeleVecha's entire Promise-based UI orchestration. Its remaining composer and application workflows need a separate migration with their optimistic restoration and persistence contracts intact. It also leaves entity-aware sharing and compiler dependency grouping for a measured performance experiment.
 
-Local verification of the framework passed formatting, Oxlint/types, Clippy, 156 unit tests, nine Rust tests, browser type checks, 28 browser tests, and clean packed consumption including the compiler lint plugin and Lucide exports. The bundle budgets pass. LocalChat passed 28 unit and 23 browser tests with 13 existing skips. Inbox passed 21 unit and 37 browser tests in an isolated copy, preserving the live assets.
+Local verification of the framework passed formatting, Oxlint/types, Clippy, 156 unit tests, nine Rust tests, browser type checks, 28 browser tests, and clean packed consumption including the compiler lint plugin and Lucide exports. The bundle budgets pass. TeleVecha passed 301 unit and all 302 browser tests. LocalChat passed 28 unit and 23 browser tests with 13 existing skips. Inbox passed 21 unit and 37 browser tests in an isolated copy, preserving the live assets.
 
 Summed production JavaScript gzip bytes, measured with Node's default gzip level:
 
@@ -22,4 +22,6 @@ Summed production JavaScript gzip bytes, measured with Node's default gzip level
 | Inbox     |           185,473 | 185,587 |
 | TeleVecha |           422,324 | 422,044 |
 
-These small changes are bundle measurements, not rendering-performance claims. The release workflow builds native artifacts on all five supported platforms and publishes through npm trusted publishing. Consumers must install matching 0.2.0 versions after publication; local tarballs are only a pre-release verification step.
+These small changes are bundle measurements, not rendering-performance claims. The release workflow builds native artifacts on all five supported platforms and publishes through npm trusted publishing. Consumers must install matching 0.2.1 versions after publication; local tarballs are only a pre-release verification step.
+
+The 0.2.0 release attempt stopped before packaging because the native jobs referenced a renamed compiler test file. Version 0.2.1 runs the compiler test directory on each platform. No 0.2.0 packages were published.
