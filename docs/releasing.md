@@ -18,9 +18,9 @@ Linux x64 is built on Ubuntu 22.04; Linux arm64 on Ubuntu 24.04. No musl binarie
 
 ## First publication
 
-The original unscoped runtime, compiler, and five native packages were published as `0.1.0` on September 5, 2026. Those names remain available to existing consumers. The runtime stays `effectweb`; the compiler is now prepared as `@effectweb/compiler`, its binaries as `@effectweb/compiler-PLATFORM`, and Lucide as `@effectweb/lucide`.
+The original unscoped runtime, compiler, and five native packages were published as `0.1.0` on September 5, 2026. Those names remain available to existing consumers. The runtime stays `effectweb`; the compiler is now published as `@effectweb/compiler`, its binaries as `@effectweb/compiler-PLATFORM`, and Lucide as `@effectweb/lucide`.
 
-**The scoped packages are not published yet.** The npm organization `effectweb` exists, with `derpycrabs` as owner. Every new scoped package needs its first explicit publication and trusted-publisher configuration. Existing trust for the old unscoped package names does not transfer automatically. Do not push a release tag until that setup is complete.
+**Version `0.1.1` was published on September 5, 2026**, including the seven new scoped packages. The npm organization `effectweb` is owned by `derpycrabs`. All eight packages trust `DerpyCrabs/EffectWeb`, workflow `release.yml`, environment `npm`, with direct publishing enabled. The bootstrap procedure below is retained for future new packages; existing package releases can use the tag workflow.
 
 The npm package names must exist before their settings can be configured for trusted publishing. An npm maintainer must bootstrap them using an authenticated account with publishing rights and any required two-factor authentication:
 
@@ -61,4 +61,4 @@ A manual Release run with `publish=true` is also an explicit publishing action, 
 
 ## Migrating existing consumers
 
-After the scoped packages are published, replace the `effectweb-compiler` dev dependency with `@effectweb/compiler` and change imports from `effectweb-compiler/vite` to `@effectweb/compiler/vite`. Runtime imports stay `effectweb`. npm selects the scoped native package automatically. The old published packages are not removed or modified by this repository change.
+To use the scoped compiler, replace the `effectweb-compiler` dev dependency with `@effectweb/compiler` and change imports from `effectweb-compiler/vite` to `@effectweb/compiler/vite`. Runtime imports stay `effectweb`. npm selects the scoped native package automatically. The old published packages are not removed or modified by this repository change.
