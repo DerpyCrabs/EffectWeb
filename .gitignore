@@ -7,3 +7,4 @@ packages/compiler/native/*.node
 packages/compiler/native/*.tmp
 test-results/
 playwright-report/
+dist-benchmark/

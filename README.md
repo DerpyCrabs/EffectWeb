@@ -79,6 +79,8 @@ npm run dev:example
 
 CI runs the checks above. The [release guide](docs/releasing.md) covers native packages, the first npm publication, and subsequent trusted publishing through GitHub Actions.
 
+For the isolated renderer benchmark, run `npm run build:benchmark` and then `node scripts/benchmark-snapshot.mjs dist-benchmark /tmp/effectweb-benchmark.json`.
+
 ## License
 
 [MIT](LICENSE).

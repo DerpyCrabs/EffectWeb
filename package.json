@@ -4,7 +4,8 @@
   "private": true,
   "workspaces": [
     "packages/runtime",
-    "packages/compiler"
+    "packages/compiler",
+    "packages/native-*"
   ],
   "type": "module",
   "scripts": {
@@ -22,7 +23,8 @@
     "test:browser": "playwright test",
     "dev:example": "vp dev --config examples/reading-list/vite.config.ts",
     "build:example": "vp build --config examples/reading-list/vite.config.ts",
-    "check:browser": "tsc --noEmit -p tsconfig.browser.json"
+    "check:browser": "tsc --noEmit -p tsconfig.browser.json",
+    "build:benchmark": "vp build --config vite.benchmark.config.ts"
   },
   "devDependencies": {
     "@effect/tsgo": "0.32.1",

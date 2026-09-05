@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { platforms } from './platforms.mjs';
 const version = process.argv[2];
 if (!version || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(version))
   throw new Error('Usage: npm run version:release -- 0.2.0');
@@ -7,6 +8,7 @@ for (const file of [
   'package.json',
   'packages/runtime/package.json',
   'packages/compiler/package.json',
+  ...platforms.map(({ suffix }) => `packages/native-${suffix}/package.json`),
 ]) {
   const data = JSON.parse(readFileSync(file, 'utf8'));
   data.version = version;

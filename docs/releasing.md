@@ -2,6 +2,8 @@
 
 Runtime, compiler, and the five native packages use one version. Native packages contain only a binary, package metadata, README, and license. Consumers install the platform package through the compiler's optional dependencies; they do not need Cargo or install scripts.
 
+Private native workspace placeholders allow `npm ci` before the first registry publication. They contain no binaries and cannot be published with `npm publish --workspaces`. Staging creates separate public manifests with OS/architecture constraints and the actual binaries.
+
 ## Validate a release without publishing
 
 Run the **Release** GitHub Actions workflow manually, leaving `publish` false:
