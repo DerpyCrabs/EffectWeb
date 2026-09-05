@@ -5,7 +5,7 @@ const platform = hostPlatform();
 const compiler = JSON.parse(readFileSync('packages/compiler/package.json', 'utf8'));
 const root = resolve(`artifacts/native/native-${platform.suffix}`);
 mkdirSync(root, { recursive: true });
-copyFileSync('packages/compiler/native/snapshot-compiler.node', `${root}/compiler.node`);
+copyFileSync('packages/compiler/native/effectweb-compiler.node', `${root}/compiler.node`);
 copyFileSync('LICENSE', `${root}/LICENSE`);
 writeFileSync(
   `${root}/package.json`,

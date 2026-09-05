@@ -198,3 +198,31 @@ test('dynamic attributes remove obsolete styles and classes without resetting an
     selection: [2, 4],
   });
 });
+
+test('edits, tail appends and truncations preserve retained row nodes and focus', async ({
+  page,
+}) => {
+  const result = await page.evaluate(() => {
+    const fixture = window.snapshotFixture;
+    const articles = [...document.querySelectorAll('article')];
+    const focused = articles[0]!.querySelector('button')!;
+    focused.focus();
+    const items = fixture.model().items;
+    const observer = new MutationObserver(() => {});
+    observer.observe(document.querySelector('main')!, { childList: true, subtree: true });
+    fixture.set({ items: [...items, { ...items[0]!, id: 999999, text: 'tail' }] });
+    fixture.edit(items[0]!.id, 'edited');
+    fixture.set({ items: fixture.model().items.slice(0, -1) });
+    const records = observer.takeRecords();
+    observer.disconnect();
+    return {
+      stable: articles.every((node, index) => node === document.querySelectorAll('article')[index]),
+      focus: document.activeElement === focused,
+      removedRetained: records.some((record) =>
+        [...record.removedNodes].some((node) => articles.includes(node as HTMLElement)),
+      ),
+      count: document.querySelectorAll('article').length,
+    };
+  });
+  expect(result).toEqual({ stable: true, focus: true, removedRetained: false, count: 1000 });
+});

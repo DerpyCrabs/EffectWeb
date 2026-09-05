@@ -1,7 +1,7 @@
 const { existsSync } = require('node:fs');
 const { join } = require('node:path');
 const { name } = require('./package.json');
-const local = join(__dirname, 'native', 'snapshot-compiler.node');
+const local = join(__dirname, 'native', 'effectweb-compiler.node');
 let suffix;
 if (existsSync(local)) suffix = 'local';
 else if (process.platform === 'linux') {

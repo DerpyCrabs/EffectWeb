@@ -1,34 +1,34 @@
-import { compile } from '../native.cjs';
+import { compile as nativeCompile } from '../native.cjs';
 
-export interface SnapshotDiagnostic {
+export interface Diagnostic {
   readonly file: string;
   readonly line: number;
   readonly column: number;
   readonly message: string;
 }
-export interface SnapshotCompilerOptions {
-  /** An additional public module exporting view; relative imports ending in /mvu also work. */
+export interface CompilerOptions {
+  /** The module exporting view and slot. Defaults to effectweb. */
   importSource?: string;
   runtimeModule?: string;
   development?: boolean;
-  onDiagnostic?: (diagnostic: SnapshotDiagnostic) => void;
+  onDiagnostic?: (diagnostic: Diagnostic) => void;
 }
-export interface SnapshotCompilerResult {
+export interface CompilerResult {
   readonly code: string;
   readonly map: string | null;
-  readonly diagnostics: readonly SnapshotDiagnostic[];
+  readonly diagnostics: readonly Diagnostic[];
 }
 
 /** JSX analysis and lowering run in Rust/Oxc; this boundary only transports options and results. */
-export function compileSnapshot(
+export function compile(
   source: string,
   filename: string,
-  options: SnapshotCompilerOptions = {},
-): SnapshotCompilerResult {
+  options: CompilerOptions = {},
+): CompilerResult {
   const { onDiagnostic, ...nativeOptions } = { importSource: 'effectweb', ...options };
   const result = JSON.parse(
-    compile(source, filename, JSON.stringify(nativeOptions)),
-  ) as SnapshotCompilerResult;
+    nativeCompile(source, filename, JSON.stringify(nativeOptions)),
+  ) as CompilerResult;
   for (const diagnostic of result.diagnostics) onDiagnostic?.(diagnostic);
   return result;
 }

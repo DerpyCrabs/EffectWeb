@@ -17,8 +17,11 @@ export type ResourceMessage<A, E = unknown> =
   | { type: 'Failed'; cause: Cause.Cause<E> };
 export const available = <A>(result: AsyncResult.AsyncResult<A, unknown>) =>
   Option.getOrUndefined(AsyncResult.value(result));
-export const resourceError = (result: AsyncResult.AsyncResult<unknown, unknown>) =>
-  AsyncResult.isFailure(result) ? String(Cause.squash(result.cause)) : '';
+export const resourceError = (result: AsyncResult.AsyncResult<unknown, unknown>) => {
+  if (!AsyncResult.isFailure(result)) return '';
+  const error = Cause.squash(result.cause);
+  return error instanceof Error ? error.message : String(error);
+};
 
 /** A replaceable request owns one result. Key changes clear it; refreshes preserve the last success. */
 export function resourceComponent<Props, A, E = unknown, R = never>(

@@ -120,3 +120,47 @@ test('template aliases refresh helper and stable row scopes and parenthesized me
     sameRow: true,
   });
 });
+
+test('destructured inputs preserve field granularity, defaults, rest and current event captures', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const path = '/tests/fixtures/compilerContractFixture.tsx';
+    const { mountDestructured } = await import(path);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const fixture = mountDestructured(host);
+    const simple = host.querySelector<HTMLButtonElement>('[data-simple]')!;
+    const complex = host.querySelector<HTMLButtonElement>('[data-complex]')!;
+    const initial = complex.textContent?.trim();
+    const formats = fixture.formats();
+    fixture.set({ unrelated: 1 });
+    const unchanged = fixture.formats() === formats;
+    fixture.set({ title: 'new', user: { name: 'Bob' }, items: ['c', 'b', 'a'] });
+    complex.click();
+    const selected = fixture.model().selected;
+    simple.click();
+    const result = {
+      initial,
+      unchanged,
+      text: complex.textContent?.trim(),
+      selected,
+      simpleSelection: fixture.model().selected,
+      simpleText: simple.textContent,
+      same: simple === host.querySelector('[data-simple]'),
+    };
+    fixture.dispose();
+    host.remove();
+    return result;
+  });
+  expect(result).toEqual({
+    initial: 'fallback:a:1',
+    unchanged: true,
+    text: 'new:c:2',
+    selected: 'new:Bob:c',
+    simpleSelection: 'Bob',
+    simpleText: 'BOB',
+    same: true,
+  });
+});

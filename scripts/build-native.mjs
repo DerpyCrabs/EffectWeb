@@ -31,6 +31,6 @@ const artifact = result.stdout
   );
 const library = artifact?.filenames.find((file) => /\.(so|dylib|dll)$/.test(file));
 if (!library) throw new Error('Cargo did not report the compiler library.');
-const target = `${directory}/snapshot-compiler.node`;
+const target = `${directory}/effectweb-compiler.node`;
 copyFileSync(library, `${target}.tmp`);
 renameSync(`${target}.tmp`, target);

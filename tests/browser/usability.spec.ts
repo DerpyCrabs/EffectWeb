@@ -153,3 +153,30 @@ test('form adapters capture native composition values and preserve the input sel
     prevented: true,
   });
 });
+
+test('native event callbacks read the latest model, reset their input and schedule focus', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const path = '/tests/fixtures/usabilityFixture.tsx';
+    const { mountForm } = await import(path);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const source = mountForm(host);
+    source.set({ text: 'latest:' });
+    const input = host.querySelector<HTMLInputElement>('[aria-label="Native event"]')!;
+    input.value = 'captured';
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    const result = {
+      text: source.model().text,
+      value: input.value,
+      focus: document.activeElement?.id,
+    };
+    source.dispose();
+    host.remove();
+    return result;
+  });
+  expect(result).toEqual({ text: 'latest:captured', value: '', focus: 'native-followup' });
+});

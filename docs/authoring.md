@@ -48,7 +48,7 @@ return <Counter content={content} />;
 
 `Counter` declares `content: Slot<number>` and renders `{props.content(model.count)}`. Type checks reject a wrong argument or rendering a required-value slot bare. Declare slots inside a `view` or directly in a JSX prop; they belong to that view's lifetime. A slot callback accepts one named parameter; destructure it inside its body if needed. Zero-argument slots and ordinary markup props need no argument at placement.
 
-The native compiler still requires pure snapshot derivations. Slots do not introduce a virtual tree or an implicit reactive context. Dialog shares focus containment, overlay dismissal and accessible labeling across the two deletion dialogs and message search.
+The native compiler still requires pure snapshot derivations. Slots do not introduce a virtual tree or an implicit reactive context. `Dialog` provides focus containment, overlay dismissal and accessible labeling.
 
 ## Named tasks with inferred results
 
@@ -87,7 +87,7 @@ Choose concurrency and identity deliberately:
 
 Each accepted run reads one immutable snapshot. Different task names can run independently. Unmount interrupts all of them. Throwing factories and defects settle pending state as a failed `AsyncResult` with a `Cause`; expected errors retain their declared type. Completion side effects belong in the Effect chain so interruption suppresses later steps. An underlying Promise aborts external work only if its API honors the signal passed by `fromPromise`.
 
-Authentication and image editing use named tasks. The older `taskComponent` remains compatible, but new code should use staged definitions. Keep ordinary `component`/`program` transitions for workflows that need atomic domain updates, such as optimistic edits and persistence.
+Named tasks suit independent operations such as submitting a form or preparing a preview. The older `taskComponent` remains compatible, but new code should use staged definitions. Keep ordinary `component`/`program` transitions for workflows that need atomic domain updates, such as optimistic edits and persistence.
 
 ## Application services
 
@@ -128,7 +128,7 @@ Use `runtime.program(...)` for manual transitions requiring services; `component
 
 Available success keeps its DOM through a refresh and a failed refresh. A failure slot appears alongside retained content, or on its own if no data exists. `pendingDelay` delays only the initial pending indicator; it defaults to zero. `empty` renders an initial, nonwaiting result. Successful `undefined`, `false`, zero and empty strings are available data, not pending states.
 
-This component cannot infer entity identity. `resourceComponent` publishes an initial result on key changes. If an owner swaps directly between two cached successes, editable children must use their own explicit entity identity to reset local state. GIF search uses the shared presentation and displays failed searches instead of silently presenting an empty list.
+This component cannot infer entity identity. `resourceComponent` publishes an initial result on key changes. If an owner swaps directly between two cached successes, editable children must use their own explicit entity identity to reset local state. Display failed requests explicitly instead of silently presenting an empty list.
 
 `inputText`, `inputChecked` and `inputNumber` capture native values synchronously and dispatch immutable changes. Numeric empty/invalid input becomes `undefined`; raw editable strings can remain strings when formatting matters. `submit` synchronously prevents the native form submission before dispatching or returning an owned Effect event request. These helpers add no validation state or proxies. Keep specialized contenteditable/composer behavior in its existing owner. Schema decoding belongs at the domain boundary.
 
@@ -182,3 +182,62 @@ Views, JSX helpers, and list callbacks can use pure constants, early `if`/`else`
 Use branch constants for union narrowing and keep helper declarations after the constants they capture. Effects and imperative mutations belong in events or commands. Domain collections still declare stable identity once; the compiler cannot invent the identity of messages or attachments.
 
 Use fragments when they group multiple children or preserve meaningful whitespace.
+
+## Native event work
+
+Inline `onX` callbacks may read browser APIs and reset the event target, for example `event.currentTarget.value = ''` after capturing a file input. They read the current model when the event fires. View derivations still reject browser globals and mutations; event callbacks cannot assign model fields. Asynchronous application work still needs a command or `effectEvent`, which owns cancellation and errors.
+
+## Application model ownership
+
+`modelOwner` uses the same `program` queue as components. It supplies immutable patching and synchronous transactions for application workflows that otherwise need their own state and task owner:
+
+```ts
+const app = modelOwner({ selected: '', text: '', saved: false });
+const { read, patch, edit, transaction, run } = app;
+
+transaction(() => {
+  patch({ selected: 'first' });
+  edit('text', (text) => text.trim());
+});
+run('save', save(read().text), 'drop');
+```
+
+Readers see staged state inside a transaction. Subscribers see one committed snapshot, before its tasks start. A throw rolls back that transaction's patches and tasks; nested transactions behave as savepoints. Transactions cannot await. An asynchronous workflow belongs in `run`, with transactions around its synchronous groups of changes.
+
+`run` accepts an Effect and defaults to replacing the previous task in that slot. `drop` ignores a new request while the slot is busy. `parallel` permits independent tasks in the same slot. `cancel(slot)` cancels the entire slot, and `isRunning(slot)` reports whether it is busy. These policies also work within a transaction. Error reporting can be supplied through `onDefect`; service requirements can be supplied through `runtime: uiRuntime(context)`.
+
+Mount `app.source` as a program source. Disposing either `app` or `app.source` cancels its tasks and disposes resources registered with `app.own(resource)`. Methods are bound functions and can be destructured. Use ordinary `program` reducers for explicit domain messages; both authoring interfaces share its publication and command semantics.
+
+## Owned query subscriptions
+
+Keep `AsyncResult` in the model rather than converting it into another loading-state object:
+
+```ts
+const empty = <A>(): AsyncResult.AsyncResult<A, Error> => AsyncResult.initial();
+const app = modelOwner({ profile: empty<Profile>() });
+const cache = app.own(makeQueryCache());
+const profile = observeQuery(app, cache, profileQuery, (result) => {
+  app.patch({ profile: result });
+});
+profile.select('alice');
+```
+
+`observeQuery` publishes the typed Effect result on selection and settlement. No work begins until selection. The owner releases its subscription; another owner observing the same cache entry remains subscribed. `refresh()` joins an in-flight request, and a failed refresh retains the prior success. `select(undefined)` clears the selection. Resetting the cache clears the observation until it is selected again.
+
+Use `AsyncResult.value(result)` when a successful `undefined` must be distinguished from no data. `available(result)` is convenient when the application value itself cannot be `undefined`. `resourceError(result)` produces display text and uses `Error.message` for Error objects. It does not replace the typed cause stored in the result.
+
+Register a privately owned cache before its observations, as above, so disposal releases observations before the cache. A cache shared across owners should be owned by their common application lifetime. Low-level `queryResource` also exposes `subscribe` for integrations that already own their disposal.
+
+## Destructured view inputs
+
+```tsx
+const Title = view(({ title, user: { name } }: Props) => (
+  <h1>
+    {title}: {name}
+  </h1>
+));
+```
+
+Simple object patterns compile to field dependencies directly. Renaming, nested patterns, defaults, computed keys, array patterns and rest bindings are supported. Complex patterns use a cached derivation that retains JavaScript's default and rest behavior. Event closures capture values from the snapshot at dispatch time.
+
+Keep the optional dispatch parameter named. Whole-parameter defaults and rest parameters remain unsupported. Defaults that reference dispatch should be declared inside the view body.

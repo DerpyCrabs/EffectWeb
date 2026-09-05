@@ -1,6 +1,1 @@
-export {
-  compileSnapshot,
-  type SnapshotCompilerOptions,
-  type SnapshotCompilerResult,
-  type SnapshotDiagnostic,
-} from './snapshotJsx.js';
+export { compile, type CompilerOptions, type CompilerResult, type Diagnostic } from './compile.js';

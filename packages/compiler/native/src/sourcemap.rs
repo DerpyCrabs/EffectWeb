@@ -146,7 +146,7 @@ pub fn emit(
             || !original.is_char_boundary(start)
             || !original.is_char_boundary(end)
         {
-            return Err("Invalid or overlapping snapshot compiler source edits".to_owned());
+            return Err("Invalid or overlapping EffectWeb compiler source edits".to_owned());
         }
         append(&original[cursor..start], cursor, true, &mut transformed);
         append(&replacement, start, false, &mut transformed);
@@ -158,7 +158,7 @@ pub fn emit(
     let parsed = Parser::new(&allocator, &transformed, SourceType::tsx()).parse();
     if !parsed.diagnostics.is_empty() {
         return Err(format!(
-            "Snapshot compiler emitted invalid TSX: {:?}",
+            "EffectWeb compiler emitted invalid TSX: {:?}",
             parsed.diagnostics
         ));
     }
@@ -186,7 +186,7 @@ pub fn emit(
             continue;
         }
         if offset > original.len() || !original.is_char_boundary(offset) {
-            return Err("Snapshot source-map anchor is outside the original source".to_owned());
+            return Err("EffectWeb source-map anchor is outside the original source".to_owned());
         }
         segment.anchors.push((end, offset));
         marker_spans.push(comment.span.start);

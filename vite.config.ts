@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite-plus';
-import { snapshotCompiler } from './packages/compiler/src/vite';
+import { effectweb } from './packages/compiler/src/vite';
 export default defineConfig({
-  plugins: [snapshotCompiler()],
+  plugins: [effectweb()],
   test: { environment: 'node', include: ['packages/*/src/**/*.test.ts'] },
   lint: {
     ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**'],

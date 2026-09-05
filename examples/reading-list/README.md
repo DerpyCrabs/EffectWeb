@@ -1,6 +1,6 @@
 # Reading list
 
-A second application using the compiled JSX runtime, without TeleVecha's controller, Telegram services, styles, or resource cache. Add titles, mark them read, filter them, and remove them. The browser adapter persists entries in IndexedDB. The same UI also runs with synchronous Effect storage in the browser tests.
+A standalone application using the compiled JSX runtime. Add titles, mark them read, filter them, and remove them. The browser adapter persists entries in IndexedDB. The same UI also runs with synchronous Effect storage in the browser tests.
 
 From the repository root:
 

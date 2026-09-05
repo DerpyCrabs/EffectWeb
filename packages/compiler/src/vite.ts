@@ -1,8 +1,8 @@
 import type { Plugin } from 'vite';
-import { compileSnapshot, type SnapshotCompilerOptions } from './snapshotJsx.js';
+import { compile, type CompilerOptions } from './compile.js';
 
 /** Rust/Oxc lowers snapshot JSX before Vite's TypeScript pass. */
-export function snapshotCompiler(options: SnapshotCompilerOptions = {}): Plugin {
+export function effectweb(options: CompilerOptions = {}): Plugin {
   let development = false;
   return {
     config() {
@@ -16,7 +16,7 @@ export function snapshotCompiler(options: SnapshotCompilerOptions = {}): Plugin 
     transform(code, id) {
       const filename = id.split('?')[0];
       if (!filename?.endsWith('.tsx')) return;
-      const result = compileSnapshot(code, filename, {
+      const result = compile(code, filename, {
         ...options,
         development,
         onDiagnostic:
@@ -30,3 +30,5 @@ export function snapshotCompiler(options: SnapshotCompilerOptions = {}): Plugin 
     },
   };
 }
+
+export default effectweb;

@@ -81,3 +81,49 @@ export function mountSvgContexts(parent: Element) {
     },
   };
 }
+
+export function mountDestructured(parent: HTMLElement) {
+  type State = {
+    title?: string;
+    user: { name: string };
+    items: readonly string[];
+    unrelated: number;
+    selected: string;
+  };
+  let formats = 0;
+  const format = (name: string) => {
+    formats++;
+    return name.toUpperCase();
+  };
+  const Simple = view<State, Partial<State>>(({ user: { name } }, send) => (
+    <button data-simple="" onClick={() => send({ selected: name })}>
+      {format(name)}
+    </button>
+  ));
+  const Complex = view<State, Partial<State>>(
+    ({ title: label = 'fallback', items: [first, ...remaining], ...rest }, send) => (
+      <button
+        data-complex=""
+        onClick={() => send({ selected: `${label}:${rest.user.name}:${first}` })}
+      >
+        {label}:{first}:{remaining.length}
+      </button>
+    ),
+  );
+  const source = program<State, Partial<State>>({
+    initial: { user: { name: 'Alice' }, items: ['a', 'b'], unrelated: 0, selected: '' },
+    update: (model, patch) => ({ model: { ...model, ...patch } }),
+  });
+  const simple = mountView(parent, Simple, source);
+  const complex = mountView(parent, Complex, source);
+  return {
+    model: source.model,
+    set: source.send,
+    formats: () => formats,
+    dispose() {
+      simple();
+      complex();
+      source.dispose();
+    },
+  };
+}

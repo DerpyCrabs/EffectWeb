@@ -1,4 +1,5 @@
-export { collection, sequence, type Rows } from './collection.js';
+export { modelOwner, type ModelOwner, type DisposableOwner, type TaskPolicy } from './owner.js';
+export { collection, entities, sequence, type Rows } from './collection.js';
 export { component, localComponent, programView } from './component.js';
 export { patchModel } from './state.js';
 export { defineActions, type ActionMessage } from './actions.js';
@@ -46,14 +47,10 @@ export {
 export { uiRuntime, type UiRuntime } from './runtime.js';
 export { query, type Query } from './query.js';
 
-export {
-  makeUiModel,
-  makeUiModel as makeQueryCache,
-  makePagedResource,
-  type UiModel,
-} from './cache.js';
+export { makeQueryCache, type QueryCache, makePagedResource } from './cache.js';
 export {
   queryResource,
+  observeQuery,
   resource,
   pagedResource,
   lifetime,

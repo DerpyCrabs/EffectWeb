@@ -66,7 +66,7 @@ jobs:
         with:
           pattern: native-*
           path: artifacts/native
-      - run: cp artifacts/native/native-linux-x64-gnu/compiler.node packages/compiler/native/snapshot-compiler.node
+      - run: cp artifacts/native/native-linux-x64-gnu/compiler.node packages/compiler/native/effectweb-compiler.node
       - run: npm run build:js
       - run: npm run pack:release
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

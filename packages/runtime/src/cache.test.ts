@@ -2,11 +2,11 @@ import { Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { makePagedResource, makeUiModel, shareValue, type UiModel } from './cache.js';
+import { makePagedResource, makeQueryCache, shareValue, type QueryCache } from './cache.js';
 
-const models: UiModel[] = [];
+const models: QueryCache[] = [];
 const model = () => {
-  const current = makeUiModel();
+  const current = makeQueryCache();
   models.push(current);
   return current;
 };

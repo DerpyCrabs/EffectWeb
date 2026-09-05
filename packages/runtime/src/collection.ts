@@ -30,7 +30,17 @@ export function collection<A>(identity: (item: A, index: number) => Identity) {
 }
 
 const positions = collection<unknown>((_item, index) => index);
-/** Ordered protocol structures such as keyboard rows and rich-text fragments have positional identity. */
+/** Use positional identity for ordered values without stable entity IDs. */
 export function sequence<A>(items: readonly A[]): Rows<A> {
   return positions.from(items) as Rows<A>;
+}
+
+const empty: readonly never[] = [];
+const identified = collection<{ readonly id: Identity }>((item) => item.id);
+/** Rows keyed by their domain IDs. Reuses the wrapper for the same immutable array. */
+export function entities<A extends { readonly id: Identity }>(
+  items: readonly A[] | undefined,
+): Rows<A> {
+  // The collection retains, filters and slices supplied items; it never inserts wider values.
+  return identified.from(items ?? empty) as unknown as Rows<A>;
 }

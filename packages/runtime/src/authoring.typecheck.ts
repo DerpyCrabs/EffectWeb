@@ -70,3 +70,19 @@ taskComponent({
     controls.patch({ text: 123 });
   }),
 });
+
+// Pure views need only their input type; they emit no messages.
+import { view, type View } from './dom.js';
+export const readOnlyView: View<{ title: string }, never> = view<{ title: string }>(
+  (model) => model.title,
+);
+
+import { modelOwner } from './owner.js';
+const owner = modelOwner({ count: 0, label: '' });
+owner.edit('count', (n) => n + 1);
+// @ts-expect-error Field updates preserve their value type.
+owner.edit('count', () => 'bad');
+// @ts-expect-error Transactions are synchronous.
+void owner.transaction(async () => {});
+// @ts-expect-error Unknown model fields are rejected.
+owner.patch({ missing: true });

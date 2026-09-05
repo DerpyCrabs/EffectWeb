@@ -2,14 +2,17 @@ import { Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { expect, it, vi } from 'vitest';
 import { query } from './query.js';
-import { makeUiModel } from './cache.js';
-import { queryResource } from './session.js';
+import { modelOwner } from './owner.js';
+import { resourceError } from './resource.js';
+import { Cause } from 'effect';
+import { makeQueryCache } from './cache.js';
+import { queryResource, observeQuery } from './session.js';
 
 it('selects typed query arguments, shares across sessions, and clears values across account changes', async () => {
   let account = 'first';
   const load = vi.fn((id: string) => Effect.succeed(`${account}:${id}`));
   const profile = query({ name: 'profile', key: (id: string) => id, load });
-  const cache = makeUiModel();
+  const cache = makeQueryCache();
   const context = { cache, changed: vi.fn() };
   const first = queryResource(context, profile);
   const second = queryResource(context, profile);
@@ -46,7 +49,7 @@ it('retains same-query values during failed refreshes and does not refresh on or
     staleTime: 0,
     load: () => (++calls === 2 ? Effect.fail('offline') : Effect.succeed('cached')),
   });
-  const cache = makeUiModel();
+  const cache = makeQueryCache();
   const source = queryResource({ cache, changed() {} }, data);
   source.select(true);
   source.select(true);
@@ -59,4 +62,94 @@ it('retains same-query values during failed refreshes and does not refresh on or
   expect(calls).toBe(3);
   source.dispose();
   cache.dispose();
+});
+
+it('coalesces refreshes during a pending read, then permits revalidation after completion', async () => {
+  let calls = 0;
+  let finish!: () => void;
+  const data = query({
+    name: 'slow',
+    load: () =>
+      Effect.callback<number>((resume) => {
+        const value = ++calls;
+        finish = () => resume(Effect.succeed(value));
+      }),
+  });
+  const cache = makeQueryCache();
+  const first = queryResource({ cache, changed() {} }, data);
+  const second = queryResource({ cache, changed() {} }, data);
+  try {
+    first.select(true);
+    second.select(true);
+    for (let tick = 0; tick < 5; tick++) {
+      first.refresh();
+      second.refresh();
+    }
+    expect(calls).toBe(1);
+    finish();
+    await vi.waitFor(() => expect(first.read().waiting).toBe(false));
+    expect(Option.getOrUndefined(AsyncResult.value(first.read()))).toBe(1);
+    second.refresh();
+    first.refresh();
+    expect(calls).toBe(2);
+    expect(Option.getOrUndefined(AsyncResult.value(first.read()))).toBe(1);
+    finish();
+    await vi.waitFor(() => expect(first.read().waiting).toBe(false));
+    expect(Option.getOrUndefined(AsyncResult.value(first.read()))).toBe(2);
+    cache.resetResources();
+    first.refresh();
+    expect(calls).toBe(2);
+  } finally {
+    first.dispose();
+    second.dispose();
+    cache.dispose();
+  }
+});
+
+it('owns typed query publications, shares requests, retains undefined successes and releases observers', async () => {
+  const owner = modelOwner<{ result: AsyncResult.AsyncResult<undefined, string> }>({
+    result: AsyncResult.initial(),
+  });
+  const cache = owner.own(makeQueryCache());
+  let calls = 0;
+  let finish!: () => void;
+  const definition = query({
+    name: 'undefined',
+    load: () =>
+      Effect.callback<undefined, string>((resume) => {
+        calls++;
+        finish = () => resume(Effect.succeed(undefined));
+      }),
+  });
+  const seen = vi.fn();
+  const first = observeQuery(owner, cache, definition, (result) => owner.patch({ result }));
+  const second = observeQuery(owner, cache, definition, seen);
+  first.select(true);
+  second.select(true);
+  expect(calls).toBe(1);
+  finish();
+  await vi.waitFor(() => expect(owner.read().result._tag).toBe('Success'));
+  expect(Option.isSome(AsyncResult.value(owner.read().result))).toBe(true);
+  expect(seen.mock.calls.at(-1)?.[0]._tag).toBe('Success');
+  for (let index = 1; index < seen.mock.calls.length; index++)
+    expect(seen.mock.calls[index]?.[0]).not.toBe(seen.mock.calls[index - 1]?.[0]);
+  first.refresh();
+  expect(Option.isSome(AsyncResult.value(owner.read().result))).toBe(true);
+  cache.resetResources();
+  expect(owner.read().result._tag).toBe('Initial');
+  first.select(true);
+  expect(calls).toBe(3);
+  const publications = seen.mock.calls.length;
+  owner.dispose();
+  finish();
+  first.select(true);
+  expect(seen).toHaveBeenCalledTimes(publications);
+});
+
+it('formats query errors without exposing the Error constructor prefix', () => {
+  expect(resourceError(AsyncResult.failure(Cause.fail(new Error('Try again.'))))).toBe(
+    'Try again.',
+  );
+  expect(resourceError(AsyncResult.failure(Cause.fail('offline')))).toBe('offline');
+  expect(resourceError(AsyncResult.failure(Cause.die(new Error('defect'))))).toBe('defect');
 });

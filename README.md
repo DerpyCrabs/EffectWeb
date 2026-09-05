@@ -26,9 +26,9 @@ npm install --save-dev @effectweb/compiler vite typescript
 ```ts
 // vite.config.ts
 import { defineConfig } from 'vite';
-import { snapshotCompiler } from '@effectweb/compiler/vite';
+import { effectweb } from '@effectweb/compiler/vite';
 
-export default defineConfig({ plugins: [snapshotCompiler()] });
+export default defineConfig({ plugins: [effectweb()] });
 ```
 
 Use `"jsx": "preserve"`, `"jsxImportSource": "effectweb"`, and `"moduleResolution": "Bundler"` in TypeScript. The plugin handles JSX before Vite transforms TypeScript and deduplicates Effect across linked packages.
@@ -85,3 +85,7 @@ For the isolated renderer benchmark, run `npm run build:benchmark` and then `nod
 ## License
 
 [MIT](LICENSE).
+
+Use `entities(items)` for immutable arrays with an `id` field; it also accepts `undefined` while data is unavailable. Use `collection(identity)` for custom keys and `sequence(items)` for positional lists. A read-only view can omit its dispatch parameter: `view((model) => <h1>{model.title}</h1>)`.
+
+Run `npm run measure:bundles` after a build to check the static-renderer size budget and unused-view elimination. The report includes raw/gzip sizes and the retained module contributions for views, programs and queries.

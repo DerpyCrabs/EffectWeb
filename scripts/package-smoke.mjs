@@ -70,7 +70,7 @@ for (const name of ['effectweb', '@effectweb/compiler', '@effectweb/lucide']) {
 }
 writeFileSync(
   join(temp, 'vite.config.mjs'),
-  "import { snapshotCompiler } from '@effectweb/compiler/vite'; export default { plugins: [snapshotCompiler()] };\n",
+  "import { effectweb } from '@effectweb/compiler/vite'; export default { plugins: [effectweb()] };\n",
 );
 writeFileSync(
   join(temp, 'tsconfig.json'),

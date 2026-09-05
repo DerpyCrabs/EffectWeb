@@ -52,7 +52,7 @@ export default Icon;`;
       JSON.stringify({ importSource: 'effectweb', runtimeModule: 'effectweb/dom' }),
     ),
   );
-  if (result.diagnostics.length || !result.code.includes('_tv_dom.compiled'))
+  if (result.diagnostics.length || !result.code.includes('_ew_dom.compiled'))
     throw new Error(`Icon was not compiled: ${name}: ${JSON.stringify(result.diagnostics)}`);
   const output = ts.transpileModule(result.code, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },

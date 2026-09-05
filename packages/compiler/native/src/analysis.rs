@@ -28,6 +28,7 @@ pub struct Reference {
     pub path: Vec<String>,
     pub label: String,
     pub safe_date: bool,
+    pub in_event: bool,
 }
 pub struct Index<'a, 's> {
     pub scoping: &'s Scoping,
@@ -58,6 +59,66 @@ impl<'a, 's> Index<'a, 's> {
         id.reference_id
             .get()
             .and_then(|id| self.scoping.get_reference(id).symbol_id())
+    }
+    // Only callbacks inside onX attributes execute as events. Attribute factories and
+    // ordinary render callbacks still obey render-purity rules.
+    fn event_handler(&self) -> Option<&'a ArrowFunctionExpression<'a>> {
+        let (position, attribute) =
+            self.parents
+                .iter()
+                .enumerate()
+                .rev()
+                .find_map(|(i, node)| {
+                    if let AstKind::JSXAttribute(attribute) = node {
+                        Some((i, attribute))
+                    } else {
+                        None
+                    }
+                })?;
+        let JSXAttributeName::Identifier(name) = &attribute.name else {
+            return None;
+        };
+        if !name.name.starts_with("on")
+            || !name
+                .name
+                .chars()
+                .nth(2)
+                .is_some_and(|c| c.is_ascii_uppercase())
+        {
+            return None;
+        }
+        self.parents[position + 1..].iter().find_map(|node| {
+            if let AstKind::ArrowFunctionExpression(function) = node {
+                (!contains_jsx_body(&function.body)).then_some(*function)
+            } else {
+                None
+            }
+        })
+    }
+    fn callback_prop(&self) -> bool {
+        self.parents.iter().rev().find_map(|node| {
+            let AstKind::JSXAttribute(attribute) = node else { return None; };
+            Some(matches!(&attribute.value,
+                Some(JSXAttributeValue::ExpressionContainer(container))
+                    if matches!(container.expression.as_expression(),
+                        Some(Expression::ArrowFunctionExpression(function)) if !contains_jsx_body(&function.body))))
+        }).unwrap_or(false)
+    }
+    fn event_dom_node(&self, expression: &Expression<'a>) -> bool {
+        let Some(handler) = self.event_handler() else {
+            return false;
+        };
+        let Some(parameter) = handler.params.items.first() else {
+            return false;
+        };
+        let BindingPattern::BindingIdentifier(parameter) = &parameter.pattern else {
+            return false;
+        };
+        let Expression::StaticMemberExpression(member) = unwrapped(expression) else {
+            return false;
+        };
+        matches!(member.property.name.as_str(), "currentTarget" | "target")
+            && matches!(unwrapped(&member.object), Expression::Identifier(id) if self.symbol(id) == parameter.symbol_id.get())
     }
     pub fn binding_names(&self, span: Span) -> Vec<(SymbolId, String)> {
         self.bindings
@@ -140,6 +201,7 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                     path,
                     label,
                     safe_date,
+                    in_event: self.event_handler().is_some(),
                 });
             }
             AstKind::BindingIdentifier(id) => {
@@ -151,22 +213,7 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                 self.calls.push(call);
                 if let Expression::StaticMemberExpression(m) = unwrapped(&call.callee) {
                     let method = m.property.name.as_str();
-                    let action = self
-                        .parents
-                        .iter()
-                        .any(|p| matches!(p, AstKind::JSXAttribute(_)))
-                        && self
-                            .parents
-                            .iter()
-                            .rev()
-                            .find_map(|p| {
-                                if let AstKind::ArrowFunctionExpression(f) = p {
-                                    Some(!contains_jsx_body(&f.body))
-                                } else {
-                                    None
-                                }
-                            })
-                            .unwrap_or(false);
+                    let action = self.event_handler().is_some() || self.callback_prop();
                     if !action
                         && [
                             "push",
@@ -198,11 +245,13 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                     }
                 }
             }
-            AstKind::AssignmentExpression(n) => self.violations.push((
-                n.span,
-                "Views do not mutate state. Dispatch a message and change the model in update."
-                    .into(),
-            )),
+            AstKind::AssignmentExpression(n) if !matches!(&n.left, AssignmentTarget::StaticMemberExpression(member) if self.event_dom_node(&member.object)) => {
+                self.violations.push((
+                    n.span,
+                    "Views do not mutate state. Dispatch a message and change the model in update."
+                        .into(),
+                ))
+            }
             AstKind::UpdateExpression(n) => self.violations.push((
                 n.span,
                 "Views do not mutate state. Dispatch a message and change the model in update."

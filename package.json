@@ -25,7 +25,8 @@
     "dev:example": "vp dev --config examples/reading-list/vite.config.ts",
     "build:example": "vp build --config examples/reading-list/vite.config.ts",
     "check:browser": "tsc --noEmit -p tsconfig.browser.json",
-    "build:benchmark": "vp build --config vite.benchmark.config.ts"
+    "build:benchmark": "vp build --config vite.benchmark.config.ts",
+    "measure:bundles": "node scripts/measure-bundles.mjs --check"
   },
   "devDependencies": {
     "@effect/tsgo": "0.32.1",

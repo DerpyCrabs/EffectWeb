@@ -101,3 +101,28 @@ domMount((_element: HTMLElement) => lifetime, runtime);
 // @ts-expect-error DOM binding requirements need a runtime
 domBinding('input', (_element: HTMLElement, _input: () => string) => lifetime);
 domBinding('input', (_element: HTMLElement, _input: () => string) => lifetime, runtime);
+
+import { modelOwner } from './owner.js';
+import { makeQueryCache } from './cache.js';
+import { query } from './query.js';
+import { observeQuery } from './session.js';
+const ownedModel = modelOwner({ count: 0 }, { runtime });
+ownedModel.run(
+  'save',
+  Effect.flatMap(Storage, (storage) => storage.save('text')),
+);
+// @ts-expect-error Required services must be provided by the owner's runtime.
+modelOwner({ count: 0 }).run('save', Storage);
+// @ts-expect-error An unrelated service cannot run in this owner.
+ownedModel.run('missing', Missing);
+const ownedCache = ownedModel.own(makeQueryCache(runtime));
+const ownedQuery = query({
+  name: 'save-result',
+  load: () => Effect.flatMap(Storage, (storage) => storage.save('text')),
+});
+observeQuery(ownedModel, ownedCache, ownedQuery, (result) => {
+  const typed: AsyncResult.AsyncResult<number, 'offline'> = result;
+  void typed;
+});
+// @ts-expect-error Query observation preserves service requirements.
+observeQuery(ownedModel, makeQueryCache(), ownedQuery, () => {});

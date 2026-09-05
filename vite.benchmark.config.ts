@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite-plus';
-import { snapshotCompiler } from '@effectweb/compiler/vite';
+import { effectweb } from '@effectweb/compiler/vite';
 export default defineConfig({
-  plugins: [snapshotCompiler()],
+  plugins: [effectweb()],
   build: {
     outDir: 'dist-benchmark',
     emptyOutDir: true,

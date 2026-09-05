@@ -1,13 +1,13 @@
 import { Context, Effect, Fiber, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
-import { makeUiModel } from './cache.js';
+import { makeQueryCache } from './cache.js';
 import { query } from './query.js';
 import { uiRuntime } from './runtime.js';
 
 const disposals: Array<() => void> = [];
 const cache = () => {
-  const model = makeUiModel();
+  const model = makeQueryCache();
   disposals.push(() => model.dispose());
   return model;
 };
@@ -189,7 +189,7 @@ describe('typed shared queries', () => {
           id ? Effect.succeed(`${prefix}:${id}`) : Effect.fail<Missing>({ _tag: 'Missing', id }),
         ),
     });
-    const model = makeUiModel(uiRuntime(Context.make(Catalog, { prefix: 'provided' })));
+    const model = makeQueryCache(uiRuntime(Context.make(Catalog, { prefix: 'provided' })));
     disposals.push(() => model.dispose());
     expectTypeOf(model.prefetch(data, 'a')).toEqualTypeOf<Effect.Effect<string, Missing>>();
     expect(await Effect.runPromise(model.prefetch(data, 'a'))).toBe('provided:a');
@@ -197,7 +197,7 @@ describe('typed shared queries', () => {
     expect(failure._tag).toBe('Failure');
     const typingOnly = () => {
       // @ts-expect-error A service-requiring query cannot run without its service context.
-      makeUiModel().query(data, 'a');
+      makeQueryCache().query(data, 'a');
       // @ts-expect-error Query arguments keep their declared type.
       model.invalidateQuery(data, 4);
     };

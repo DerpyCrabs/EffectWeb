@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { compileSnapshot } from './snapshotJsx';
+import { compile as compileSource } from './compile';
 
 const compile = (source: string) =>
-  compileSnapshot(`import { view } from '../mvu'; ${source}`, 'contract.tsx').code;
+  compileSource(`import { view } from 'effectweb'; ${source}`, 'contract.tsx').code;
 
 describe('snapshot JSX compiler contract', () => {
   it('compiles JSX constants, helper arguments and ordinary child inputs with captured callbacks', () => {
@@ -81,7 +81,7 @@ it('points at the mutation expression and rejects builtin mutations', () => {
 });
 
 it('resolves a configured public runtime without an application-root path', () => {
-  const code = compileSnapshot(
+  const code = compileSource(
     `import { view } from '@example/view'; const Demo = view((model, send) => <b>Hello</b>);`,
     'public.tsx',
     { importSource: '@example/view' },
@@ -94,12 +94,12 @@ it('resolves a configured public runtime without an application-root path', () =
 
 it('emits dependency explanations only in development and flags broad helper inputs', () => {
   const diagnostics: unknown[] = [];
-  const source = `import { view } from '../mvu'; const Demo = view((model, send) => { const label = format(model); return <p title={model.title}>{label}</p>; });`;
-  const dev = compileSnapshot(source, 'demo.tsx', {
+  const source = `import { view } from 'effectweb'; const Demo = view((model, send) => { const label = format(model); return <p title={model.title}>{label}</p>; });`;
+  const dev = compileSource(source, 'demo.tsx', {
     development: true,
     onDiagnostic: (value) => diagnostics.push(value),
   }).code;
-  const prod = compileSnapshot(source, 'demo.tsx').code;
+  const prod = compileSource(source, 'demo.tsx').code;
   expect(dev).toContain('model.title');
   expect(dev).toContain('format(model)');
   expect(diagnostics).toHaveLength(1);
@@ -149,9 +149,9 @@ it.each([
 });
 
 it('only lowers calls bound to framework imports, including aliases', () => {
-  const code = compileSnapshot(
+  const code = compileSource(
     `
-    import { view as snapshot } from '../mvu';
+    import { view as snapshot } from 'effectweb';
     export const Demo = snapshot((model, send) => <b>{model.title}</b>);
     function unrelated(snapshot: (fn: () => number) => number) {
       return snapshot(() => 17);
@@ -165,7 +165,7 @@ it('only lowers calls bound to framework imports, including aliases', () => {
 
 it('preserves files with no framework view calls', () => {
   const source = 'export const answer: number = 42;';
-  const result = compileSnapshot(source, 'ordinary.tsx');
+  const result = compileSource(source, 'ordinary.tsx');
   expect(result.code).toContain('answer');
   expect(result.code).not.toContain('snapshotDom');
   expect(result.diagnostics).toEqual([]);
@@ -173,14 +173,14 @@ it('preserves files with no framework view calls', () => {
 
 it('reports original source locations and content in usable source maps', () => {
   const source = [
-    "import { view } from '../mvu';",
+    "import { view } from 'effectweb';",
     'export const marker = 17;',
     '',
     'export const Demo = view((model, send) => {',
     '  return <button title={model.label}>{model.label}</button>;',
     '});',
   ].join('\n');
-  const result = compileSnapshot(source, '/project/source-map.tsx');
+  const result = compileSource(source, '/project/source-map.tsx');
   expect(result.map).not.toBeNull();
   const map = JSON.parse(result.map!) as {
     version: number;
@@ -223,8 +223,8 @@ it('reports original source locations and content in usable source maps', () => 
 });
 
 it('compiles children, named JSX props and imported typed slots without evaluating markup closures', () => {
-  const code = compileSnapshot(
-    `import { view, slot as snippet } from '../mvu';
+  const code = compileSource(
+    `import { view, slot as snippet } from 'effectweb';
     const Demo = view((model, send) => {
       const row = snippet((value: string) => <button onClick={() => send(model.id)}>{value}:{model.title}</button>);
       return <Panel row={row} footer={<b>{model.title}</b>}><input value={model.title}/></Panel>;
@@ -244,9 +244,65 @@ it.each([
   [`<Panel row={slot((first, second) => <b>{first}{second}</b>)} />`, 'Slots take'],
 ])('rejects ambiguous children and unsupported slot signatures: %s', (markup, message) => {
   expect(() =>
-    compileSnapshot(
-      `import { view, slot } from '../mvu'; const Demo = view((model, send) => ${markup});`,
+    compileSource(
+      `import { view, slot } from 'effectweb'; const Demo = view((model, send) => ${markup});`,
       'slots.tsx',
     ),
   ).toThrow(message);
+});
+
+it('compiles a view with no dispatch parameter', () => {
+  expect(compile('const Title = view((model) => <h1>{model.title}</h1>);')).toContain('.compiled(');
+});
+it('does not claim unrelated modules named mvu', () => {
+  const source =
+    "import { view } from '../mvu'; const Title = view((model) => <h1>{model.title}</h1>);";
+  expect(compileSource(source, 'other.tsx').code).toBe(source);
+  expect(
+    compileSource(source, 'custom.tsx', { importSource: '../mvu', runtimeModule: 'effectweb/dom' })
+      .code,
+  ).toContain('.compiled(');
+});
+
+it('allows native input resets and deferred browser access inside event callbacks', () => {
+  expect(
+    compile(`view((model, send) => <input onChange={event => {
+    send(event.currentTarget.value);
+    event.currentTarget.value = '';
+    queueMicrotask(() => requestAnimationFrame(() => document.getElementById(model.next)?.focus()));
+  }} />)`),
+  ).toContain('.event(');
+});
+it.each([
+  'view(model => <p>{document.title}</p>)',
+  'view(model => <button onClick={document.getElementById(model.id)} />)',
+  'view(model => <p title={(() => document.title)()} />)',
+  'view(model => <p title={(() => model.items.sort())()} />)',
+  'view((model, send) => <input onChange={event => { model.title = event.currentTarget.value; }} />)',
+])('keeps render work and model mutations subject to purity checks: %s', (source) => {
+  expect(() => compile(source)).toThrow();
+});
+
+it('allows imperative service calls in a custom component callback prop', () => {
+  expect(
+    compile('view(model => <Dialog confirm={() => model.service.delete(model.id)} />)'),
+  ).toContain('.child(');
+});
+
+it('lowers simple destructured input directly to field dependencies', () => {
+  const code = compile('view(({ title: label, user: { name } }: Props) => <p>{label}{name}</p>)');
+  expect(code).toContain('["title"]');
+  expect(code).toContain('["user"]');
+  expect(code).not.toContain('.derive(');
+});
+it.each([
+  'view(({ title = "Untitled", ...rest }: Props) => <p>{title}{rest.extra}</p>)',
+  'view(([first, second = first, ...rest]: Props) => <p>{first}{second}{rest.length}</p>)',
+  'view(({ title = (() => { const inner = "default"; return inner; })() }: Props) => <p>{title}</p>)',
+])('preserves defaults and rest bindings without leaking their inner variables: %s', (source) => {
+  expect(compile(source)).toContain('.compiled(');
+});
+it('rejects destructured dispatch and defaults that capture dispatch', () => {
+  expect(() => compile('view((model, { send }) => <p />)')).toThrow('dispatch');
+  expect(() => compile('view(({ action = () => send(1) }, send) => <p />)')).toThrow('defaults');
 });

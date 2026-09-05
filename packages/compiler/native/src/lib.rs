@@ -55,8 +55,7 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
     let mut runtime = options.runtime_module.clone();
     for statement in &program.body {
         if let Statement::ImportDeclaration(import) = statement
-            && (import.source.value.ends_with("/mvu")
-                || options.import_source.as_deref() == Some(import.source.value.as_str()))
+            && options.import_source.as_deref() == Some(import.source.value.as_str())
         {
             for specifier in import.specifiers.iter().flatten() {
                 if let ImportDeclarationSpecifier::ImportSpecifier(s) = specifier {

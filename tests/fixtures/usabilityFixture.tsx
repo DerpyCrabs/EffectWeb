@@ -80,7 +80,15 @@ export function mountForm(parent: HTMLElement) {
         value={model.number ?? ''}
         onInput={inputNumber((number) => send({ number }))}
       />
-      <button>Submit</button>
+      <input
+        aria-label="Native event"
+        onChange={(event) => {
+          send({ text: model.text + event.currentTarget.value });
+          event.currentTarget.value = '';
+          queueMicrotask(() => document.getElementById('native-followup')?.focus());
+        }}
+      />
+      <button id="native-followup">Submit</button>
     </form>
   ));
   const source = program<Model, Partial<Model>>({

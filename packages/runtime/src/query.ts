@@ -12,7 +12,7 @@ export interface Query<Args, A, E = never, R = never> {
   readonly staleTime: number;
 }
 
-/** Identity belongs to arguments, never callback identity. Each application cache owns account isolation. */
+/** Identity belongs to arguments, never callback identity. Separate caches isolate independent data scopes. */
 export function query<A, E = never, R = never>(definition: {
   readonly name: string;
   readonly load: () => Effect.Effect<A, E, R>;

@@ -96,7 +96,7 @@ impl<'a, 's> Lower<'a, 's> {
         index: &'s Index<'a, 's>,
         options: &'s Options,
     ) -> Self {
-        let mut prefix = "_tv_".to_string();
+        let mut prefix = "_ew_".to_string();
         while source.contains(&prefix) {
             prefix.push('_');
         }
@@ -138,7 +138,7 @@ impl<'a, 's> Lower<'a, 's> {
             .count()
             + 1;
         Err(format!(
-            "{}:{line}:{col}: Snapshot JSX: {message}\n> {line} | {}",
+            "{}:{line}:{col}: EffectWeb JSX: {message}\n> {line} | {}",
             self.filename,
             self.source.lines().nth(line - 1).unwrap_or("")
         ))
@@ -337,21 +337,86 @@ impl<'a, 's> Lower<'a, 's> {
             serde_json::json!({"file":self.filename,"line":line,"column":column,"expression":self.raw(span),"dependencies":labels})
         )
     }
+    fn simple_input(pattern: &BindingPattern<'a>) -> bool {
+        match pattern {
+            BindingPattern::BindingIdentifier(_) => true,
+            BindingPattern::ObjectPattern(object) => {
+                object.rest.is_none()
+                    && object.properties.iter().all(|property| {
+                        !property.computed
+                            && matches!(
+                                property.key,
+                                PropertyKey::StaticIdentifier(_)
+                                    | PropertyKey::StringLiteral(_)
+                                    | PropertyKey::NumericLiteral(_)
+                            )
+                            && Self::simple_input(&property.value)
+                    })
+            }
+            _ => false,
+        }
+    }
+    fn bind_simple_input(pattern: &BindingPattern<'a>, read: String, env: &mut Env<'a>) {
+        match pattern {
+            BindingPattern::BindingIdentifier(id) => {
+                env.insert(id.symbol_id.get().unwrap(), Value::Read(read));
+            }
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    let key = match &property.key {
+                        PropertyKey::StaticIdentifier(key) => quote(key.name.as_str()),
+                        PropertyKey::StringLiteral(key) => quote(key.value.as_str()),
+                        PropertyKey::NumericLiteral(key) => key.value.to_string(),
+                        _ => unreachable!(),
+                    };
+                    Self::bind_simple_input(&property.value, format!("({read})[{key}]"), env);
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+    fn input_names(pattern: &BindingPattern<'a>, names: &mut Vec<(SymbolId, String)>) {
+        match pattern {
+            BindingPattern::BindingIdentifier(id) => {
+                names.push((id.symbol_id.get().unwrap(), id.name.to_string()))
+            }
+            BindingPattern::AssignmentPattern(assignment) => {
+                Self::input_names(&assignment.left, names)
+            }
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    Self::input_names(&property.value, names);
+                }
+                if let Some(rest) = &object.rest {
+                    Self::input_names(&rest.argument, names);
+                }
+            }
+            BindingPattern::ArrayPattern(array) => {
+                for element in array.elements.iter().flatten() {
+                    Self::input_names(element, names);
+                }
+                if let Some(rest) = &array.rest {
+                    Self::input_names(&rest.argument, names);
+                }
+            }
+        }
+    }
     pub fn compile_view(&mut self, call: &'a CallExpression<'a>) -> Result<String> {
         let Some(Expression::ArrowFunctionExpression(f)) =
             call.arguments.first().and_then(|a| a.as_expression())
         else {
-            return self.fail(call.span,"view((model, send) => JSX) requires two named parameters and a synchronous pure body.");
+            return self.fail(call.span,"view((model, send) => JSX) requires a model parameter, an optional named dispatch parameter, and a synchronous pure body.");
         };
         if f.r#async
-            || f.params.items.len() != 2
+            || !(1..=2).contains(&f.params.items.len())
             || f.params.rest.is_some()
-            || f.params.items.iter().any(|p| {
-                !matches!(p.pattern, BindingPattern::BindingIdentifier(_))
-                    || p.initializer.is_some()
-            })
+            || f.params.items.iter().any(|p| p.initializer.is_some())
+            || f.params
+                .items
+                .get(1)
+                .is_some_and(|p| !matches!(p.pattern, BindingPattern::BindingIdentifier(_)))
         {
-            return self.fail(call.span,"view((model, send) => JSX) requires two named parameters and a synchronous pure body.");
+            return self.fail(call.span,"view((model, send) => JSX) requires a model parameter, an optional named dispatch parameter, and a synchronous pure body.");
         }
         for (span, message) in &self.index.violations {
             if span.start >= f.span.start && span.end <= f.span.end {
@@ -384,6 +449,7 @@ impl<'a, 's> Lower<'a, 's> {
                 "sessionStorage",
             ]
             .contains(&r.name.as_str())
+                && !r.in_event
                 && !(r.name == "Date" && r.safe_date)
             {
                 return self.fail(
@@ -399,17 +465,51 @@ impl<'a, 's> Lower<'a, 's> {
         let parent = self.uid("parent");
         let before = self.uid("before");
         let mut env = Env::new();
-        for (p, field) in f.params.items.iter().zip(["value", "send"]) {
-            if let BindingPattern::BindingIdentifier(id) = &p.pattern {
-                env.insert(
-                    id.symbol_id.get().unwrap(),
-                    Value::Read(format!("{scope}.{field}")),
-                );
+        let input = &f.params.items[0].pattern;
+        if let Some(dispatch) = f.params.items.get(1)
+            && let BindingPattern::BindingIdentifier(id) = &dispatch.pattern
+            && self
+                .index
+                .references(input.span())
+                .any(|reference| reference.symbol == id.symbol_id.get())
+        {
+            return self.fail(input.span(), "Parameter defaults cannot capture dispatch. Declare that default inside the view body.");
+        }
+
+        let mut prelude = String::new();
+        if Self::simple_input(input) {
+            Self::bind_simple_input(input, format!("{scope}.value"), &mut env);
+        } else {
+            let mut names = vec![];
+            Self::input_names(input, &mut names);
+            let bindings = names
+                .iter()
+                .map(|(_, name)| name.clone())
+                .collect::<Vec<_>>()
+                .join(",");
+            let cached = self.uid("input");
+            let pattern = self.raw(input.span());
+            prelude = format!(
+                "const {cached}={scope}.derive(()=>[{scope}.value],()=>(({pattern})=>[{bindings}])({scope}.value));"
+            );
+            for (index, (id, _)) in names.into_iter().enumerate() {
+                env.insert(id, Value::Read(format!("{cached}()[{index}]")));
             }
         }
-        let body = self.function_body(&f.body, &env, &scope, &parent, &before)?;
+        if let Some(p) = f.params.items.get(1)
+            && let BindingPattern::BindingIdentifier(id) = &p.pattern
+        {
+            env.insert(
+                id.symbol_id.get().unwrap(),
+                Value::Read(format!("{scope}.send")),
+            );
+        }
+        let body = format!(
+            "{prelude}{}",
+            self.function_body(&f.body, &env, &scope, &parent, &before)?
+        );
         Ok(format!(
-            "{}{}.compiled(({scope},{parent},{before})=>{{{body}}})",
+            "{}/* @__PURE__ */ {}.compiled(({scope},{parent},{before})=>{{{body}}})",
             self.marker(call.span),
             self.runtime
         ))
@@ -906,7 +1006,7 @@ impl<'a, 's> Lower<'a, 's> {
             let body = self.element(e, env, scope, &p, &b)?;
             self.inside_static = false;
             self.hoisted.push(format!(
-                "{mark}const {template}={}.template(({p},{b})=>{{{body}}});",
+                "{mark}const {template}=/* @__PURE__ */ {}.template(({p},{b})=>{{{body}}});",
                 self.runtime
             ));
             return Ok(format!("{mark}{template}({parent},{before});"));
@@ -1029,7 +1129,7 @@ impl<'a, 's> Lower<'a, 's> {
         );
         for (name, value) in self.attrs(e, false)? {
             if ["key", "ref", "innerHTML"].contains(&name.as_str()) {
-                return self.fail(e.span,&format!("{name} is not a snapshot-view attribute. Identity belongs to collections; DOM lifecycles belong to the host."));
+                return self.fail(e.span,&format!("{name} is not an EffectWeb view attribute. Identity belongs to collections; DOM lifecycles belong to the host."));
             }
             let deps = value.expr().map(|e| self.deps(e, env)).unwrap_or_default();
             if name == "use" {

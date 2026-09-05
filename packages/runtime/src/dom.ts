@@ -94,7 +94,7 @@ export interface Slot<A = void> {
 }
 /** Compiler marker: declare inside view(), or directly in a compiled component prop. */
 export function slot<A = void>(_render: (value: A) => JSX.Element): Slot<A> {
-  throw new Error('MVU slot reached runtime without the snapshot JSX compiler');
+  throw new Error('EffectWeb slot reached runtime without the EffectWeb JSX compiler');
 }
 type ContentDefinition = {
   mount(parent: Node, before: Node, value: unknown): { set(value: unknown): void; dispose(): void };
@@ -158,8 +158,8 @@ export function compiledSlot<M, E, A>(owner: Scope<M, E>, build: Build<A, E>): S
 }
 
 /** This declaration is a compiler marker, never a component setup callback. */
-export function view<M, E>(_render: (model: M, send: Send<E>) => JSX.Element): View<M, E> {
-  throw new Error('MVU view reached runtime without the snapshot JSX compiler');
+export function view<M, E = never>(_render: (model: M, send: Send<E>) => JSX.Element): View<M, E> {
+  throw new Error('EffectWeb view reached runtime without the EffectWeb JSX compiler');
 }
 export function compiled<M, E>(build: Build<M, E>): View<M, E> {
   return Object.assign(
@@ -489,11 +489,11 @@ export function each<M, E, A>(
         );
       return key;
     });
-    if (new Set(identities).size !== identities.length)
+    const keep = new Set(identities);
+    if (keep.size !== identities.length)
       throw new Error(
         'Duplicate collection identity. Identity must be unique within the rendered collection.',
       );
-    const keep = new Set(identities);
     for (const [key, row] of rows) {
       if (keep.has(key)) continue;
       row.scope.dispose();
@@ -535,28 +535,39 @@ export function each<M, E, A>(
         row.scope.set([item, index]);
       }
     }
-    const positions = new Map(previousIdentities.map((key, index) => [key, index]));
-    const stationary = stationaryIndices(identities.map((key) => positions.get(key) ?? -1));
-    let anchor: Node = end;
-    for (let index = identities.length - 1; index >= 0; index--) {
-      const row = rows.get(identities[index]!)!;
-      if (!stationary.has(index) && row.end.nextSibling !== anchor) {
-        const focused =
-          document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-        let node: Node | null = row.start;
-        while (node) {
-          const next: Node | null = node.nextSibling;
-          const move = Reflect.get(target, 'moveBefore');
-          if (typeof move === 'function' && target.isConnected && node.isConnected)
-            move.call(target, node, anchor);
-          else target.insertBefore(node, anchor);
-          if (node === row.end) break;
-          node = next;
-        }
-        if (focused?.isConnected && document.activeElement !== focused)
-          focused.focus({ preventScroll: true });
+    // Retained prefixes are already ordered. New tail rows were appended above and
+    // removed tail rows were disposed, so edits, appends and truncations need no moves.
+    let orderChanged = false;
+    for (let index = 0; index < Math.min(previousIdentities.length, identities.length); index++) {
+      if (previousIdentities[index] !== identities[index]) {
+        orderChanged = true;
+        break;
       }
-      anchor = row.start;
+    }
+    if (orderChanged) {
+      const positions = new Map(previousIdentities.map((key, index) => [key, index]));
+      const stationary = stationaryIndices(identities.map((key) => positions.get(key) ?? -1));
+      let anchor: Node = end;
+      for (let index = identities.length - 1; index >= 0; index--) {
+        const row = rows.get(identities[index]!)!;
+        if (!stationary.has(index) && row.end.nextSibling !== anchor) {
+          const focused =
+            document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+          let node: Node | null = row.start;
+          while (node) {
+            const next: Node | null = node.nextSibling;
+            const move = Reflect.get(target, 'moveBefore');
+            if (typeof move === 'function' && target.isConnected && node.isConnected)
+              move.call(target, node, anchor);
+            else target.insertBefore(node, anchor);
+            if (node === row.end) break;
+            node = next;
+          }
+          if (focused?.isConnected && document.activeElement !== focused)
+            focused.focus({ preventScroll: true });
+        }
+        anchor = row.start;
+      }
     }
     previousList = next;
     previousOuter = nextOuter;

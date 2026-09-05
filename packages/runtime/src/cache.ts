@@ -17,13 +17,13 @@ interface ResourceEntry {
   queryId?: number;
 }
 
-export function makeUiModel(): UiModel<never>;
-export function makeUiModel<R>(runtime: UiRuntime<R>): UiModel<R>;
-export function makeUiModel<R>(runtime?: UiRuntime<R>): UiModel<R> {
-  return createUiModel(runtime);
+export function makeQueryCache(): QueryCache<never>;
+export function makeQueryCache<R>(runtime: UiRuntime<R>): QueryCache<R>;
+export function makeQueryCache<R>(runtime?: UiRuntime<R>): QueryCache<R> {
+  return createQueryCache(runtime);
 }
 
-function createUiModel<R>(runtime?: UiRuntime<R>) {
+function createQueryCache<R>(runtime?: UiRuntime<R>) {
   const registry = AtomRegistry.make({ defaultIdleTTL: 30_000 });
   const generation = Atom.keepAlive(Atom.make(0));
   const resources = new Map<string, ResourceEntry>();
@@ -119,7 +119,7 @@ function createUiModel<R>(runtime?: UiRuntime<R>) {
   };
 }
 
-export type UiModel<R = never> = ReturnType<typeof createUiModel<R>>;
+export type QueryCache<R = never> = ReturnType<typeof createQueryCache<R>>;
 
 /** Cursor progress and prior successful pages belong to the resource, including retries. */
 export function makePagedResource<A, Cursor>(
