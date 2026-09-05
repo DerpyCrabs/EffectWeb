@@ -16,3 +16,7 @@ For direct compilation, import `compile` from `@effectweb/compiler`; the result 
 Requires Node.js 22.14+. Optional packages provide binaries for glibc Linux x64/arm64, macOS x64/arm64, and Windows x64. Keep optional dependencies enabled. Installation does not compile Rust. Framework contributors build from source using Rust 1.96+.
 
 See [EffectWeb](https://github.com/DerpyCrabs/EffectWeb) for authoring and development instructions.
+
+For editor and CI diagnostics, add `@effectweb/compiler/oxlint` to Oxlint's `jsPlugins` and enable `effectweb/valid-view` as an error. The optional `effectweb/whole-model-dependency` rule reports coarse dependencies. Both use the compiler's Rust analysis; no second purity implementation is maintained. `diagnose` exposes the same structured view diagnostics for other tooling. Invalid syntax still throws and is handled by the host parser.
+
+The Vite plugin enables plain-data snapshot freezing during development and disables it for production builds. This catches accidental mutation without changing object identity or introducing proxies. See the authoring guide for the readonly type contract, opaque values, and explicit test configuration.

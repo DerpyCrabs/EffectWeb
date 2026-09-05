@@ -53,7 +53,7 @@ Read the [authoring guide](docs/authoring.md) for async tasks, services, slots, 
 
 Views read ordinary immutable values; messages update models. Effects belong to program, component, or DOM-listener scopes. Changing a loader from synchronous Effect to asynchronous Effect does not change its view contract. Promise APIs are adapted explicitly with `fromPromise`.
 
-The compiler handles dependency checks and DOM updates, but cannot infer domain identity or make arbitrary work cheap. Declare entity identity with `collection`, preserve unchanged references, and keep view derivations pure. In-place mutation can leave stale UI. Query caching is in memory; persistence, optimistic domain transactions, multi-tab coordination, and service acquisition remain application responsibilities.
+The compiler handles dependency checks and DOM updates, but cannot infer domain identity or make arbitrary work cheap. Declare entity identity with `collection`, preserve unchanged references, and keep view derivations pure. Development snapshot checks reject in-place mutation of published plain data. Production code must still preserve immutable updates; opaque mutable objects remain outside those checks. Query caching is in memory; persistence, optimistic domain transactions, multi-tab coordination, and service acquisition remain application responsibilities.
 
 This package is a client-side renderer. It does not provide SSR, hydration, routing, or a stable ecosystem comparable to established UI frameworks. Runtime and compiler releases currently advance together.
 

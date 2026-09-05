@@ -16,6 +16,8 @@ pub struct Options {
     pub runtime_module: Option<String>,
     #[serde(default)]
     pub development: bool,
+    #[serde(default)]
+    pub diagnostics_only: bool,
 }
 #[derive(Serialize)]
 pub struct Diagnostic {
@@ -23,6 +25,7 @@ pub struct Diagnostic {
     pub line: usize,
     pub column: usize,
     pub message: String,
+    pub severity: String,
 }
 #[derive(Clone)]
 enum Value<'a> {
@@ -30,7 +33,7 @@ enum Value<'a> {
     Template(&'a Expression<'a>),
 }
 type Env<'a> = BTreeMap<SymbolId, Value<'a>>;
-type Result<T> = std::result::Result<T, String>;
+type Result<T> = std::result::Result<T, Diagnostic>;
 fn quote(s: &str) -> String {
     serde_json::to_string(s).unwrap()
 }
@@ -137,12 +140,15 @@ impl<'a, 's> Lower<'a, 's> {
             .encode_utf16()
             .count()
             + 1;
-        Err(format!(
-            "{}:{line}:{col}: EffectWeb JSX: {message}\n> {line} | {}",
-            self.filename,
-            self.source.lines().nth(line - 1).unwrap_or("")
-        ))
+        Err(Diagnostic {
+            file: self.filename.into(),
+            line,
+            column: col,
+            message: message.into(),
+            severity: "error".into(),
+        })
     }
+
     fn is_template(&self, e: &Expression<'a>, env: &Env<'a>, depth: usize) -> bool {
         depth < 100
             && (contains_jsx(e)
@@ -330,7 +336,7 @@ impl<'a, 's> Lower<'a, 's> {
                     )
             })
         {
-            self.diagnostics.push(Diagnostic{file:self.filename.into(),line,column,message:"This call depends on the whole model. Pass the fields it uses to avoid recomputing on unrelated changes.".into()});
+            self.diagnostics.push(Diagnostic{file:self.filename.into(),line,column,severity:"warning".into(),message:"This call depends on the whole model. Pass the fields it uses to avoid recomputing on unrelated changes.".into()});
         }
         format!(
             ",{}",
@@ -402,6 +408,9 @@ impl<'a, 's> Lower<'a, 's> {
         }
     }
     pub fn compile_view(&mut self, call: &'a CallExpression<'a>) -> Result<String> {
+        // Diagnostics continue after failed views, whose lowering may have exited early.
+        self.depth = 0;
+        self.inside_static = false;
         let Some(Expression::ArrowFunctionExpression(f)) =
             call.arguments.first().and_then(|a| a.as_expression())
         else {

@@ -96,3 +96,5 @@ LocalChat's JavaScript gzip total changed from 100,124 to 100,645 bytes; Inbox's
 Follow-up validation: 137 framework unit tests, nine Rust tests, 27 framework browser tests, clean package consumption, and formatting/lint/type/Clippy checks pass. TeleVecha passed 299 unit and 302 browser tests, with 36 targeted browser tests repeated against the final packages. LocalChat passed 28 unit and 23 browser tests, with its 13 existing skips. Inbox passed 16 unit and all 37 browser tests in the final run. A browser regression reproduces deferred editor activation stealing explicit tab focus on the earlier build and verifies the fix.
 
 These changes are tested with local packed dependencies. They remain unpublished and have not been deployed to the live Inbox services.
+
+The next batch adds compiler-backed Oxlint diagnostics and published snapshot checks. See [authoring checks and consumer regressions](authoring-checks.md) for its scope, measurements, and validation.

@@ -180,3 +180,40 @@ test('native event callbacks read the latest model, reset their input and schedu
   });
   expect(result).toEqual({ text: 'latest:captured', value: '', focus: 'native-followup' });
 });
+
+test('the Vite development plugin enables snapshot protection automatically', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    'use strict';
+    const path = '/tests/fixtures/usabilityFixture.tsx';
+    const { mountForm } = await import(path);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const app = mountForm(host);
+    try {
+      const initial = app.model();
+      let rejected = false;
+      try {
+        initial.text = 'mutated';
+      } catch (error) {
+        rejected = error instanceof TypeError;
+      }
+      app.set({ text: 'published' });
+      return {
+        rejected,
+        initialFrozen: Object.isFrozen(initial),
+        nextFrozen: Object.isFrozen(app.model()),
+        text: app.model().text,
+      };
+    } finally {
+      app.dispose();
+      host.remove();
+    }
+  });
+  expect(result).toEqual({
+    rejected: true,
+    initialFrozen: true,
+    nextFrozen: true,
+    text: 'published',
+  });
+});

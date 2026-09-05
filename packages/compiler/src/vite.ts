@@ -5,8 +5,11 @@ import { compile, type CompilerOptions } from './compile.js';
 export function effectweb(options: CompilerOptions = {}): Plugin {
   let development = false;
   return {
-    config() {
-      return { resolve: { dedupe: ['effect'] } };
+    config(_config, environment) {
+      return {
+        define: { __EFFECTWEB_DEV__: JSON.stringify(environment.command === 'serve') },
+        resolve: { dedupe: ['effect'] },
+      };
     },
     configResolved(config) {
       development = config.command === 'serve';

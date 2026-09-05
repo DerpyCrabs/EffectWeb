@@ -6,10 +6,12 @@ export default defineConfig({
   lint: {
     ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**'],
     plugins: ['typescript', 'unicorn', 'oxc', 'effecttsgo'],
+    jsPlugins: ['./packages/compiler/dist/oxlint.js'],
     options: { typeAware: true, typeCheck: true },
     rules: {
       'effecttsgo/any-unknown-in-error-context': 'off',
       'effecttsgo/floating-effect': 'error',
+      'effectweb/valid-view': ['error', { importSource: './index.js' }],
     },
   },
   fmt: {

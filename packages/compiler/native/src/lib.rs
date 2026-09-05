@@ -103,10 +103,36 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
         if let Expression::Identifier(id) = &call.callee
             && index.symbol(id).is_some_and(|id| markers.contains(&id))
         {
-            let replacement = compiler.compile_view(call)?;
+            let replacement = match compiler.compile_view(call) {
+                Ok(code) => code,
+                Err(error) if options.diagnostics_only => {
+                    compiler.diagnostics.push(error);
+                    until = call.span.end;
+                    continue;
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "{}:{}:{}: EffectWeb JSX: {}\n> {} | {}",
+                        error.file,
+                        error.line,
+                        error.column,
+                        error.message,
+                        error.line,
+                        source.lines().nth(error.line - 1).unwrap_or("")
+                    ));
+                }
+            };
             until = call.span.end;
             edits.push((call.span, replacement));
         }
+    }
+    if options.diagnostics_only {
+        return serde_json::to_string(&Output {
+            code: String::new(),
+            map: None,
+            diagnostics: compiler.diagnostics,
+        })
+        .map_err(|e| e.to_string());
     }
     if !edits.is_empty() {
         let mut insertion = program.directives.last().map(|d| d.span.end).unwrap_or(0);

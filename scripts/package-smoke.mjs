@@ -7,6 +7,7 @@ import {
   writeFileSync,
   realpathSync,
   existsSync,
+  unlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
@@ -44,7 +45,12 @@ writeFileSync(
           `file:${resolve('artifacts/packages', packageFilename(name, version))}`,
         ]),
       ),
-      devDependencies: { effect: '4.0.0-rc.112', vite: '8.2.2', typescript: '5.9.3' },
+      devDependencies: {
+        effect: '4.0.0-rc.112',
+        vite: '8.2.2',
+        typescript: '5.9.3',
+        oxlint: '1.77.0',
+      },
     },
     null,
     2,
@@ -115,9 +121,52 @@ const Counter = counter.view(view((model, send) => {
   return <Frame><button onClick={() => actions.run('increment', count)}><Camera size={24 + count} title="Take a photo" data-count={count} /><AlarmCheck aria-label="Alarm" />Count: {count}</button></Frame>;
 }));
 const source = program<{}, never>({ initial: {}, update: model => ({ model }) });
+document.documentElement.dataset.snapshotFrozen = String(Object.isFrozen(source.model()));
 mountView(document.getElementById('app')!, Counter, source);
 `,
 );
+writeFileSync(
+  join(temp, '.oxlintrc.json'),
+  JSON.stringify({
+    jsPlugins: ['@effectweb/compiler/oxlint'],
+    rules: { 'effectweb/valid-view': 'error' },
+  }),
+);
+run(process.execPath, ['node_modules/oxlint/bin/oxlint', 'app.tsx'], temp);
+const lintProbe = join(temp, 'lint-probe.tsx');
+writeFileSync(
+  lintProbe,
+  `import { view } from 'effectweb';
+const Bad = view((model: { items: number[] }) => {
+  const sorted = model.items.sort();
+  return <p>{sorted.length}</p>;
+});`,
+);
+const lint = spawnSync(
+  process.execPath,
+  ['node_modules/oxlint/bin/oxlint', '--format', 'json', 'lint-probe.tsx'],
+  { cwd: temp, encoding: 'utf8' },
+);
+assert.equal(lint.status, 1, 'Invalid view must fail the packed lint integration');
+const diagnostics = JSON.parse(lint.stdout).diagnostics;
+assert.ok(
+  diagnostics.some(
+    (d) => d.code?.includes('valid-view') && d.message.includes('mutating method sort'),
+  ),
+  lint.stdout,
+);
+writeFileSync(
+  lintProbe,
+  `import { view } from 'effectweb';
+const Good = view((model: { items: number[] }) => {
+  // oxlint-disable-next-line effectweb/valid-view
+  const sorted = model.items.sort();
+  return <p>{sorted.length}</p>;
+});`,
+);
+run(process.execPath, ['node_modules/oxlint/bin/oxlint', 'lint-probe.tsx'], temp);
+// The suppression probe deliberately bypasses the compiler; remove it before build/type checks.
+unlinkSync(lintProbe);
 run(process.execPath, ['node_modules/typescript/bin/tsc', '--noEmit'], temp);
 run(process.execPath, ['node_modules/vite/bin/vite.js', 'build'], temp);
 const bundle = readdirSync(join(temp, 'dist/assets'))
@@ -175,6 +224,11 @@ try {
   await page.getByRole('button').click();
   await page.getByRole('button').filter({ hasText: 'Count: 2' }).waitFor();
   assert.equal(await page.locator('.lucide-camera').getAttribute('width'), '26');
+  assert.equal(
+    await page.locator('html').getAttribute('data-snapshot-frozen'),
+    'false',
+    'Production builds must disable automatic snapshot checks',
+  );
   assert.equal(
     await page.evaluate(() => window.originalCamera === document.querySelector('.lucide-camera')),
     true,

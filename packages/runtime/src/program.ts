@@ -1,3 +1,4 @@
+import { protectSnapshot, checkSnapshotsByDefault, type Snapshot } from './snapshot.js';
 import { reportError, reportSafely } from './errors.js';
 import { traceProgram, nextProgramId, hasProgramObservers } from './diagnostics.js';
 import { Cause, Effect, Fiber, Option, Stream } from 'effect';
@@ -59,9 +60,9 @@ export interface Transition<Model, Message, R = never> {
   readonly cancel?: readonly string[];
 }
 export interface Program<Model, Message> {
-  readonly model: () => Model;
+  readonly model: () => Snapshot<Model>;
   readonly send: Send<Message>;
-  readonly subscribe: (listener: (model: Model) => void) => () => void;
+  readonly subscribe: (listener: (model: Snapshot<Model>) => void) => () => void;
   readonly dispose: () => void;
 }
 export interface RunningProgram<Model, Message> extends Program<Model, Message> {
@@ -73,9 +74,11 @@ export interface RunningProgram<Model, Message> extends Program<Model, Message> 
 export function program<Model, Message>(options: {
   initial: Model;
   name?: string;
-  update: (model: Model, message: Message) => Transition<Model, Message>;
+  checkSnapshots?: boolean;
+  update: (model: Snapshot<Model>, message: Message) => Transition<Model, Message>;
   onDefect?: (cause: unknown) => void;
 }): RunningProgram<Model, Message> {
+  const checkSnapshots = options.checkSnapshots ?? checkSnapshotsByDefault;
   const id = nextProgramId();
   const trace = (
     kind: import('./diagnostics').ProgramUpdate['kind'],
@@ -108,7 +111,7 @@ export function program<Model, Message>(options: {
     }
   };
   const registry = AtomRegistry.make();
-  const atom = Atom.make(options.initial);
+  const atom = Atom.make(protectSnapshot(options.initial, checkSnapshots));
   const release = registry.mount(atom);
   const running = new Map<
     string,
@@ -134,7 +137,7 @@ export function program<Model, Message>(options: {
         const transition = options.update(registry.get(atom), message);
         trace('update', undefined, message);
         for (const slot of transition.cancel ?? []) cancel(slot);
-        registry.set(atom, transition.model);
+        registry.set(atom, protectSnapshot(transition.model, checkSnapshots));
         for (const command of transition.commands ?? []) {
           if (disposed) break;
           cancel(command.slot);

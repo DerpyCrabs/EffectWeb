@@ -241,3 +241,37 @@ const Title = view(({ title, user: { name } }: Props) => (
 Simple object patterns compile to field dependencies directly. Renaming, nested patterns, defaults, computed keys, array patterns and rest bindings are supported. Complex patterns use a cached derivation that retains JavaScript's default and rest behavior. Event closures capture values from the snapshot at dispatch time.
 
 Keep the optional dispatch parameter named. Whole-parameter defaults and rest parameters remain unsupported. Defaults that reference dispatch should be declared inside the view body.
+
+## Checks while authoring
+
+The compiler package includes an Oxlint plugin. It runs the same Rust view analysis as a build, so unsupported control flow, mutations, and impure derivations appear in your editor and lint command. It collects the first error in each invalid view and continues checking later views.
+
+```json
+{
+  "jsPlugins": ["@effectweb/compiler/oxlint"],
+  "rules": { "effectweb/valid-view": "error", "effectweb/whole-model-dependency": "warn" }
+}
+```
+
+In Vite+, put these fields under `lint` in the Vite configuration. The Oxlint editor integration uses that configuration too. The optional whole-model rule reports calls such as `format(model)` that prevent field-level dependency checks; it does not prove that an expensive computation occurs. Disable that advice if whole-model derivations are intentional. A custom view import can be configured as `["error", { "importSource": "./ui" }]`, matching the compiler option. Suppressing a lint error does not make invalid code compile.
+
+Keep Effect-aware diagnostics enabled alongside this plugin. The apps use `@effect/tsgo`, its `effect-tsgo patch --oxlint` installation step, `effecttsgo` in `plugins`, type-aware linting, and `effecttsgo/floating-effect: "error"`. Ordinary TypeScript checking and the EffectWeb plugin cannot identify every discarded cold Effect. Explicit `void`, `any`, or an already widened `() => void` callback can still hide a discarded result. Lint does not infer the correct cancellation policy or domain identity.
+
+Tooling can call `diagnose(source, filename, options)` from `@effectweb/compiler` for the same structured view diagnostics without emitting code or a source map. Locations use one-based lines and UTF-16 columns. Invalid syntax and native loading failures throw; a linter's parser handles syntax diagnostics before invoking this plugin.
+
+## Published snapshot protection
+
+`modelOwner.read()`, `Program.model()`, program reducers, and subscribers expose `Snapshot<Model>`, which makes published fields readonly. `edit` receives a readonly field value and can return that same value for a no-op, without making a copy. Use readonly nested domain types for static protection of nested data; the framework does not recursively rewrite types of services and other opaque values.
+
+The Vite plugin also enables snapshot checks during development. Publication freezes plain objects and arrays recursively, including data reachable through retained input references. Mutation throws at the assignment in strict-mode application modules. A transaction read protects its staged data as well. Already checked shared branches are tracked weakly, so ordinary updates only walk newly introduced data. The guard never invokes getters or traverses functions or class instances such as Effects, DOM nodes, editors, Maps, and Dates. Plain records are treated as data, including their symbol fields. Successful data inside `AsyncResult` is checked too, including a previous success retained after a failed refresh; the Effect wrapper itself is left intact.
+
+These checks preserve object identity; they do not clone models, create proxies, or make mutation reactive. Mutable state inside opaque instances and getters remains outside this protection. A frozen model cannot be made mutable again by disabling checks later.
+
+Production builds disable automatic checks. Outside the Vite plugin, tests and other hosts can opt in explicitly:
+
+```ts
+const app = modelOwner({ items: [{ id: 'first', title: 'Draft' }] }, { checkSnapshots: true });
+app.edit('items', (items) => items.map((item) => ({ ...item, title: 'Saved' })));
+```
+
+`program` and `uiRuntime(...).program` accept the same option. Tests should verify the immutable publication contract through normal reads, edits, and subscriptions.

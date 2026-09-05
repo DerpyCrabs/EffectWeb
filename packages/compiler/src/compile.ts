@@ -5,6 +5,7 @@ export interface Diagnostic {
   readonly line: number;
   readonly column: number;
   readonly message: string;
+  readonly severity: 'error' | 'warning';
 }
 export interface CompilerOptions {
   /** The module exporting view and slot. Defaults to effectweb. */
@@ -31,4 +32,26 @@ export function compile(
   ) as CompilerResult;
   for (const diagnostic of result.diagnostics) onDiagnostic?.(diagnostic);
   return result;
+}
+
+/** Run the same view analysis as compilation, collecting one error per invalid view. */
+export function diagnose(
+  source: string,
+  filename: string,
+  options: Omit<CompilerOptions, 'onDiagnostic'> = {},
+): readonly Diagnostic[] {
+  return (
+    JSON.parse(
+      nativeCompile(
+        source,
+        filename,
+        JSON.stringify({
+          importSource: 'effectweb',
+          ...options,
+          development: true,
+          diagnosticsOnly: true,
+        }),
+      ),
+    ) as CompilerResult
+  ).diagnostics;
 }

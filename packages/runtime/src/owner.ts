@@ -1,3 +1,4 @@
+import { protectSnapshot, checkSnapshotsByDefault, type Snapshot } from './snapshot.js';
 import { Effect } from 'effect';
 import { program, type Command, type Program } from './program.js';
 import { patchModel } from './state.js';
@@ -11,9 +12,12 @@ export interface DisposableOwner {
 }
 export interface ModelOwner<Model extends object, R = never> extends DisposableOwner {
   readonly source: Program<Model, never>;
-  readonly read: () => Model;
+  readonly read: () => Snapshot<Model>;
   readonly patch: (changes: Partial<Model>) => void;
-  readonly edit: <K extends keyof Model>(key: K, change: (value: Model[K]) => Model[K]) => void;
+  readonly edit: <K extends keyof Model>(
+    key: K,
+    change: (value: Snapshot<Model[K]>) => Snapshot<Model[K]>,
+  ) => void;
   /** Synchronous transaction. Reads see staged changes; a throw discards changes and work. */
   readonly transaction: <A>(
     work: () => A & (A extends PromiseLike<unknown> ? never : unknown),
@@ -29,7 +33,7 @@ export interface ModelOwner<Model extends object, R = never> extends DisposableO
   readonly dispose: () => void;
 }
 
-type Options = { name?: string; onDefect?: ReportError };
+type Options = { checkSnapshots?: boolean; name?: string; onDefect?: ReportError };
 export function modelOwner<Model extends object>(
   initial: Model,
   options?: Options,
@@ -101,7 +105,11 @@ export function modelOwner<Model extends object, R>(
       };
     },
   });
-  const read = () => staged?.model ?? source.model();
+  const read = () =>
+    protectSnapshot(
+      staged?.model ?? source.model(),
+      options.checkSnapshots ?? checkSnapshotsByDefault,
+    );
   const submit = (operation: Operation) => {
     if (disposed) return;
     if (staged) {
@@ -124,7 +132,8 @@ export function modelOwner<Model extends object, R>(
     edit: (key, change) => {
       if (!disposed) {
         const changes: Partial<Model> = {};
-        changes[key] = change(read()[key]);
+        // Readonly changes remain immutable model data; no clone is needed for a no-op.
+        changes[key] = change(read()[key]) as Model[typeof key];
         patch(changes);
       }
     },

@@ -1,3 +1,4 @@
+import type { Snapshot } from './snapshot.js';
 import { Context, Effect, Stream } from 'effect';
 import { program, type Command, type RunningProgram, type Transition } from './program.js';
 
@@ -8,8 +9,9 @@ export interface UiRuntime<R> {
   readonly command: <M>(command: Command<M, R>) => Command<M>;
   readonly program: <M, Msg>(options: {
     initial: M;
-    update: (model: M, message: Msg) => Transition<M, Msg, R>;
+    update: (model: Snapshot<M>, message: Msg) => Transition<M, Msg, R>;
     name?: string;
+    checkSnapshots?: boolean;
     onDefect?: (cause: unknown) => void;
   }) => RunningProgram<M, Msg>;
 }

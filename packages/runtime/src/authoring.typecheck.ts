@@ -86,3 +86,22 @@ owner.edit('count', () => 'bad');
 void owner.transaction(async () => {});
 // @ts-expect-error Unknown model fields are rejected.
 owner.patch({ missing: true });
+
+// Published fields cannot be assigned, including through the source or listeners.
+// @ts-expect-error Publish changes through patch/edit.
+owner.read().count = 1;
+// @ts-expect-error Source reads have the same readonly contract.
+owner.source.model().count = 1;
+owner.source.subscribe((model) => {
+  // @ts-expect-error Subscribers receive readonly published fields.
+  model.count = 1;
+});
+const arrayOwner = modelOwner({ values: [1] });
+arrayOwner.edit('values', (values) => {
+  // @ts-expect-error edit receives a readonly array.
+  values.push(2);
+  return [...values, 2];
+});
+
+// A no-op edit can return the readonly input without copying it.
+arrayOwner.edit('values', (values) => values);
