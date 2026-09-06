@@ -30,6 +30,7 @@ pub struct Diagnostic {
 #[derive(Clone)]
 enum Value<'a> {
     Read(String),
+    Stable(String),
     Template(&'a Expression<'a>),
 }
 type Env<'a> = BTreeMap<SymbolId, Value<'a>>;
@@ -89,7 +90,6 @@ pub struct Lower<'a, 's> {
     prefix: String,
     map_prefix: String,
     counter: usize,
-    inside_static: bool,
     depth: usize,
 }
 impl<'a, 's> Lower<'a, 's> {
@@ -116,7 +116,6 @@ impl<'a, 's> Lower<'a, 's> {
             prefix,
             map_prefix: crate::sourcemap::marker_prefix(source),
             counter: 0,
-            inside_static: false,
             depth: 0,
         }
     }
@@ -233,7 +232,7 @@ impl<'a, 's> Lower<'a, 's> {
                 continue;
             };
             let value = match v {
-                Value::Read(v) => v.clone(),
+                Value::Read(v) | Value::Stable(v) => v.clone(),
                 Value::Template(t) => self.rewrite_span(t.span(), env, depth + 1),
             };
             out.push_str(&self.source[offset..r.span.start as usize]);
@@ -281,6 +280,68 @@ impl<'a, 's> Lower<'a, 's> {
             args.join(",")
         )
     }
+    // Reads do not allocate a new prop value. They can share one dependency cache
+    // for the child model; expressions constructing values keep independent caches.
+    fn direct_read(e: &Expression<'_>) -> bool {
+        match unwrapped(e) {
+            Expression::Identifier(_) => true,
+            Expression::StaticMemberExpression(m) => Self::direct_read(&m.object),
+            Expression::ComputedMemberExpression(m) => {
+                Self::direct_read(&m.object) && Self::static_expr(&m.expression)
+            }
+            _ => false,
+        }
+    }
+    fn snapshot_body(&mut self, e: &Expression<'a>, env: &Env<'a>) -> (Env<'a>, String) {
+        let mut local = env.clone();
+        let mut captures = String::new();
+        for id in self.captures(e, env) {
+            let name = self.uid("capture");
+            if let Some(Value::Read(value)) = env.get(&id) {
+                captures.push_str(&format!("const {name}=({value});"));
+            }
+            local.insert(id, Value::Stable(name));
+        }
+        (local, captures)
+    }
+    fn snapshot_function(&mut self, e: &Expression<'a>, env: &Env<'a>) -> String {
+        let (local, captures) = self.snapshot_body(e, env);
+        format!("()=>{{{captures}return ({});}}", self.rewrite(e, &local))
+    }
+    fn event_handler(&mut self, e: &Expression<'a>, env: &Env<'a>) -> String {
+        if let Expression::ArrowFunctionExpression(f) = unwrapped(e)
+            && f.params.rest.is_none()
+            && f.params.items.iter().all(|p| {
+                p.initializer.is_none() && matches!(p.pattern, BindingPattern::BindingIdentifier(_))
+            })
+            && !matches!(&f.body, ArrowFunctionBody::FunctionBody(body) if !body.directives.is_empty())
+        {
+            let (local, captures) = self.snapshot_body(e, env);
+            let params = f
+                .params
+                .items
+                .iter()
+                .map(|p| self.raw(p.span))
+                .collect::<Vec<_>>()
+                .join(",");
+            let body = match &f.body {
+                ArrowFunctionBody::FunctionBody(body) => body
+                    .statements
+                    .iter()
+                    .map(|s| self.rewrite_span(s.span(), &local, 0))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                body => format!(
+                    "return ({});",
+                    self.rewrite(body.as_expression().unwrap(), &local)
+                ),
+            };
+            return format!("({params})=>{{{captures}{body}}}");
+        }
+        let event = self.uid("event");
+        let read = self.snapshot(e, env);
+        format!("({event})=>({read})({event})")
+    }
     fn deps(&self, e: &Expression<'a>, env: &Env<'a>) -> Vec<String> {
         self.deps_inner(e, env, 0)
     }
@@ -298,7 +359,7 @@ impl<'a, 's> Lower<'a, 's> {
                     format!("({value}){}", r.path.join(""))
                 }],
                 Some(Value::Template(t)) => self.deps_inner(t, env, depth + 1),
-                None => vec![],
+                Some(Value::Stable(_)) | None => vec![],
             };
             for value in values {
                 if seen.insert(value.clone()) {
@@ -410,7 +471,6 @@ impl<'a, 's> Lower<'a, 's> {
     pub fn compile_view(&mut self, call: &'a CallExpression<'a>) -> Result<String> {
         // Diagnostics continue after failed views, whose lowering may have exited early.
         self.depth = 0;
-        self.inside_static = false;
         let Some(Expression::ArrowFunctionExpression(f)) =
             call.arguments.first().and_then(|a| a.as_expression())
         else {
@@ -510,7 +570,7 @@ impl<'a, 's> Lower<'a, 's> {
         {
             env.insert(
                 id.symbol_id.get().unwrap(),
-                Value::Read(format!("{scope}.send")),
+                Value::Stable(format!("{scope}.send")),
             );
         }
         let body = format!(
@@ -590,8 +650,16 @@ impl<'a, 's> Lower<'a, 's> {
                             let cached = self.uid("derived");
                             let deps = self.deps(init, &env).join(",");
                             let value = self.snapshot(init, &env);
+                            let compute = self.snapshot_function(init, &env);
                             let diagnostic = self.diagnostic(init, &env);
-                            output.push_str(&format!("const {cached}={scope}.derive(()=>[{deps}],()=>({value}){diagnostic});"));
+                            if deps.is_empty() && matches!(decl.id, BindingPattern::BindingIdentifier(_))
+                                && (Self::static_expr(init) || matches!(unwrapped(init), Expression::ArrowFunctionExpression(_))) {
+                                output.push_str(&format!("const {cached}=({value});"));
+                                let BindingPattern::BindingIdentifier(id) = &decl.id else { unreachable!() };
+                                env.insert(id.symbol_id.get().unwrap(), Value::Stable(cached));
+                                continue;
+                            }
+                            output.push_str(&format!("const {cached}={scope}.derive(()=>[{deps}],{compute}{diagnostic});"));
                             // Rewrite defaults/computed keys before adding the pattern's own bindings.
                             let pattern = self.rewrite_span(decl.id.span(), &env, 0);
                             for (id, name) in self.index.binding_names(decl.id.span()) {
@@ -920,23 +988,7 @@ impl<'a, 's> Lower<'a, 's> {
                     out.push_str(&self.children(&f.children, env, scope, parent, before)?)
                 }
                 JSXChild::Text(t) => {
-                    let lines = t.value.replace('\r', "");
-                    let lines = lines.split('\n').collect::<Vec<_>>();
-                    let text = lines
-                        .iter()
-                        .enumerate()
-                        .map(|(i, s)| {
-                            let s = s.replace('\t', " ");
-                            let s = if i > 0 { s.trim_start().to_owned() } else { s };
-                            if i + 1 < lines.len() {
-                                s.trim_end().to_owned()
-                            } else {
-                                s
-                            }
-                        })
-                        .filter(|s| !s.is_empty())
-                        .collect::<Vec<_>>()
-                        .join(" ");
+                    let text = Self::jsx_text(t.value.as_str());
                     if !text.is_empty() {
                         out.push_str(&format!(
                             "{}{}.literal({parent},{before},{});",
@@ -998,6 +1050,211 @@ impl<'a, 's> Lower<'a, 's> {
                 | Expression::NullLiteral(_)
         ) || matches!(e,Expression::JSXElement(e) if Self::static_element(e))
     }
+    fn template_element(e: &JSXElement<'_>) -> bool {
+        matches!(&e.opening_element.name, JSXElementName::Identifier(n)
+            if n.name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+                && !["input", "textarea", "select", "option"].contains(&n.name.as_str())
+                && !n.name.contains('-'))
+            && e.opening_element.attributes.iter().all(|a| matches!(a, JSXAttributeItem::Attribute(a)
+                if matches!(&a.name, JSXAttributeName::Identifier(n) if !["ref", "key", "innerHTML"].contains(&n.name.as_str()))))
+    }
+    fn template_size(e: &JSXElement<'_>) -> usize {
+        if !Self::template_element(e) {
+            return 0;
+        }
+        1 + e
+            .children
+            .iter()
+            .map(|c| match c {
+                JSXChild::Element(e) => Self::template_size(e),
+                _ => 0,
+            })
+            .sum::<usize>()
+    }
+    // Serialize only compile-time literals. Calls, getters, hosts, and closures run at
+    // their original placement. All node references are resolved before any binding
+    // can insert content, so dynamic siblings cannot shift a later lookup.
+    fn template_shape(
+        &mut self,
+        e: &'a JSXElement<'a>,
+        env: &Env<'a>,
+        scope: &str,
+        path: &str,
+    ) -> Result<(String, String, String)> {
+        let JSXElementName::Identifier(tag) = &e.opening_element.name else {
+            unreachable!()
+        };
+        let element = self.uid("element");
+        let mut shape = vec![quote(tag.name.as_str())];
+        let mut fixed = vec![];
+        let mut dynamic = vec![];
+        // Preserve attribute ordering when more than one attribute can contribute
+        // to the same DOM state, such as class and classList.
+        let attrs = self.attrs(e, false)?;
+        let mut dynamic_attributes = HashSet::new();
+        for (name, value) in attrs {
+            let key = match name.as_str() {
+                "class" | "className" | "classList" => "class",
+                "tabIndex" => "tabindex",
+                name => name,
+            };
+            let literal = !dynamic_attributes.contains(key)
+                && name != "use"
+                && !name.starts_with("on")
+                && value.expr().is_none_or(|expr| match expr {
+                    Expression::StringLiteral(_)
+                    | Expression::BooleanLiteral(_)
+                    | Expression::NullLiteral(_) => true,
+                    Expression::NumericLiteral(n) => n.value.is_finite(),
+                    _ => false,
+                });
+            if literal {
+                fixed.push(quote(&name));
+                let literal = match value {
+                    Attr::Static(value) => value,
+                    Attr::Expr(Expression::StringLiteral(value)) => quote(value.value.as_str()),
+                    Attr::Expr(Expression::NumericLiteral(value)) => value.value.to_string(),
+                    Attr::Expr(Expression::BooleanLiteral(value)) => value.value.to_string(),
+                    Attr::Expr(Expression::NullLiteral(_)) => "null".into(),
+                    value => value.rewrite(self, env),
+                };
+                fixed.push(literal);
+            } else {
+                dynamic_attributes.insert(key.to_owned());
+                dynamic.push((name, value));
+            }
+        }
+        shape.push(format!("[{}]", fixed.join(",")));
+        let mut refs = format!("const {element}={path};");
+        let mut bind = self.element_attributes(e, env, scope, &element, dynamic)?;
+        let mut index = 0;
+        let mut text_before = false;
+        let mut anchors = BTreeMap::<usize, String>::new();
+        for (child_index, child) in e.children.iter().enumerate() {
+            match child {
+                JSXChild::Element(child) if Self::template_element(child) => {
+                    let (child_shape, child_refs, child_bind) = self.template_shape(
+                        child,
+                        env,
+                        scope,
+                        &anchors.get(&index).cloned().unwrap_or_else(|| {
+                            if index == 0 {
+                                format!("{element}.firstChild")
+                            } else {
+                                format!("{element}.childNodes[{index}]")
+                            }
+                        }),
+                    )?;
+                    text_before = false;
+                    shape.push(child_shape);
+                    refs.push_str(&child_refs);
+                    bind.push_str(&child_bind);
+                    index += 1;
+                }
+                JSXChild::Text(text) => {
+                    let text = Self::jsx_text(text.value.as_str());
+                    if !text.is_empty() {
+                        // Parsing joins adjacent text, so retain one boundary only
+                        // when two static text nodes must stay independently addressable.
+                        if text_before {
+                            shape.push("null".into());
+                            index += 1;
+                        }
+                        text_before = true;
+                        shape.push(quote(&text));
+                        index += 1;
+                    }
+                }
+                JSXChild::ExpressionContainer(c) if c.expression.as_expression().is_none() => {}
+                child => {
+                    // All dynamic regions have their own lifetime boundaries. Reuse
+                    // the following static sibling, or append, instead of adding a
+                    // second marker for every branch, component, and list.
+                    let following = e.children[child_index + 1..]
+                        .iter()
+                        .any(|child| match child {
+                            JSXChild::Element(child) => Self::template_element(child),
+                            JSXChild::Text(text) => !Self::jsx_text(text.value.as_str()).is_empty(),
+                            _ => false,
+                        });
+                    let anchor = if following {
+                        if let Some(anchor) = anchors.get(&index) {
+                            anchor.clone()
+                        } else {
+                            let anchor = self.uid("anchor");
+                            refs.push_str(&format!(
+                                "const {anchor}={element}.childNodes[{index}];"
+                            ));
+                            anchors.insert(index, anchor.clone());
+                            anchor
+                        }
+                    } else {
+                        "null".into()
+                    };
+                    bind.push_str(&self.children(
+                        std::slice::from_ref(child),
+                        env,
+                        scope,
+                        &element,
+                        &anchor,
+                    )?);
+                }
+            }
+        }
+        if bind.is_empty() {
+            refs.clear();
+        }
+        Ok((format!("[{}]", shape.join(",")), refs, bind))
+    }
+    fn template_native(&mut self, node: &serde_json::Value, parent: &str, before: &str) -> String {
+        if node.is_null() {
+            return format!(
+                "{parent}.insertBefore(({parent}.ownerDocument??document).createComment(''),{before});"
+            );
+        }
+        if let Some(text) = node.as_str() {
+            return format!(
+                "{}.literal({parent},{before},{});",
+                self.runtime,
+                quote(text)
+            );
+        }
+        let node = node.as_array().unwrap();
+        let element = self.uid("element");
+        let mut build = format!(
+            "const {element}={}.element({parent},{before},{});",
+            self.runtime, node[0]
+        );
+        for attribute in node[1].as_array().unwrap().as_chunks::<2>().0 {
+            build.push_str(&format!(
+                "{}.attribute({element},{},{});",
+                self.runtime, attribute[0], attribute[1]
+            ));
+        }
+        for child in &node[2..] {
+            build.push_str(&self.template_native(child, &element, "null"));
+        }
+        build
+    }
+    fn jsx_text(value: &str) -> String {
+        let lines = value.replace('\r', "");
+        let lines = lines.split('\n').collect::<Vec<_>>();
+        lines
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let s = s.replace('\t', " ");
+                let s = if i > 0 { s.trim_start().to_owned() } else { s };
+                if i + 1 < lines.len() {
+                    s.trim_end().to_owned()
+                } else {
+                    s
+                }
+            })
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
     fn element(
         &mut self,
         e: &'a JSXElement<'a>,
@@ -1007,18 +1264,28 @@ impl<'a, 's> Lower<'a, 's> {
         before: &str,
     ) -> Result<String> {
         let mark = self.marker(e.span);
-        if !self.inside_static && Self::static_element(e) {
+        if Self::template_size(e) > 1 || (Self::template_element(e) && Self::static_element(e)) {
             let template = self.uid("template");
-            let p = self.uid("parent");
-            let b = self.uid("before");
-            self.inside_static = true;
-            let body = self.element(e, env, scope, &p, &b)?;
-            self.inside_static = false;
-            self.hoisted.push(format!(
-                "{mark}const {template}=/* @__PURE__ */ {}.template(({p},{b})=>{{{body}}});",
-                self.runtime
+            let root = self.uid("root");
+            let (shape, refs, bind) = self.template_shape(e, env, scope, &root)?;
+            let factory = match crate::template::serialize(&shape) {
+                Some((html, depth)) => {
+                    format!("{}.template({},{depth})", self.runtime, quote(&html))
+                }
+                None => {
+                    let p = self.uid("parent");
+                    let b = self.uid("before");
+                    let node = serde_json::from_str(&shape)
+                        .expect("Compiler template literals must be JSON");
+                    let build = self.template_native(&node, &p, &b);
+                    format!("{}.template(({p},{b})=>{{{build}}})", self.runtime)
+                }
+            };
+            self.hoisted
+                .push(format!("{mark}const {template}=/* @__PURE__ */ {factory};"));
+            return Ok(format!(
+                "{mark}const {root}={template}({parent},{before});{refs}{bind}"
             ));
-            return Ok(format!("{mark}{template}({parent},{before});"));
         }
         let tag = match &e.opening_element.name {
             JSXElementName::Identifier(n) => n.name.as_str(),
@@ -1080,6 +1347,10 @@ impl<'a, 's> Lower<'a, 's> {
             let mut out = mark;
             let mut reads = vec![];
             let mut props = vec![];
+            let mut grouped = false;
+            let mut group_env = env.clone();
+            let mut group_ids = HashSet::new();
+            let mut group_captures = String::new();
             if has_children {
                 let content = self.uid("children");
                 let slot_scope = self.uid("slot");
@@ -1112,22 +1383,59 @@ impl<'a, 's> Lower<'a, 's> {
                     Some(e) => self.snapshot(e, env),
                     None => value.rewrite(self, env),
                 };
+                if deps.is_empty() {
+                    out.push_str(&format!("const {cached}=({read});"));
+                    props.push(format!("{}:{cached}", quote(&name)));
+                    continue;
+                }
+                if !self.options.development && value.expr().is_some_and(Self::direct_read) {
+                    reads.extend(value.expr().map(|e| self.deps(e, env)).unwrap_or_default());
+                    let expr = value.expr().unwrap();
+                    for id in self.captures(expr, env) {
+                        if group_ids.insert(id) {
+                            let capture = self.uid("capture");
+                            if let Some(Value::Read(value)) = env.get(&id) {
+                                group_captures.push_str(&format!("const {capture}=({value});"));
+                            }
+                            group_env.insert(id, Value::Stable(capture));
+                        }
+                    }
+                    props.push(format!(
+                        "{}:({})",
+                        quote(&name),
+                        self.rewrite(expr, &group_env)
+                    ));
+                    grouped = true;
+                    continue;
+                }
                 let diag = value
                     .expr()
                     .map(|e| self.diagnostic(e, env))
                     .unwrap_or_default();
+                let compute = value
+                    .expr()
+                    .map(|e| self.snapshot_function(e, env))
+                    .unwrap_or_else(|| format!("()=>({read})"));
                 out.push_str(&format!(
-                    "const {cached}={scope}.derive(()=>[{deps}],()=>({read}){diag});"
+                    "const {cached}={scope}.derive(()=>[{deps}],{compute}{diag});"
                 ));
                 reads.push(format!("{cached}()"));
                 props.push(format!("{}:{cached}()", quote(&name)));
             }
-            out.push_str(&format!(
-                "{}.child({scope},{parent},{before},{tag},()=>[{}],()=>({{{}}}),()=>{{}});",
-                self.runtime,
-                reads.join(","),
-                props.join(",")
-            ));
+            if grouped {
+                let model = self.uid("props");
+                let mut seen = HashSet::new();
+                reads.retain(|read| seen.insert(read.clone()));
+                let compute = format!("()=>{{{group_captures}return ({{{}}});}}", props.join(","));
+                out.push_str(&format!("const {model}={scope}.derive(()=>[{}],{compute});{}.child({scope},{parent},{before},{tag},()=>[{model}()],{model},()=>{{}});", reads.join(","), self.runtime));
+            } else {
+                out.push_str(&format!(
+                    "{}.child({scope},{parent},{before},{tag},()=>[{}],()=>({{{}}}),()=>{{}});",
+                    self.runtime,
+                    reads.join(","),
+                    props.join(",")
+                ));
+            }
             return Ok(out);
         }
         let element = self.uid("element");
@@ -1136,7 +1444,20 @@ impl<'a, 's> Lower<'a, 's> {
             self.runtime,
             quote(tag)
         );
-        for (name, value) in self.attrs(e, false)? {
+        out.push_str(&self.element_attributes(e, env, scope, &element, self.attrs(e, false)?)?);
+        out.push_str(&self.children(&e.children, env, scope, &element, "null")?);
+        Ok(out)
+    }
+    fn element_attributes(
+        &mut self,
+        e: &'a JSXElement<'a>,
+        env: &Env<'a>,
+        scope: &str,
+        element: &str,
+        attrs: Vec<(String, Attr<'a>)>,
+    ) -> Result<String> {
+        let mut out = String::new();
+        for (name, value) in attrs {
             if ["key", "ref", "innerHTML"].contains(&name.as_str()) {
                 return self.fail(e.span,&format!("{name} is not an EffectWeb view attribute. Identity belongs to collections; DOM lifecycles belong to the host."));
             }
@@ -1158,13 +1479,15 @@ impl<'a, 's> Lower<'a, 's> {
                 {
                     return self.fail(e.span,"Async work belongs in commands. Event handlers dispatch messages synchronously.");
                 }
-                let read = match value.expr() {
-                    Some(e) => self.snapshot(e, env),
-                    None => value.rewrite(self, env),
+                let handler = match value.expr() {
+                    Some(expr) => self.event_handler(expr, env),
+                    None => {
+                        let event = self.uid("event");
+                        format!("({event})=>({})({event})", value.rewrite(self, env))
+                    }
                 };
-                let event = self.uid("event");
                 out.push_str(&format!(
-                    "{}.event({scope},{element},{},({event})=>({read})({event}));",
+                    "{}.event({scope},{element},{},{handler});",
                     self.runtime,
                     quote(&name)
                 ));
@@ -1198,7 +1521,6 @@ impl<'a, 's> Lower<'a, 's> {
                 }
             }
         }
-        out.push_str(&self.children(&e.children, env, scope, &element, "null")?);
         Ok(out)
     }
     fn attrs(&self, e: &'a JSXElement<'a>, component: bool) -> Result<Vec<(String, Attr<'a>)>> {

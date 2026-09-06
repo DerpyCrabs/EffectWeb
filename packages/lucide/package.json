@@ -1,6 +1,6 @@
 {
   "name": "@effectweb/lucide",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Lucide icons compiled to direct DOM views for EffectWeb",
   "homepage": "https://github.com/DerpyCrabs/EffectWeb/tree/main/packages/lucide",
   "license": "ISC",
@@ -46,7 +46,7 @@
   },
   "peerDependencies": {
     "effect": "4.0.0-rc.112",
-    "effectweb": "^0.2.2"
+    "effectweb": "^0.2.3"
   },
   "engines": {
     "node": ">=22.14"

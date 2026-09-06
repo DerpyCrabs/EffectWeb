@@ -2,8 +2,6 @@ import { protectSnapshot, checkSnapshotsByDefault, type Snapshot } from './snaps
 import { reportError, reportSafely } from './errors.js';
 import { traceProgram, nextProgramId, hasProgramObservers } from './diagnostics.js';
 import { Cause, Effect, Fiber, Option, Stream } from 'effect';
-import * as Atom from 'effect/unstable/reactivity/Atom';
-import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
 
 export type Send<Message> = (message: Message) => void;
 /** A slot owns either one completion or a stream of progress/events, canceled together. */
@@ -109,9 +107,10 @@ export function program<Model, Message>(options: {
       }
     }
   };
-  const registry = AtomRegistry.make();
-  const atom = Atom.make(protectSnapshot(options.initial, checkSnapshots));
-  const release = registry.mount(atom);
+  // A program publishes one immutable value. It needs no reactive dependency graph;
+  // Effect still owns all command fibers, streams, and cancellation below.
+  let current = protectSnapshot(options.initial, checkSnapshots);
+  const listeners = new Set<(model: Snapshot<Model>) => void>();
   const running = new Map<
     string,
     { token: object; fiber?: Fiber.Fiber<Option.Option<Message>, unknown> }
@@ -133,10 +132,14 @@ export function program<Model, Message>(options: {
     try {
       while (queue.length && !disposed) {
         const message = queue.shift()!;
-        const transition = options.update(registry.get(atom), message);
+        const transition = options.update(current, message);
         trace('update', undefined, message);
         for (const slot of transition.cancel ?? []) cancel(slot);
-        registry.set(atom, protectSnapshot(transition.model, checkSnapshots));
+        const next = protectSnapshot(transition.model, checkSnapshots);
+        if (!Object.is(current, next)) {
+          current = next;
+          for (const listener of listeners) listener(current);
+        }
         for (const command of transition.commands ?? []) {
           if (disposed) break;
           cancel(command.slot);
@@ -185,7 +188,7 @@ export function program<Model, Message>(options: {
     }
   };
   return {
-    model: () => registry.get(atom),
+    model: () => current,
     activeSlots: () => [...running.keys()],
     awaitIdle: (slot) =>
       disposed || (!draining && (slot ? !running.has(slot) : running.size === 0))
@@ -194,21 +197,26 @@ export function program<Model, Message>(options: {
             waiters.add({ slot, done });
           }),
     send,
-    subscribe: (listener) =>
-      registry.subscribe(atom, (model) => {
+    subscribe(listener) {
+      if (disposed) return () => {};
+      const receive = (model: Snapshot<Model>) => {
         try {
           listener(model);
         } catch (error) {
           reportSafely(options.onDefect ?? reportError, error);
         }
-      }),
+      };
+      listeners.add(receive);
+      return () => {
+        listeners.delete(receive);
+      };
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
       queue.length = 0;
       for (const slot of running.keys()) cancel(slot);
-      release();
-      registry.dispose();
+      listeners.clear();
       trace('dispose');
       notify();
     },

@@ -24,7 +24,7 @@ describe('snapshot JSX compiler contract', () => {
     expect(code).toContain('.derive(');
     expect(code).toContain('.each(');
     expect(code).toContain('.event(');
-    expect(code).not.toContain('<section');
+    expect(code).toContain('.template(');
     expect(code).not.toContain('createSignal');
     expect(code).not.toContain('Proxy');
   });
@@ -164,7 +164,7 @@ it('compiles early returns, branch constants, grouped switch cases and JSX helpe
   expect(code).toContain('.branch(');
   expect(code).toContain('.invoke(');
   expect(code).toMatch(/===?\s*['"]first['"]/u);
-  expect(code).not.toContain('<section');
+  expect(code).toContain('.template(');
 });
 
 it.each([
@@ -343,4 +343,33 @@ it.each([
 it('rejects destructured dispatch and defaults that capture dispatch', () => {
   expect(() => compile('view((model, { send }) => <p />)')).toThrow('dispatch');
   expect(() => compile('view(({ action = () => send(1) }, send) => <p />)')).toThrow('defaults');
+});
+
+it('keeps constants fixed and shares direct child prop dependencies without merging callback caches', () => {
+  const code = compile(`const Child = view(props => <p>{props.title}</p>);
+    const Parent = view((model, send) => <Child title={model.title} count={model.count} label="fixed" click={() => send(model.id)} />);`);
+  expect(code.match(/\.derive\(/gu)).toHaveLength(2);
+  expect(code).toContain('return (() =>');
+  expect(code).toContain('.value');
+});
+
+it('captures snapshots inside event handlers while preserving Effect-returning bodies', () => {
+  const code = compile(`const Demo = view((model, send) => <button onClick={event => {
+    send({count:model.count + 1});
+    return effectEvent('drop', () => task(model.count, event)) (event);
+  }}>Go</button>);`);
+  expect(code).toContain('.event(');
+  expect(code).toContain('return effectEvent(');
+  expect(code).not.toContain('dispatchEvent');
+  expect(code).not.toContain('synchronousProgram');
+});
+
+it.each([
+  '<table><tr><td>{model.text}</td></tr></table>',
+  '<p><div>{model.text}</div></p>',
+  '<button><button>{model.text}</button></button>',
+  '<table><svg><circle r="1" /></svg></table>',
+  '<svg><g data-Mixed="kept" /></svg>',
+])('keeps exact native construction where HTML parsing would change the tree: %s', (jsx) => {
+  expect(compile(`const Demo = view(model => ${jsx});`)).toContain('.template(');
 });

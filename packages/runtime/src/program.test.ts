@@ -281,3 +281,41 @@ describe('Effect command completion', () => {
     source.dispose();
   });
 });
+
+it('keeps snapshot publication synchronous, deduplicated and safe when subscriptions change', async () => {
+  const errors: unknown[] = [];
+  const app = program({
+    initial: 0,
+    onDefect: (error) => errors.push(error),
+    update: (_model: number, value: number) => ({ model: value }),
+  });
+  const seen: number[] = [];
+  const listener = (value: number) => seen.push(value);
+  const first = app.subscribe(listener);
+  const second = app.subscribe(listener);
+  const failing = app.subscribe(() => {
+    throw new Error('subscriber');
+  });
+  const idle: Promise<void>[] = [];
+  app.subscribe((value) => {
+    idle.push(app.awaitIdle());
+    if (value === 1) app.send(2);
+  });
+  app.send(1);
+  expect(seen).toEqual([1, 1, 2, 2]);
+  expect(app.model()).toBe(2);
+  expect(errors).toHaveLength(2);
+  app.send(2);
+  expect(seen).toHaveLength(4);
+  first();
+  failing();
+  app.send(3);
+  expect(seen).toEqual([1, 1, 2, 2, 3]);
+  second();
+  app.dispose();
+  app.subscribe(listener);
+  app.send(4);
+  await Promise.all(idle);
+  expect(seen).toEqual([1, 1, 2, 2, 3]);
+  expect(app.activeSlots()).toEqual([]);
+});

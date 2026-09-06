@@ -1,6 +1,7 @@
 mod analysis;
 mod lower;
 mod sourcemap;
+mod template;
 use oxc::{
     allocator::Allocator,
     ast::ast::*,

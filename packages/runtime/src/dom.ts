@@ -707,8 +707,30 @@ export function portal<M, E>(scope: Scope<M, E>, build: Build<M, E>) {
   scope.jobs.push(() => child.set(scope.value));
 }
 
+// HTML parsing supplies the initial nodes. Unusual placements, such as mounting
+// an HTML-named view inside SVG, still follow the same namespace rules as element().
+function placeTemplate(parent: Node, node: Node) {
+  if (node.nodeType !== 1) {
+    parent.appendChild(node);
+    return;
+  }
+  const source = node as Element;
+  const namespace =
+    source.localName === 'svg' || svgChildren(parent)
+      ? svgNamespace
+      : 'http://www.w3.org/1999/xhtml';
+  if (source.namespaceURI === namespace) {
+    parent.appendChild(source);
+    return;
+  }
+  const target = element(parent, null, source.localName);
+  for (const attr of source.attributes) target.setAttribute(attr.name, attr.value);
+  while (source.firstChild) placeTemplate(target, source.firstChild);
+  source.remove();
+}
+
 /** Build static markup once per document/namespace, then clone native nodes at each use. */
-export function template(build: (parent: Node, before: Node | null) => void) {
+export function template(build: string | ((parent: Node, before: Node | null) => void), depth = 0) {
   const documents = new WeakMap<Document, Map<boolean, Node>>();
   return (parent: Node, before: Node | null) => {
     const doc = parent.ownerDocument ?? document;
@@ -723,7 +745,13 @@ export function template(build: (parent: Node, before: Node | null) => void) {
       const host = svg
         ? doc.createElementNS('http://www.w3.org/2000/svg', 'svg')
         : doc.createElement('div');
-      build(host, null);
+      if (typeof build === 'string') {
+        const source = doc.createElement('template');
+        source.innerHTML = build;
+        let node = source.content.firstChild!;
+        for (let index = 0; index < depth; index++) node = node.firstChild!;
+        placeTemplate(host, node);
+      } else build(host, null);
       if (host.firstChild && !host.firstChild.nextSibling) {
         fragment = host.removeChild(host.firstChild);
       } else {
@@ -732,7 +760,9 @@ export function template(build: (parent: Node, before: Node | null) => void) {
       }
       variants.set(svg, fragment);
     }
-    parent.insertBefore(fragment.cloneNode(true), before);
+    const clone = fragment.cloneNode(true);
+    parent.insertBefore(clone, before);
+    return clone;
   };
 }
 export function literal(parent: Node, before: Node | null, value: string) {
