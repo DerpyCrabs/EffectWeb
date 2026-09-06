@@ -2,6 +2,8 @@
 
 The compiler accepts snapshot JSX: read plain immutable values, derive constants, and return JSX. It generates dependency checks and DOM updates. State changes still go through messages or an owned Effect; there is no implicit signal tracking.
 
+You can sort or reverse an inline array copy, such as `[...model.items].sort(compare)`. The new array belongs to that derivation, so the input stays immutable. Mutating borrowed arrays remains an error, including computed calls such as `model.items['sort']()`. Mutation inside a comparator is still checked. This exception applies to directly created array literals; it does not infer ownership of named locals or arbitrary method results.
+
 ## Named actions without a second payload declaration
 
 `defineActions<Model>()` derives message payloads and dispatch methods from handlers:

@@ -80,6 +80,44 @@ it('points at the mutation expression and rejects builtin mutations', () => {
   }
 });
 
+it.each([
+  'model.items["sort"]()',
+  'model.items[`reverse`]()',
+  '(model.items["push"] as Function)(1)',
+  'model.items?.["splice"]?.(0, 1)',
+  'model.cache["set"]("a", 1)',
+  'Math["random"]()',
+  '(Math)[`random`]()',
+])('checks computed builtin calls like dot notation: %s', (expression) => {
+  expect(() => compile(`view(model => <p>{${expression}}</p>)`)).toThrow(
+    /mutating method|randomness/u,
+  );
+});
+
+it.each([
+  '[...model.items].sort((a, b) => a - b)',
+  '([...model.items] as number[])["reverse"]()',
+  '[...model.items][`splice`](0, 1)',
+])('allows mutation of a fresh array without mutating the snapshot: %s', (expression) => {
+  expect(compile(`view(model => <p>{(${expression}).join(",")}</p>)`)).toContain('.compiled(');
+});
+
+it('still checks work inside a fresh-array comparator', () => {
+  expect(() =>
+    compile('view(model => <p>{[...model.items].sort(() => model.other["pop"]()).join(",")}</p>)'),
+  ).toThrow('mutating method pop');
+  expect(() => compile('view(model => <p>{[...model.groups][0].sort().join(",")}</p>)')).toThrow(
+    'mutating method sort',
+  );
+});
+
+it('keeps computed service actions and shadowed Math methods available', () => {
+  expect(
+    compile('view(model => <Dialog confirm={() => model.service["delete"](model.id)} />)'),
+  ).toContain('.child(');
+  expect(compile('view(({ Math }) => <p>{Math["random"]()}</p>)')).toContain('.compiled(');
+});
+
 it('resolves a configured public runtime without an application-root path', () => {
   const code = compileSource(
     `import { view } from '@example/view'; const Demo = view((model, send) => <b>Hello</b>);`,

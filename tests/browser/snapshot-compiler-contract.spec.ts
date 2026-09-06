@@ -1,5 +1,44 @@
 import { expect, test } from '@playwright/test';
 
+test('copied-array derivations update stable DOM without mutating frozen input', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const path = '/tests/fixtures/dependencyFixture.tsx';
+    const { mountCopiedArrays } = await import(path);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const fixture = mountCopiedArrays(host);
+    const sorted = host.querySelector('[data-sorted]')!;
+    const reversed = host.querySelector('[data-reversed]')!;
+    const before = [sorted.textContent, reversed.textContent];
+    const next = Object.freeze([8, 4, 6]);
+    fixture.set(next);
+    const result = {
+      before,
+      after: [sorted.textContent, reversed.textContent],
+      initial: [...fixture.initial],
+      next: [...next],
+      stable:
+        sorted === host.querySelector('[data-sorted]') &&
+        reversed === host.querySelector('[data-reversed]'),
+    };
+    fixture.dispose();
+    const remaining = host.childNodes.length;
+    host.remove();
+    return { ...result, remaining };
+  });
+  expect(result).toEqual({
+    before: ['1,2,3', '2,1,3'],
+    after: ['4,6,8', '6,4,8'],
+    initial: [3, 1, 2],
+    next: [8, 4, 6],
+    stable: true,
+    remaining: 0,
+  });
+});
+
 test('JSX constants keep declaration bindings through helper and list shadowing', async ({
   page,
 }) => {

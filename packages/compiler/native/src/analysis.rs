@@ -19,6 +19,30 @@ fn unwrapped<'a>(mut expression: &'a Expression<'a>) -> &'a Expression<'a> {
     }
 }
 
+fn method<'a>(expression: &'a Expression<'a>) -> Option<(&'a Expression<'a>, &'a str)> {
+    match unwrapped(expression) {
+        Expression::StaticMemberExpression(member) => {
+            Some((&member.object, member.property.name.as_str()))
+        }
+        Expression::ComputedMemberExpression(member) => member
+            .static_property_name()
+            .map(|name| (&member.object, name.as_str())),
+        _ => None,
+    }
+}
+
+const ARRAY_MUTATORS: &[&str] = &[
+    "push",
+    "pop",
+    "shift",
+    "unshift",
+    "splice",
+    "sort",
+    "reverse",
+    "copyWithin",
+    "fill",
+];
+
 #[derive(Clone)]
 pub struct Reference {
     pub span: Span,
@@ -211,31 +235,21 @@ impl<'a> Visit<'a> for Index<'a, '_> {
             }
             AstKind::CallExpression(call) => {
                 self.calls.push(call);
-                if let Expression::StaticMemberExpression(m) = unwrapped(&call.callee) {
-                    let method = m.property.name.as_str();
+                if let Some((receiver, method)) = method(&call.callee) {
                     let action = self.event_handler().is_some() || self.callback_prop();
+                    // Mutating a freshly allocated array cannot change a borrowed snapshot.
+                    // Named locals and method results need alias analysis; keep those checked.
+                    let fresh_array = ARRAY_MUTATORS.contains(&method)
+                        && matches!(unwrapped(receiver), Expression::ArrayExpression(_));
                     if !action
-                        && [
-                            "push",
-                            "pop",
-                            "shift",
-                            "unshift",
-                            "splice",
-                            "sort",
-                            "reverse",
-                            "copyWithin",
-                            "fill",
-                            "set",
-                            "add",
-                            "delete",
-                            "clear",
-                        ]
-                        .contains(&method)
+                        && !fresh_array
+                        && (ARRAY_MUTATORS.contains(&method)
+                            || ["set", "add", "delete", "clear"].contains(&method))
                     {
                         self.violations.push((call.span,format!("Views cannot call mutating method {method}. Use an immutable operation or a command.")));
                     }
                     if method == "random"
-                        && matches!(&m.object,Expression::Identifier(i) if i.name=="Math" && self.symbol(i).is_none())
+                        && matches!(unwrapped(receiver),Expression::Identifier(i) if i.name=="Math" && self.symbol(i).is_none())
                     {
                         self.violations.push((
                             call.span,

@@ -8,6 +8,25 @@ const B = render(model => <p>{model.title}</p>);
 const C = render(model => { const x = Math.random(); return <p>{x}</p>; });`;
 
 describe('compiler diagnostics in lint', () => {
+  it('rejects computed mutations while accepting a copied-array derivation', () => {
+    const text = `import { view } from 'effectweb';
+const Safe = view(model => <p>{[...model.items].sort().join(',')}</p>);
+const Bad = view(model => <p>{model.items["sort"]().join(',')}</p>);
+const Random = view(model => <p>{Math["random"]()}</p>);`;
+    const reports: { loc: { line: number }; message: string }[] = [];
+    plugin.rules['valid-view']
+      .create({
+        filename: 'arrays.tsx',
+        sourceCode: { text },
+        options: [],
+        report: (diagnostic) => reports.push(diagnostic),
+      })
+      .Program();
+    expect(reports.map((report) => report.loc.line)).toEqual([3, 4]);
+    expect(reports[0]!.message).toContain('mutating method sort');
+    expect(reports[1]!.message).toContain('randomness');
+  });
+
   it('uses compiler errors, continues to later views, and keeps valid views silent', () => {
     const diagnostics = diagnose(source, 'views.tsx');
     expect(diagnostics).toHaveLength(2);
