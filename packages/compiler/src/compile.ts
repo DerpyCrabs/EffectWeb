@@ -20,7 +20,6 @@ export interface CompilerResult {
   readonly diagnostics: readonly Diagnostic[];
 }
 
-/** JSX analysis and lowering run in Rust/Oxc; this boundary only transports options and results. */
 export function compile(
   source: string,
   filename: string,

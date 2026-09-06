@@ -3,7 +3,6 @@ import type * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { AsyncContent } from './AsyncContent.js';
 import type { Slot } from './dom.js';
 
-/** Compile-time contract only; generic presentation must preserve both result channels. */
 export function asyncContentTypes(
   result: AsyncResult.AsyncResult<number, 'offline'>,
   content: Slot<number>,

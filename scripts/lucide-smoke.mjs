@@ -5,7 +5,6 @@ import { pathToFileURL } from 'node:url';
 import { createServer } from 'node:http';
 import { chromium } from '@playwright/test';
 
-/** Runs against installed tarballs, never workspace imports. */
 export async function verifyLucide(temp, run) {
   const installed = (name) => pathToFileURL(join(temp, 'node_modules', name)).href;
   const catalogue = await import(installed('@effectweb/lucide/dist/index.js'));
@@ -23,7 +22,6 @@ export async function verifyLucide(temp, run) {
   assert.ok(failure instanceof IconLoadError);
   assert.equal(failure.iconName, 'constructor');
   for (const name of iconNames) {
-    // Verify every wildcard export and declaration, including aliases.
     assert.ok(
       readFileSync(join(temp, `node_modules/@effectweb/lucide/dist/icons/${name}.d.ts`), 'utf8'),
     );

@@ -1,6 +1,5 @@
 import { Effect } from 'effect';
 
-/** Loaders stay lazy and use one error/cancellation model, whether their work is sync or async. */
 export type UiLoad<A, E = unknown, R = never> = Effect.Effect<A, E, R>;
 export const loadEffect = <A, E, R>(load: () => UiLoad<A, E, R>): UiLoad<A, E, R> =>
   Effect.suspend(load);

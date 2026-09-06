@@ -2,7 +2,6 @@ import { Cause, Effect } from 'effect';
 import type { RunningProgram } from './program.js';
 import { defaultUiRuntime, type UiRuntime } from './runtime.js';
 
-/** Drive the real queue. Test services and TestClock effects use the same supplied context. */
 export function programDriver<M, Msg>(
   source: RunningProgram<M, Msg>,
 ): ReturnType<typeof makeDriver<M, Msg, never>>;

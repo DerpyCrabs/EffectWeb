@@ -343,6 +343,35 @@ export function attribute(element: Element, name: string, value: unknown) {
   if (name === 'style' && (value == null || typeof value !== 'object'))
     styleProperties.delete(element);
 }
+
+/** Compiler output for attributes whose unchanged value needs no DOM refresh. */
+export function bindAttribute<M, E>(
+  scope: Scope<M, E>,
+  element: Element,
+  name: string,
+  dependencies: Dependencies,
+  read: () => unknown,
+  source?: BindingSource,
+) {
+  let previous = dependencies();
+  let value = read();
+  attribute(element, name, value);
+  traceBinding(source, undefined, previous, 'binding');
+  if (!previous.length) return;
+  // Keep the value cache in the dependency job itself, without an extra closure
+  // for every row. Controlled input properties keep using ordinary watches.
+  scope.jobs.push(() => {
+    const next = dependencies();
+    if (equal(previous, next)) return;
+    const nextValue = read();
+    if (!Object.is(value, nextValue)) {
+      attribute(element, name, nextValue);
+      value = nextValue;
+    }
+    traceBinding(source, previous, next, 'binding');
+    previous = next;
+  });
+}
 export function text<M, E>(
   scope: Scope<M, E>,
   parent: Node,
@@ -478,9 +507,30 @@ export function each<M, E, A>(
     const next = read();
     const nextOuter = outer();
     const outerChanged = !equal(previousOuter, nextOuter);
-    if (next === previousList && !outerChanged) return;
+    if (next === previousList) {
+      if (outerChanged) for (const row of rows.values()) row.scope.set(row.scope.value);
+      previousOuter = nextOuter;
+      return;
+    }
     const collection = 'items' in next ? next : undefined;
     const items = collection ? collection.items : (next as readonly A[]);
+    // A list filling its container can clear the DOM in one operation. Root lists
+    // and lists with adjacent content retain their bounded per-row removal path.
+    if (
+      !items.length &&
+      rows.size &&
+      target instanceof Element &&
+      target.firstChild === rows.get(previousIdentities[0]!)?.start &&
+      target.lastChild === end
+    ) {
+      for (const row of rows.values()) row.scope.dispose();
+      target.replaceChildren(end);
+      rows.clear();
+      previousList = next;
+      previousOuter = nextOuter;
+      previousIdentities = [];
+      return;
+    }
     const identities = items.map((item, index) => {
       const key = collection ? collection.identity(item, index) : item;
       if (typeof key !== 'string' && typeof key !== 'number')

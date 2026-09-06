@@ -1,7 +1,6 @@
 import type { Plugin } from 'vite';
 import { compile, type CompilerOptions } from './compile.js';
 
-/** Rust/Oxc lowers snapshot JSX before Vite's TypeScript pass. */
 export function effectweb(options: CompilerOptions = {}): Plugin {
   let development = false;
   return {

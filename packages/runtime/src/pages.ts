@@ -108,7 +108,6 @@ export function pages<Props, A, Cursor>(definition: {
   };
   return {
     ...pagination,
-    /** Own pagination directly in a controller; components can use the same reducer. */
     create(props: Props) {
       type Internal = Message | { type: 'Input'; props: Props };
       const source = program<Model, Internal>({

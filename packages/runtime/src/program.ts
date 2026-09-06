@@ -70,7 +70,6 @@ export interface RunningProgram<Model, Message> extends Program<Model, Message> 
   readonly awaitIdle: (slot?: string) => Promise<void>;
 }
 
-/** One immutable source of truth. Reducers are synchronous; commands own async work. */
 export function program<Model, Message>(options: {
   initial: Model;
   name?: string;

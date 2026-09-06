@@ -19,7 +19,6 @@ type Dispatch<Handlers> = {
   [Name in keyof Handlers]: (...args: Arguments<Handlers[Name]>) => void;
 };
 
-/** Declare action names and payloads once. Dispatch still crosses the ordinary program message queue. */
 export function defineActions<Model>() {
   return <Handlers extends Record<string, Handler<Model>>>(handlers: Handlers) => {
     type Message = HandlerMessage<Handlers>;

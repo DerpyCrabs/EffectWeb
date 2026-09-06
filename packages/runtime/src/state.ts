@@ -1,4 +1,3 @@
-/** Shallow immutable update; unchanged fields preserve identity and skip publication. */
 export function patchModel<Model extends object>(
   model: Model,
   patch: Partial<NoInfer<Model>>,

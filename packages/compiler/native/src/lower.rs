@@ -1182,10 +1182,19 @@ impl<'a, 's> Lower<'a, 's> {
                         .expr()
                         .map(|e| self.diagnostic(e, env))
                         .unwrap_or_default();
-                    out.push_str(&format!(
-                        "{scope}.watch(()=>[{}],()=>{apply}{diag});",
-                        deps.join(",")
-                    ))
+                    if name == "class" || name == "className" {
+                        out.push_str(&format!(
+                            "{}.bindAttribute({scope},{element},{},()=>[{}],()=>({read}){diag});",
+                            self.runtime,
+                            quote(&name),
+                            deps.join(",")
+                        ))
+                    } else {
+                        out.push_str(&format!(
+                            "{scope}.watch(()=>[{}],()=>{apply}{diag});",
+                            deps.join(",")
+                        ))
+                    }
                 }
             }
         }

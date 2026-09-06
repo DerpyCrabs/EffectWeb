@@ -1,7 +1,6 @@
 import { shareValue } from './share.js';
 export type Identity = string | number;
 
-/** Identity belongs to the domain collection, not to each place that renders it. */
 export interface Rows<A> {
   readonly items: readonly A[];
   readonly identity: (item: A, index: number) => Identity;
@@ -28,7 +27,6 @@ export function collection<A>(identity: (item: A, index: number) => Identity) {
     cache.set(items, rows);
     return rows;
   };
-  /** Reconcile immutable items before projections, using the same identity as rendered rows. */
   function share<B extends A>(previous: readonly B[], next: B[]): B[];
   function share<B extends A>(previous: readonly B[], next: readonly B[]): readonly B[];
   function share<B extends A>(previous: readonly B[], next: readonly B[]): readonly B[] {

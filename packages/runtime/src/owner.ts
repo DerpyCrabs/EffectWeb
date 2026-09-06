@@ -42,7 +42,6 @@ export function modelOwner<Model extends object, R>(
   initial: Model,
   options: Options & { runtime: UiRuntime<R> },
 ): ModelOwner<Model, R>;
-/** Immutable model publication and task ownership, using the same program queue as components. */
 export function modelOwner<Model extends object, R>(
   initial: Model,
   options: Options & { runtime?: UiRuntime<R> } = {},
@@ -132,7 +131,6 @@ export function modelOwner<Model extends object, R>(
     edit: (key, change) => {
       if (!disposed) {
         const changes: Partial<Model> = {};
-        // Readonly changes remain immutable model data; no clone is needed for a no-op.
         changes[key] = change(read()[key]) as Model[typeof key];
         patch(changes);
       }

@@ -201,7 +201,6 @@ assert.ok(
   'Dynamic registry leaked into the bundle',
 );
 assert.ok(bundle.length < 160_000, `Icon consumer unexpectedly large: ${bundle.length} bytes`);
-// Verify public cache/runtime modules also work without a DOM and share one Effect instance.
 const { Effect, Context } = await import(
   pathToFileURL(join(temp, 'node_modules/effect/dist/Effect.js')).href
 ).then(async (effect) => ({

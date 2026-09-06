@@ -4,7 +4,7 @@ Immutable Effect models and JSX compiled to direct DOM updates. No virtual DOM, 
 
 EffectWeb separates state transitions and scoped Effect work from pure snapshot views. Its Rust/Oxc compiler caches view derivations and emits granular DOM bindings. Collections declare domain identity once, and immutable structural sharing lets unchanged rows and bindings stay untouched.
 
-Extracted from [TeleVecha](https://github.com/DerpyCrabs/TeleVecha), where it renders the complete application. This is an early framework with real application coverage, not yet a stable API. The runtime stays `effectweb`; compiler tooling and integrations use the `@effectweb` npm scope. All packages share one release version.
+The API is still evolving. The runtime is `effectweb`; compiler tooling and integrations use the `@effectweb` npm scope. All packages share one release version.
 
 ## Packages
 
@@ -47,7 +47,7 @@ const Counter = view((model: { count: number }, send: typeof counter.send) => {
 mountView(document.getElementById('app')!, Counter, counter);
 ```
 
-Read the [authoring guide](docs/authoring.md) for async tasks, services, slots, forms, queries, and testing. The [reading-list example](examples/reading-list) uses the packages with both IndexedDB and synchronous Effect storage.
+The [reading-list example](examples/reading-list) uses the packages with both IndexedDB and synchronous Effect storage.
 
 ## Design boundaries
 
@@ -78,14 +78,10 @@ npm run dev:example
 
 `test:package` packs a real release, installs it into a clean temporary project with install scripts disabled, checks exported files and TypeScript, builds with standard Vite, and drives a browser interaction. It verifies the native loader without relying on workspace links or a consumer Rust build.
 
-CI runs the checks above. The [release guide](docs/releasing.md) covers native packages, the first npm publication, and subsequent trusted publishing through GitHub Actions.
+CI runs the checks above. The release workflow builds native packages and publishes through GitHub Actions.
 
 For the isolated renderer benchmark, run `npm run build:benchmark` and then `node scripts/benchmark-snapshot.mjs dist-benchmark /tmp/effectweb-benchmark.json`.
 
 ## License
 
 [MIT](LICENSE).
-
-Use `entities(items)` for immutable arrays with an `id` field; it also accepts `undefined` while data is unavailable. Use `collection(identity)` for custom keys and `sequence(items)` for positional lists. A read-only view can omit its dispatch parameter: `view((model) => <h1>{model.title}</h1>)`.
-
-Run `npm run measure:bundles` after a build to check the static-renderer size budget and unused-view elimination. The report includes raw/gzip sizes and the retained module contributions for views, programs and queries.

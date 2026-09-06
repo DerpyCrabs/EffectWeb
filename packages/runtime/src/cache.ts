@@ -91,7 +91,6 @@ function createQueryCache<R>(runtime?: UiRuntime<R>) {
       return acquire(key, load).atom;
     },
     query: selectQuery,
-    /** Prefetch and views observe the same atom; failure types and shared cancellation remain intact. */
     prefetch<Args, A, E>(definition: Query<Args, A, E, R>, args: Args): Effect.Effect<A, E> {
       return Effect.suspend(() =>
         AtomRegistry.getResult(registry, selectQuery(definition, args), { suspendOnWaiting: true }),

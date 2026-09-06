@@ -1,6 +1,5 @@
 import { slot, type JSX, type Slot } from 'effectweb';
 
-/** Checked with the app; these functions are never evaluated by browser fixtures. */
 export function slotTypes(content: Slot<{ title: string }>, footer: Slot) {
   const inferred: Slot<{ title: string }> = slot((value) => value.title);
   const simple: JSX.Element = slot(() => 'Footer');

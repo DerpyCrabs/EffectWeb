@@ -14,7 +14,6 @@ localComponent<{ title: string }, { count: number }>({
     scope.send((state: { count: number }) => ({ count: state.count + 1 }));
   }),
 });
-// Keep the JSX authoring contract checked by tsc even when the examples do not use these fields.
 export const validButton: JSX.IntrinsicElements['button'] = {
   disabled: true,
   'aria-label': 'Save',

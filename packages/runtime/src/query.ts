@@ -2,7 +2,6 @@ import type { Effect } from 'effect';
 
 let nextQueryId = 0;
 
-/** One logical read. Share its definition between consumers, prefetching and mutations. */
 export interface Query<Args, A, E = never, R = never> {
   readonly id: number;
   readonly name: string;

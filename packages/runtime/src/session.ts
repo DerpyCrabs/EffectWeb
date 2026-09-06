@@ -5,7 +5,6 @@ import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import * as Atom from 'effect/unstable/reactivity/Atom';
 import type { QueryCache } from './cache.js';
 
-/** Own subscriptions, DOM adapters and other cleanup for one lifetime. */
 export function lifetime() {
   const cleanups: Array<() => void> = [];
   let disposed = false;
@@ -154,7 +153,6 @@ export function queryResource<Args, A, E, R>(
   };
 }
 
-/** Publish Effect results directly; the owner releases the subscription on disposal. */
 export function observeQuery<Args, A, E, R>(
   owner: DisposableOwner,
   cache: QueryCache<R>,
@@ -195,7 +193,6 @@ interface OwnedSession {
   refresh?(): void;
   subscribe?(changed: () => void): () => void;
 }
-/** One declaration owns subscriptions, refresh order and disposal for a group of sessions. */
 export function sessionGroup(sessions: readonly OwnedSession[], changed: () => void) {
   const scope = lifetime();
   for (const session of sessions) {

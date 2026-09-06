@@ -71,7 +71,6 @@ taskComponent({
   }),
 });
 
-// Pure views need only their input type; they emit no messages.
 import { view, type View } from './dom.js';
 export const readOnlyView: View<{ title: string }, never> = view<{ title: string }>(
   (model) => model.title,

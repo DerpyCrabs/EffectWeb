@@ -22,7 +22,6 @@ const definition = defineTasks({
       Effect.flatMap(Storage, (storage) => storage.save(model.text + suffix)),
   },
 });
-// The imported view marker remains a separate staged argument; no result annotations are needed.
 definition.view(
   view((model, send) => {
     const result: AsyncResult.AsyncResult<number, 'offline'> = model.tasks.save;
@@ -63,7 +62,6 @@ defineTasks(extractedConfig).tasks({
   },
 });
 
-// Every renderer boundary either requires closed Effects or an explicitly supplied runtime.
 import { resourceComponent } from './resource.js';
 import { component } from './component.js';
 import { compiled } from './dom.js';

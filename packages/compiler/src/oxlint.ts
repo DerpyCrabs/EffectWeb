@@ -1,6 +1,5 @@
 import { diagnose, type Diagnostic } from './compile.js';
 
-// Only the standard ESLint-compatible APIs used here are required by the plugin.
 type Source = { text: string };
 type Context = {
   filename: string;
