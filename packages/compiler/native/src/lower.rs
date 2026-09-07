@@ -1,6 +1,6 @@
 //! Lower snapshot JSX to calls into the existing DOM runtime.
 //! Oxc bindings identify dependencies; ordinary source expressions retain their lexical syntax.
-use crate::analysis::{Index, contains_jsx};
+use crate::analysis::{Index, Reference, contains_jsx};
 use oxc::{
     ast::ast::*,
     span::{GetSpan, Span},
@@ -468,6 +468,88 @@ impl<'a, 's> Lower<'a, 's> {
             }
         }
     }
+    /// Same-file render calls cannot hide mutable captures behind an ordinary helper.
+    /// Imported code and factory-created objects remain explicit purity boundaries.
+    fn external_capture(
+        &self,
+        reference: &Reference,
+        safe_date: bool,
+        invoked: bool,
+        seen: &mut HashSet<SymbolId>,
+    ) -> Result<()> {
+        if reference.in_action {
+            return Ok(());
+        }
+        let Some(id) = reference.symbol else {
+            if [
+                "window",
+                "document",
+                "Date",
+                "localStorage",
+                "sessionStorage",
+            ]
+            .contains(&reference.name.as_str())
+                && !(reference.name == "Date" && (reference.safe_date || safe_date))
+            {
+                return self.fail(
+                    reference.span,
+                    &format!(
+                        "Read {} in a command or DOM host, then put its result in the model.",
+                        reference.name
+                    ),
+                );
+            }
+            return Ok(());
+        };
+        let flags = self.index.scoping.symbol_flags(id);
+        if (flags.is_variable()
+            && !flags.is_const_variable()
+            && !flags.is_function_scoped_declaration())
+            || self.index.scoping.symbol_is_mutated(id)
+        {
+            return self.fail(reference.span, &format!("Mutable capture {} is not a model dependency. Pass immutable data through the model.", reference.name));
+        }
+        if !seen.insert(id) {
+            return Ok(());
+        }
+        let called = invoked
+            || self.index.calls.iter().any(|call| {
+                call.callee.span().start <= reference.span.start
+                    && call.callee.span().end >= reference.span.end
+            });
+        if let Some(init) = self.index.initializers.get(&id)
+            && matches!(
+                unwrapped(init),
+                Expression::Identifier(_)
+                    | Expression::StaticMemberExpression(_)
+                    | Expression::ComputedMemberExpression(_)
+            )
+        {
+            for input in self.index.references(init.span()) {
+                self.external_capture(input, safe_date || reference.safe_date, called, seen)?;
+            }
+        }
+        // A reference to a callback is stable data. Inspect its body only when called
+        // during rendering, so event handlers and command factories remain deferred.
+        if called && let Some(body) = self.index.helpers.get(&id) {
+            for (span, message) in &self.index.global_calls {
+                if span.start >= body.start && span.end <= body.end {
+                    return self.fail(*span, message);
+                }
+            }
+            for input in self.index.references(*body) {
+                let local = input.symbol.is_some_and(|id| {
+                    let declaration = self.index.scoping.symbol_span(id);
+                    declaration.start >= body.start && declaration.end <= body.end
+                });
+                if !local {
+                    self.external_capture(input, false, false, seen)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn compile_view(&mut self, call: &'a CallExpression<'a>) -> Result<String> {
         // Diagnostics continue after failed views, whose lowering may have exited early.
         self.depth = 0;
@@ -492,6 +574,25 @@ impl<'a, 's> Lower<'a, 's> {
                 return self.fail(*span, message);
             }
         }
+        let mut roots: HashSet<_> = self
+            .index
+            .binding_names(f.params.items[0].pattern.span())
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        for (span, inputs) in &self.index.render_inputs {
+            if span.start >= f.span.start && span.end <= f.span.end {
+                roots.extend(inputs);
+            }
+        }
+        for (receiver, span, method) in &self.index.callback_mutations {
+            if span.start >= f.span.start
+                && span.end <= f.span.end
+                && self.index.borrows(receiver, &roots, &mut HashSet::new())
+            {
+                return self.fail(*span, &format!("Views cannot call mutating method {method} on model data. Dispatch a message and change the model in update."));
+            }
+        }
         for r in self.index.references(f.span) {
             if let Some(id) = r.symbol {
                 let flags = self.index.scoping.symbol_flags(id);
@@ -510,6 +611,7 @@ impl<'a, 's> Lower<'a, 's> {
                 {
                     return self.fail(r.span,&format!("Mutable capture {} is not a model dependency. Pass immutable data through the model.",r.name));
                 }
+                self.external_capture(r, false, false, &mut HashSet::new())?;
             } else if [
                 "window",
                 "document",
@@ -1493,6 +1595,22 @@ impl<'a, 's> Lower<'a, 's> {
                 ));
             } else {
                 let read = value.rewrite(self, env);
+                let control = matches!(&e.opening_element.name, JSXElementName::Identifier(tag)
+                    if (name == "value" && ["input", "textarea", "select"].contains(&tag.name.as_str()))
+                        || (name == "checked" && tag.name == "input"));
+                if control {
+                    let diag = value
+                        .expr()
+                        .map(|e| self.diagnostic(e, env))
+                        .unwrap_or_default();
+                    out.push_str(&format!(
+                        "{}.bindControl({scope},{element},{},()=>[{}],()=>({read}){diag});",
+                        self.runtime,
+                        quote(&name),
+                        deps.join(",")
+                    ));
+                    continue;
+                }
                 let apply = format!(
                     "{}.attribute({element},{},({read}))",
                     self.runtime,

@@ -183,6 +183,8 @@ test('destructured inputs preserve field granularity, defaults, rest and current
     const result = {
       initial,
       unchanged,
+      initialFormats: formats,
+      formats: fixture.formats(),
       text: complex.textContent?.trim(),
       selected,
       simpleSelection: fixture.model().selected,
@@ -196,6 +198,8 @@ test('destructured inputs preserve field granularity, defaults, rest and current
   expect(result).toEqual({
     initial: 'fallback:a:1',
     unchanged: true,
+    initialFormats: 1,
+    formats: 2,
     text: 'new:c:2',
     selected: 'new:Bob:c',
     simpleSelection: 'Bob',

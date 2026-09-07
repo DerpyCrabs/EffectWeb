@@ -4,6 +4,59 @@ import { compile as compileSource } from './compile';
 const compile = (source: string) =>
   compileSource(`import { view } from 'effectweb'; ${source}`, 'contract.tsx').code;
 
+it.each([
+  `let external='old'; const read=()=>external; view(model=><p>{read()}</p>);`,
+  `let external='old'; function read(){return external;} const label=()=>read(); view(model=><p>{label()}</p>);`,
+  `const clock=Date; view(model=><p>{clock.now()}</p>);`,
+  `const clock=Date; const now=()=>clock.now(); view(model=><p>{now()}</p>);`,
+  `let external='old'; const read=()=>external; const alias=read; view(model=><p>{alias()}</p>);`,
+  `let external='old'; const read=()=>external; view(model=>{const alias=read;return <p>{alias()}</p>;});`,
+])('diagnoses mutable render dependencies hidden by same-file helpers: %s', (source) => {
+  expect(() => compile(source)).toThrow(/Mutable capture|Read Date/u);
+});
+
+it.each([
+  `view(model=><button onClick={()=>{model.items.push(1);}}/>);`,
+  `view(model=>{const items=model.items;return <button onClick={()=>{items.reverse();}}/>;});`,
+  `view(({items})=><button onClick={()=>{items.splice(0,1);}}/>);`,
+  `view(model=><Dialog confirm={()=>{model.items.sort();}}/>);`,
+  `view(model=><div>{model.rows.map(row=><button onClick={()=>{row.items.push(1);}}/>)}</div>);`,
+])('rejects array mutation through model aliases in callbacks: %s', (source) => {
+  expect(() => compile(source)).toThrow(/mutating method/u);
+});
+
+it('permits event-time randomness without requiring an extracted helper', () => {
+  expect(compile(`view((model,send)=><button onClick={()=>send(Math.random())}/>);`)).toContain(
+    '.event(',
+  );
+  expect(
+    compile(
+      `const random=()=>Math.random();view((model,send)=><button onClick={()=>send(random())}/>);`,
+    ),
+  ).toContain('.event(');
+});
+
+it('keeps pure helper locals and event-only work outside render capture checks', () => {
+  expect(
+    compile(
+      `const format=(value)=>{let result=value;result+=1;return result;};view(model=><p>{format(model.count)}</p>);`,
+    ),
+  ).toContain('.compiled(');
+  expect(
+    compile(
+      `const actions=defineActions({Run:()=>Date.now()});view((model,send)=>{const dispatch=actions.bind(send);return <button onClick={()=>dispatch.Run()}/>;});`,
+    ),
+  ).toContain('.event(');
+  expect(
+    compile(
+      `view(model=><button onClick={()=>{const local=[];local.push(model.id);consume(local);}}/>);`,
+    ),
+  ).toContain('.event(');
+  expect(compile(`const clock=Date; view(model=><p>{clock.UTC(model.year,0,1)}</p>);`)).toContain(
+    '.compiled(',
+  );
+});
+
 describe('snapshot JSX compiler contract', () => {
   it('compiles JSX constants, helper arguments and ordinary child inputs with captured callbacks', () => {
     const code = compile(

@@ -1,6 +1,7 @@
 import type { Send, Transition } from './program.js';
+import type { Snapshot } from './snapshot.js';
 
-type Handler<Model> = (model: Model, ...args: never[]) => Transition<Model, unknown>;
+type Handler<Model> = (model: Snapshot<Model>, ...args: never[]) => Transition<Model, unknown>;
 type Arguments<F> = F extends (model: never, ...args: infer Args) => unknown ? Args : never;
 type HandlerMessage<Handlers> = {
   [Name in keyof Handlers]: { readonly type: Name; readonly args: Arguments<Handlers[Name]> };
@@ -41,11 +42,15 @@ export function defineActions<Model>() {
         }
         return dispatch;
       },
-      update(this: void, model: Model, action: Message): ReturnType<Handlers[keyof Handlers]> {
+      update(
+        this: void,
+        model: Snapshot<Model>,
+        action: Message,
+      ): ReturnType<Handlers[keyof Handlers]> {
         if (!Object.hasOwn(handlers, action.type))
           throw new Error(`Unknown action: ${String(action.type)}`);
         const handler = handlers[action.type] as (
-          model: Model,
+          model: Snapshot<Model>,
           ...args: unknown[]
         ) => ReturnType<Handlers[keyof Handlers]>;
         return handler(model, ...action.args);

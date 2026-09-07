@@ -1,4 +1,4 @@
-import { mountView, program, view } from 'effectweb';
+import { mountView, observeBindings, program, view } from 'effectweb';
 
 export function mountLexicalCapture(parent: HTMLElement) {
   type State = { title: string; values: readonly string[]; selected: string };
@@ -91,10 +91,15 @@ export function mountDestructured(parent: HTMLElement) {
     selected: string;
   };
   let formats = 0;
-  const format = (name: string) => {
-    formats++;
-    return name.toUpperCase();
-  };
+  const format = (name: string) => name.toUpperCase();
+  // Count executions through diagnostics so the formatter itself stays pure.
+  const stopObserving = observeBindings((update) => {
+    if (
+      update.source.file.endsWith('compilerContractFixture.tsx') &&
+      update.source.expression === 'format(name)'
+    )
+      formats++;
+  });
   const Simple = view<State, Partial<State>>(({ user: { name } }, send) => (
     <button data-simple="" onClick={() => send({ selected: name })}>
       {format(name)}
@@ -121,6 +126,7 @@ export function mountDestructured(parent: HTMLElement) {
     set: source.send,
     formats: () => formats,
     dispose() {
+      stopObserving();
       simple();
       complex();
       source.dispose();

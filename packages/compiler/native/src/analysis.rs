@@ -6,6 +6,7 @@ use oxc::{
     span::{GetSpan, Span},
     syntax::symbol::SymbolId,
 };
+use std::collections::{HashMap, HashSet};
 
 fn unwrapped<'a>(mut expression: &'a Expression<'a>) -> &'a Expression<'a> {
     loop {
@@ -53,6 +54,7 @@ pub struct Reference {
     pub label: String,
     pub safe_date: bool,
     pub in_event: bool,
+    pub in_action: bool,
 }
 pub struct Index<'a, 's> {
     pub scoping: &'s Scoping,
@@ -60,6 +62,11 @@ pub struct Index<'a, 's> {
     pub calls: Vec<&'a CallExpression<'a>>,
     pub bindings: Vec<(Span, SymbolId, String)>,
     pub violations: Vec<(Span, String)>,
+    pub helpers: HashMap<SymbolId, Span>,
+    pub initializers: HashMap<SymbolId, &'a Expression<'a>>,
+    pub callback_mutations: Vec<(&'a Expression<'a>, Span, &'a str)>,
+    pub global_calls: Vec<(Span, String)>,
+    pub render_inputs: Vec<(Span, Vec<SymbolId>)>,
     parents: Vec<AstKind<'a>>,
 }
 impl<'a, 's> Index<'a, 's> {
@@ -70,6 +77,11 @@ impl<'a, 's> Index<'a, 's> {
             calls: vec![],
             bindings: vec![],
             violations: vec![],
+            helpers: HashMap::new(),
+            initializers: HashMap::new(),
+            callback_mutations: vec![],
+            global_calls: vec![],
+            render_inputs: vec![],
             parents: vec![],
         }
     }
@@ -151,11 +163,65 @@ impl<'a, 's> Index<'a, 's> {
             .map(|(_, id, name)| (*id, name.clone()))
             .collect()
     }
+
+    /// Follow borrowed member reads and destructuring aliases, never fresh allocations.
+    pub fn borrows(
+        &self,
+        expression: &Expression<'a>,
+        roots: &HashSet<SymbolId>,
+        seen: &mut HashSet<SymbolId>,
+    ) -> bool {
+        match unwrapped(expression) {
+            Expression::Identifier(id) => self.symbol(id).is_some_and(|id| {
+                roots.contains(&id)
+                    || (seen.insert(id)
+                        && self
+                            .initializers
+                            .get(&id)
+                            .is_some_and(|value| self.borrows(value, roots, seen)))
+            }),
+            Expression::StaticMemberExpression(member) => self.borrows(&member.object, roots, seen),
+            Expression::ComputedMemberExpression(member) => {
+                self.borrows(&member.object, roots, seen)
+            }
+            _ => false,
+        }
+    }
 }
 impl<'a> Visit<'a> for Index<'a, '_> {
     fn visit_ts_type(&mut self, _: &TSType<'a>) {}
     fn enter_node(&mut self, kind: AstKind<'a>) {
         match kind {
+            AstKind::ArrowFunctionExpression(function) if contains_jsx_body(&function.body) => {
+                let mut names = BindingIds(vec![]);
+                names.visit_formal_parameters(&function.params);
+                self.render_inputs.push((function.span, names.0));
+            }
+            AstKind::VariableDeclarator(declaration) => {
+                if let Some(init) = &declaration.init {
+                    // Destructured bindings borrow from the same initializer too.
+                    let mut names = BindingIds(vec![]);
+                    names.visit_binding_pattern(&declaration.id);
+                    for id in names.0 {
+                        self.initializers.insert(id, init);
+                        match unwrapped(init) {
+                            Expression::ArrowFunctionExpression(function) => {
+                                self.helpers.insert(id, function.span);
+                            }
+                            Expression::FunctionExpression(function) => {
+                                self.helpers.insert(id, function.span);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            AstKind::Function(function) => {
+                if let Some(id) = &function.id {
+                    self.helpers
+                        .insert(id.symbol_id.get().unwrap(), function.span);
+                }
+            }
             AstKind::IdentifierReference(id) => {
                 let mut selected = id.span;
                 let mut path = vec![];
@@ -226,6 +292,7 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                     label,
                     safe_date,
                     in_event: self.event_handler().is_some(),
+                    in_action: self.event_handler().is_some() || self.callback_prop(),
                 });
             }
             AstKind::BindingIdentifier(id) => {
@@ -248,14 +315,20 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                     {
                         self.violations.push((call.span,format!("Views cannot call mutating method {method}. Use an immutable operation or a command.")));
                     }
-                    if method == "random"
+                    if action && !fresh_array && ARRAY_MUTATORS.contains(&method) {
+                        self.callback_mutations.push((receiver, call.span, method));
+                    }
+                    if !action
+                        && method == "random"
                         && matches!(unwrapped(receiver),Expression::Identifier(i) if i.name=="Math" && self.symbol(i).is_none())
                     {
-                        self.violations.push((
+                        let violation = (
                             call.span,
                             "Read randomness in a command, then put its result in the model."
                                 .into(),
-                        ));
+                        );
+                        self.global_calls.push(violation.clone());
+                        self.violations.push(violation);
                     }
                 }
             }
@@ -284,6 +357,13 @@ impl<'a> Visit<'a> for Index<'a, '_> {
     fn leave_node(&mut self, _: AstKind<'a>) {
         self.parents.pop();
     }
+}
+struct BindingIds(Vec<SymbolId>);
+impl<'a> Visit<'a> for BindingIds {
+    fn visit_binding_identifier(&mut self, id: &BindingIdentifier<'a>) {
+        self.0.push(id.symbol_id.get().unwrap());
+    }
+    fn visit_ts_type(&mut self, _: &TSType<'a>) {}
 }
 struct HasJsx(bool);
 impl<'a> Visit<'a> for HasJsx {

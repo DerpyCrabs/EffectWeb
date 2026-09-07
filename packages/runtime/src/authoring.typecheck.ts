@@ -10,6 +10,13 @@ const actions = defineActions<{ count: number }>()({
   Reset: () => ({ model: { count: 0 } }),
 });
 const dispatch = actions.bind(() => {});
+defineActions<{ count: number }>()({
+  Increment: (model) => {
+    // @ts-expect-error Actions receive the same readonly snapshot as program updates.
+    model.count++;
+    return { model: { count: model.count + 1 } };
+  },
+});
 dispatch.Add(2);
 dispatch.Add(2, 'ok');
 dispatch.Reset();

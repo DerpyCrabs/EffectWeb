@@ -325,7 +325,7 @@ export function attribute(element: Element, name: string, value: unknown) {
       'inert',
       'download',
     ].includes(name) &&
-    typeof value === 'boolean'
+    (typeof value === 'boolean' || (value == null && (name === 'checked' || name === 'selected')))
   ) {
     element.toggleAttribute(name, Boolean(value));
     if (name in element) Reflect.set(element, name, Boolean(value));
@@ -372,6 +372,57 @@ export function bindAttribute<M, E>(
     previous = next;
   });
 }
+
+/** Native edits can change a control even when dispatch publishes no new model. */
+export function bindControl<M, E>(
+  scope: Scope<M, E>,
+  element: Element,
+  name: string,
+  dependencies: Dependencies,
+  read: () => unknown,
+  source?: BindingSource,
+) {
+  let composing = false;
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  const apply = () => {
+    if (!composing) attribute(element, name, read());
+  };
+  scope.watch(dependencies, apply, source);
+  const restore = () => {
+    if (pending !== undefined || scope.disposed) return;
+    // Native dispatch may run microtasks between listeners. A task waits for all
+    // handlers (including ancestors) before restoring the latest model value.
+    pending = setTimeout(() => {
+      pending = undefined;
+      if (!scope.disposed) {
+        try {
+          apply();
+        } catch (error) {
+          reportSafely(scope.report, error);
+        }
+      }
+    }, 0);
+  };
+  const start = () => {
+    composing = true;
+  };
+  const end = () => {
+    composing = false;
+    restore();
+  };
+  element.addEventListener('input', restore);
+  element.addEventListener('change', restore);
+  element.addEventListener('compositionstart', start);
+  element.addEventListener('compositionend', end);
+  scope.cleanups.push(() => {
+    clearTimeout(pending);
+    element.removeEventListener('input', restore);
+    element.removeEventListener('change', restore);
+    element.removeEventListener('compositionstart', start);
+    element.removeEventListener('compositionend', end);
+  });
+}
+
 export function text<M, E>(
   scope: Scope<M, E>,
   parent: Node,

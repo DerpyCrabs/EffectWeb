@@ -1,12 +1,38 @@
 // Immutable snapshots can reach the renderer through several projections. Reuse an
 // already compared object pair without retaining either snapshot after its owners release it.
 const sharedPairs = new WeakMap<object, WeakMap<object, unknown>>();
+const cyclicData = new WeakMap<object, boolean>();
+
+function cyclic(value: object, active: Set<object>): boolean {
+  const cached = cyclicData.get(value);
+  if (cached !== undefined) return cached;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  if (!Array.isArray(value) && prototype !== Object.prototype) return false;
+  if (active.has(value)) return true;
+  active.add(value);
+  const found = Reflect.ownKeys(value).some((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+    const child: unknown = descriptor.value;
+    return child !== null && typeof child === 'object' && cyclic(child, active);
+  });
+  active.delete(value);
+  cyclicData.set(value, found);
+  return found;
+}
 
 /** Override sharing for selected fields, for example a collection keyed by domain identity. */
 export type ShareFields<T> = { readonly [K in keyof T]?: (previous: T[K], next: T[K]) => T[K] };
 
-/** Share JSON-shaped data; Blob, typed arrays and class instances retain their own identity. */
+/** Share plain data; opaque objects, hidden fields and cyclic graphs retain next's identity. */
 export function shareValue<T>(previous: T, next: T, fields?: ShareFields<T>): T {
+  if (Object.is(previous, next)) return previous;
+  // Check the entire next graph, including new branches with no previous counterpart.
+  // Otherwise a partial clone could keep a back-reference to the unshared root.
+  if (next && typeof next === 'object' && cyclic(next, new Set())) return next;
+  return share(previous, next, fields);
+}
+
+function share<T>(previous: T, next: T, fields: ShareFields<T> | undefined): T {
   if (Object.is(previous, next)) return previous;
   if (!previous || !next || typeof previous !== 'object' || typeof next !== 'object') return next;
   const array = Array.isArray(next);
@@ -22,17 +48,34 @@ export function shareValue<T>(previous: T, next: T, fields?: ShareFields<T>): T 
   const old = previous as Record<string, unknown>;
   const value = next as Record<string, unknown>;
   const keys = Object.keys(value);
-  let equal = keys.length === Object.keys(old).length;
+  const oldKeys = Object.keys(old);
+  // Symbol and nonenumerable fields are outside the plain-data sharing contract.
+  // Returning next preserves them instead of accidentally claiming value equality.
+  const extra = array ? 1 : 0; // Array length is nonenumerable.
+  if (
+    Reflect.ownKeys(next).length !== keys.length + extra ||
+    Reflect.ownKeys(previous).length !== oldKeys.length + extra
+  )
+    return next;
+  let equal = keys.length === oldKeys.length && (!array || value.length === old.length);
   let unchangedNext = true;
   const shared: Record<string, unknown> = array ? ([] as unknown as Record<string, unknown>) : {};
+  if (array) shared.length = value.length;
   for (const key of keys) {
     const custom = fields && Object.hasOwn(fields, key) ? fields[key as keyof T] : undefined;
-    shared[key] =
+    const item =
       custom && Object.hasOwn(old, key)
         ? custom(old[key] as T[keyof T], value[key] as T[keyof T])
-        : shareValue(old[key], value[key]);
-    if (!Object.hasOwn(old, key) || shared[key] !== old[key]) equal = false;
-    if (shared[key] !== value[key]) unchangedNext = false;
+        : share(Object.hasOwn(old, key) ? old[key] : undefined, value[key], undefined);
+    // Define an own data property, including __proto__, without invoking setters.
+    Object.defineProperty(shared, key, {
+      value: item,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+    if (!Object.hasOwn(old, key) || !Object.is(item, old[key])) equal = false;
+    if (!Object.is(item, value[key])) unchangedNext = false;
   }
   const result = equal ? previous : unchangedNext ? next : (shared as T);
   if (fields) return result;
