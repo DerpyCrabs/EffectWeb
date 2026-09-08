@@ -1,5 +1,6 @@
 import type { Cause, Effect } from 'effect';
 import { effectCommand, type Transition } from './program.js';
+import type { Snapshot } from './snapshot.js';
 import type { EffectEventRequest } from './effectEvent.js';
 
 type EventResult = void | boolean | EffectEventRequest;
@@ -60,7 +61,7 @@ export type FieldMessage<Draft> =
 export interface FieldController<Draft, Value, R = never> {
   readonly init: (draft: Draft) => FieldState<Draft, Value>;
   readonly update: (
-    model: FieldState<Draft, Value>,
+    model: Snapshot<FieldState<Draft, Value>>,
     message: FieldMessage<Draft>,
   ) => Transition<FieldState<Draft, Value>, FieldMessage<Draft>, R>;
 }
@@ -78,7 +79,9 @@ export function defineField<Draft extends string | boolean, Value, E = never, R 
   readonly id: string;
   readonly parse: (draft: Draft) => FieldResult<Value>;
   readonly validateOn?: 'change' | 'blur' | 'submit';
-  readonly validate?: (value: Value) => Effect.Effect<string | undefined, E, R>;
+  readonly validate?: (
+    value: Snapshot<{ value: Value }>['value'],
+  ) => Effect.Effect<string | undefined, E, R>;
   readonly onFailure?: (cause: Cause.Cause<E>) => string;
 }): FieldController<Draft, Value, R> {
   const slot = `field:${options.id}`;
@@ -93,7 +96,7 @@ export function defineField<Draft extends string | boolean, Value, E = never, R 
     revision: 0,
   });
   const validate = (
-    model: FieldState<Draft, Value>,
+    model: Snapshot<FieldState<Draft, Value>>,
   ): Transition<FieldState<Draft, Value>, FieldMessage<Draft>, R> => {
     const revision = model.revision + 1;
     if (!model.parsed.ok) {
@@ -129,10 +132,11 @@ export function defineField<Draft extends string | boolean, Value, E = never, R 
     update(model, message) {
       switch (message.type) {
         case 'Change': {
-          const next: FieldState<Draft, Value> = {
+          const next: Snapshot<FieldState<Draft, Value>> = {
             ...model,
-            draft: message.draft,
-            parsed: options.parse(message.draft),
+            // Drafts are primitive; freshly parsed data is published through the owner's guard.
+            draft: message.draft as Snapshot<FieldState<Draft, Value>>['draft'],
+            parsed: options.parse(message.draft) as Snapshot<FieldState<Draft, Value>>['parsed'],
             dirty: !Object.is(message.draft, model.initial),
             revision: model.revision + 1,
             validation: 'idle',
@@ -148,7 +152,10 @@ export function defineField<Draft extends string | boolean, Value, E = never, R 
           return validate({ ...model, touched: true });
         case 'Reset':
           return {
-            model: { ...init(message.draft ?? model.initial), revision: model.revision + 1 },
+            model: {
+              ...init(message.draft ?? (model.initial as Draft)),
+              revision: model.revision + 1,
+            },
             cancel: [slot],
           };
         case 'Validated':
