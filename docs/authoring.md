@@ -103,3 +103,13 @@ class Transport implements SnapshotOpaque {
 ```
 
 This is a type-only declaration; it emits no marker or wrapper. Use it for resources whose state is owned outside the model. It neither makes mutable service internals reactive nor disables runtime protection of plain objects. Publish service observations as model data when they affect the UI.
+
+## Load data while live updates continue
+
+A readonly snapshot can still be old. A background request that replaces an entire conversation after a new message arrives will erase that message from the UI even though rendering is fully reactive.
+
+Return request outcomes through the current owner's reducer. Give each load an identity/token and reject outcomes whose owner, entity, or request has been superseded. Publish only fields owned by that request; preserve unrelated current fields instead of spreading a model captured before the request started.
+
+If a loader and a live stream both update the same collection, cancellation alone is insufficient. Keep the intervening domain changes for the lifetime of the load, then apply them to its result using the same reducer that handles live updates. Replay deletions as well as upserts so a late result cannot resurrect a deleted item. Release those changes on completion, cancellation, owner disposal, or selection change. This reconciliation belongs to the collection's owner, not to each view or caller.
+
+EffectWeb's command slots prevent canceled or superseded commands from publishing stale completions. They do not infer the meaning of an application's independently produced snapshots. The dependency inspector can show whether the view updated correctly; a stale data overwrite must be fixed at the publishing owner.

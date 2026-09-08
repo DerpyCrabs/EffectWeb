@@ -1,3 +1,4 @@
+import { protectSnapshot, checkSnapshotsByDefault, type Snapshot } from './snapshot.js';
 import { Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import * as Atom from 'effect/unstable/reactivity/Atom';
@@ -30,7 +31,8 @@ function createQueryCache<R>(runtime?: UiRuntime<R>) {
   const acquire = <A, E>(
     key: string,
     load: () => Effect.Effect<A, E>,
-    share: (previous: A, next: A) => A = shareValue,
+    share: (previous: Snapshot<A>, next: A) => A | Snapshot<A> = (previous, next) =>
+      shareValue(previous, next as Snapshot<A>),
   ) => {
     let entry = resources.get(key);
     if (entry) entry.load = load;
@@ -45,7 +47,10 @@ function createQueryCache<R>(runtime?: UiRuntime<R>) {
           return loadEffect(() => next.load()).pipe(
             Effect.map((value) => {
               next.loadedAt = Date.now();
-              return Option.isSome(previous) ? share(previous.value as A, value as A) : value;
+              const shared = Option.isSome(previous)
+                ? share(previous.value as Snapshot<A>, value as A)
+                : value;
+              return protectSnapshot(shared, checkSnapshotsByDefault);
             }),
           );
         }),
@@ -60,7 +65,7 @@ function createQueryCache<R>(runtime?: UiRuntime<R>) {
         if (oldKey !== key && !registry.getNodes().has(old.atom)) resources.delete(oldKey);
       }
     }
-    return { entry, atom: entry.atom as Atom.Atom<AsyncResult.AsyncResult<A, E>> };
+    return { entry, atom: entry.atom as Atom.Atom<AsyncResult.AsyncResult<Snapshot<A>, E>> };
   };
   const queryKey = <Args, A, E>(definition: Query<Args, A, E, R>, args: Args) =>
     `query:${definition.id}:${encodeQueryKey(definition.key(args))}`;
@@ -91,7 +96,10 @@ function createQueryCache<R>(runtime?: UiRuntime<R>) {
       return acquire(key, load).atom;
     },
     query: selectQuery,
-    prefetch<Args, A, E>(definition: Query<Args, A, E, R>, args: Args): Effect.Effect<A, E> {
+    prefetch<Args, A, E>(
+      definition: Query<Args, A, E, R>,
+      args: Args,
+    ): Effect.Effect<Snapshot<A>, E> {
       return Effect.suspend(() =>
         AtomRegistry.getResult(registry, selectQuery(definition, args), { suspendOnWaiting: true }),
       );

@@ -90,3 +90,9 @@ The live, filterable table shows original file/line/column, source expressions, 
 For custom tooling, `inspectBindings({ limit: 200 })` returns `entries()`, `subscribe(listener)`, `clear()`, and `dispose()`. Entries are immutable metadata, newest first, with at most 1000 source records. Least recently updated sources are evicted and start fresh if seen again. `dispose()` unsubscribes and clears retained metadata. `mountBindingInspector(element, inspector)` can share an inspector; removing that panel leaves the supplied inspector running. Low-level `observeBindings` remains available.
 
 The inspector covers instrumented derivations and text/attribute bindings; it is not a snapshot recorder, time-travel debugger, or complete profile of branch/list reconciliation. Source labels describe the compiler's inferred dependencies, not a proof that an opaque helper has no hidden state.
+
+## Immutable inputs and outputs
+
+Published `Snapshot<T>` values are recursively readonly, including nested arrays/tuples and async success data. View/slot composition, component inputs, owner patches, and task field updates accept readonly branches without casts. Query cache reads, subscriptions, and prefetch publish the same readonly data; development builds protect cached plain data before sharing it with consumers.
+
+Functions, Effects, DOM nodes, and explicitly marked service classes retain their own API. See the [authoring guide](https://github.com/DerpyCrabs/EffectWeb/blob/main/docs/authoring.md) for migration examples, `SnapshotOpaque`, state ownership, form composition, and reconciling async loads with live updates.

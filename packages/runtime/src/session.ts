@@ -1,3 +1,4 @@
+import type { Snapshot } from './snapshot.js';
 import { runAll, reportError, reportSafely } from './errors.js';
 import { encodeQueryKey, type Query } from './query.js';
 import type { DisposableOwner } from './owner.js';
@@ -39,17 +40,17 @@ export function queryResource<Args, A, E, R>(
 ) {
   let key: string | undefined;
   let generation = -1;
-  let atom: Atom.Atom<AsyncResult.AsyncResult<A, E>> | undefined;
+  let atom: Atom.Atom<AsyncResult.AsyncResult<Snapshot<A>, E>> | undefined;
   let stop: (() => void) | undefined;
   let disposed = false;
   let revision = 0;
-  const initial = AsyncResult.initial<A, E>();
-  const listeners = new Set<(result: AsyncResult.AsyncResult<A, E>) => void>();
+  const initial = AsyncResult.initial<Snapshot<A>, E>();
+  const listeners = new Set<(result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void>();
   const read = () =>
     atom && !disposed && generation === context.cache.registry.get(context.cache.generation)
       ? context.cache.registry.get(atom)
       : initial;
-  let published: AsyncResult.AsyncResult<A, E> | undefined;
+  let published: AsyncResult.AsyncResult<Snapshot<A>, E> | undefined;
   let notifying = false;
   let pending = false;
   const call = (work: () => void) => {
@@ -124,7 +125,7 @@ export function queryResource<Args, A, E, R>(
       notify();
     },
     read,
-    subscribe(listener: (result: AsyncResult.AsyncResult<A, E>) => void) {
+    subscribe(listener: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void) {
       if (disposed) return () => {};
       listeners.add(listener);
       return () => {
@@ -157,7 +158,7 @@ export function observeQuery<Args, A, E, R>(
   owner: DisposableOwner,
   cache: QueryCache<R>,
   definition: Query<Args, A, E, NoInfer<R>>,
-  changed: (result: AsyncResult.AsyncResult<A, E>) => void,
+  changed: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void,
 ) {
   const resource = queryResource({ cache }, definition);
   resource.subscribe(changed);
