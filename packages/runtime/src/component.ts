@@ -1,3 +1,4 @@
+import type { Snapshot } from './snapshot.js';
 import type { View } from './dom.js';
 import { compiled, Scope } from './dom.js';
 import type { Transition } from './program.js';
@@ -17,8 +18,8 @@ export function localComponent<Props, State extends object>(definition: {
   >({
     init: (props) => ({ ...definition.init(props), props }),
     update: (model, patch) => {
-      const next = patchModel<State>(model, patch);
-      return { model: next === model ? model : { ...next, props: model.props } };
+      const next = patchModel<State>(model as State, patch);
+      return { model: next === model ? model : { ...next, props: model.props as Props } };
     },
     view: definition.view,
   });
@@ -28,8 +29,8 @@ export function localComponent<Props, State extends object>(definition: {
 export function component<Props, Model extends { readonly props: Props }, Message, R = never>(
   definition: {
     init: (props: Props) => Model;
-    receive?: (model: Model, props: Props) => Transition<Model, Message, R>;
-    update: (model: Model, message: Message) => Transition<Model, Message, R>;
+    receive?: (model: Snapshot<Model>, props: Props) => Transition<Model, Message, R>;
+    update: (model: Snapshot<Model>, message: Message) => Transition<Model, Message, R>;
     view: View<Model, Message>;
   } & ([R] extends [never] ? { runtime?: UiRuntime<R> } : { runtime: UiRuntime<R> }),
 ): View<Props, never> {
@@ -75,7 +76,7 @@ export function component<Props, Model extends { readonly props: Props }, Messag
       () => unsubscribe(),
     );
     const unsubscribe = source.subscribe((model) => child.set(model));
-    definition.view.build(child, parent, before);
+    definition.view.build(child as unknown as Scope<Model, Message>, parent, before);
     scope.jobs.push(() => source.send({ type: 'Input', props: scope.value }));
     source.send({ type: 'Input', props: scope.value });
   });
@@ -96,7 +97,7 @@ export function programView<Props, Model, Message>(definition: {
       () => child.dispose(),
       () => unsubscribe(),
     );
-    definition.view.build(child, parent, before);
+    definition.view.build(child as unknown as Scope<Model, Message>, parent, before);
     scope.jobs.push(() => definition.receive(source, scope.value));
   });
 }

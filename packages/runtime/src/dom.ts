@@ -1,3 +1,4 @@
+import type { Snapshot } from './snapshot.js';
 import { runAll, reportError, reportSafely, type ReportError } from './errors.js';
 import { eventEffects } from './effectEvent.js';
 import { traceBinding, type BindingSource } from './diagnostics.js';
@@ -158,7 +159,9 @@ export function compiledSlot<M, E, A>(owner: Scope<M, E>, build: Build<A, E>): S
 }
 
 /** This declaration is a compiler marker, never a component setup callback. */
-export function view<M, E = never>(_render: (model: M, send: Send<E>) => JSX.Element): View<M, E> {
+export function view<M, E = never>(
+  _render: (model: Snapshot<M>, send: Send<E>) => JSX.Element,
+): View<M, E> {
   throw new Error('EffectWeb view reached runtime without the EffectWeb JSX compiler');
 }
 export function compiled<M, E>(build: Build<M, E>): View<M, E> {
@@ -239,7 +242,7 @@ export function mountView<M, E>(
   let unsubscribe = () => {};
   try {
     const fragment = buildFragment(parent);
-    definition.build(scope, fragment, null);
+    definition.build(scope as unknown as Scope<M, E>, fragment, null);
     parent.insertBefore(fragment, end);
     unsubscribe = source.subscribe((model) => scope.set(model));
   } catch (error) {

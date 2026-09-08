@@ -11,7 +11,7 @@ export namespace JSX {
     | null
     | undefined
     | CompiledContent
-    | Element[];
+    | readonly Element[];
   export type EventHandler<T, E extends Event> = (
     event: E & { currentTarget: T; target: EventTarget & globalThis.Element },
   ) => void | boolean | EffectEventRequest;

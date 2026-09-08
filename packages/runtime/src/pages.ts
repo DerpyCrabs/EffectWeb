@@ -114,8 +114,8 @@ export function pages<Props, A, Cursor>(definition: {
         initial: pagination.init(props),
         update: (model, message) =>
           message.type === 'Input'
-            ? pagination.receive(model, message.props)
-            : pagination.update(model, message),
+            ? pagination.receive(model as Model, message.props)
+            : pagination.update(model as Model, message),
       });
       const receive = (props: Props) => source.send({ type: 'Input', props });
       receive(props);

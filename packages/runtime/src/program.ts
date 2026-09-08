@@ -53,7 +53,7 @@ export function mapCommand<A, B, R = never>(
     : { slot: command.slot, effect: command.effect.pipe(Effect.map(map)) };
 }
 export interface Transition<Model, Message, R = never> {
-  readonly model: Model;
+  readonly model: Model | Snapshot<Model>;
   readonly commands?: readonly Command<Message, R>[];
   readonly cancel?: readonly string[];
 }
@@ -132,13 +132,13 @@ export function program<Model, Message>(options: {
     try {
       while (queue.length && !disposed) {
         const message = queue.shift()!;
-        const transition = options.update(current, message);
+        const transition = options.update(current as Snapshot<Model>, message);
         trace('update', undefined, message);
         for (const slot of transition.cancel ?? []) cancel(slot);
-        const next = protectSnapshot(transition.model, checkSnapshots);
+        const next = protectSnapshot(transition.model, checkSnapshots) as Model;
         if (!Object.is(current, next)) {
           current = next;
-          for (const listener of listeners) listener(current);
+          for (const listener of listeners) listener(current as Snapshot<Model>);
         }
         for (const command of transition.commands ?? []) {
           if (disposed) break;
@@ -188,7 +188,7 @@ export function program<Model, Message>(options: {
     }
   };
   return {
-    model: () => current,
+    model: () => current as Snapshot<Model>,
     activeSlots: () => [...running.keys()],
     awaitIdle: (slot) =>
       disposed || (!draining && (slot ? !running.has(slot) : running.size === 0))

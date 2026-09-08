@@ -1,7 +1,40 @@
+import type { Effect } from 'effect';
+import type * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { isAsyncResult } from 'effect/unstable/reactivity/AsyncResult';
 
-/** Published fields cannot be reassigned. Nested domain types should also declare readonly data. */
-export type Snapshot<T> = Readonly<T>;
+/** Mark an application service as opaque to snapshot typing; this is a type-only brand. */
+export declare const snapshotOpaque: unique symbol;
+export interface SnapshotOpaque {
+  readonly [snapshotOpaque]?: true;
+}
+
+/** Recursively immutable published data. Effects, functions and external resources retain their API. */
+export type Snapshot<T> = { readonly [K in keyof T]: ImmutableValue<T[K]> };
+type ImmutableValue<T> = typeof snapshotOpaque extends keyof T
+  ? T
+  : T extends (...args: never[]) => unknown
+    ? T
+    : T extends AsyncResult.AsyncResult<infer A, infer E>
+      ? AsyncResult.With<T, ImmutableValue<A>, E>
+      : T extends
+            | Effect.Effect<unknown, unknown, unknown>
+            | Date
+            | RegExp
+            | Error
+            | PromiseLike<unknown>
+            | Node
+            | EventTarget
+            | Blob
+            | ArrayBuffer
+            | ArrayBufferView
+        ? T
+        : T extends ReadonlyMap<infer K, infer V>
+          ? ReadonlyMap<ImmutableValue<K>, ImmutableValue<V>>
+          : T extends ReadonlySet<infer A>
+            ? ReadonlySet<ImmutableValue<A>>
+            : T extends object
+              ? Snapshot<T>
+              : T;
 
 declare const __EFFECTWEB_DEV__: boolean;
 export const checkSnapshotsByDefault =

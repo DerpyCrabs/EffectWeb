@@ -49,6 +49,8 @@ mountView(document.getElementById('app')!, Counter, counter);
 
 The [reading-list example](examples/reading-list) uses the packages with both IndexedDB and synchronous Effect storage.
 
+See the [authoring guide](docs/authoring.md) for choosing a state owner, growing local fields into domain transitions, forms, tasks, and cache ownership.
+
 ## Design boundaries
 
 Views read ordinary immutable values; messages update models. Effects belong to program, component, or DOM-listener scopes. Changing a loader from synchronous Effect to asynchronous Effect does not change its view contract. Promise APIs are adapted explicitly with `fromPromise`.

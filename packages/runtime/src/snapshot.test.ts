@@ -16,6 +16,7 @@ describe('published snapshot protection', () => {
       const seen: string[] = [];
       app.source.subscribe((model) => {
         expect(() => {
+          // @ts-expect-error Runtime guard also catches untyped mutations.
           model.items[0]!.text = 'bad';
         }).toThrow(TypeError);
         seen.push(model.items[0]!.text);
@@ -33,6 +34,7 @@ describe('published snapshot protection', () => {
       initial: { values: [1] },
       checkSnapshots: true,
       update(model, _message: void) {
+        // @ts-expect-error Runtime guard also catches untyped mutations.
         model.values.push(2);
         return { model };
       },
@@ -51,6 +53,7 @@ describe('published snapshot protection', () => {
       expect(() =>
         app.transaction(() => {
           app.patch({ record: { count: 1 } });
+          // @ts-expect-error Runtime guard also catches untyped mutations.
           app.read().record.count++;
         }),
       ).toThrow(TypeError);

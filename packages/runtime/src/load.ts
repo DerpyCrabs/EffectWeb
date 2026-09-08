@@ -9,9 +9,9 @@ export const fromPromise = <A>(load: (signal: AbortSignal) => PromiseLike<A>): U
   Effect.tryPromise({ try: load, catch: (error) => error });
 
 export interface UiPage<A, Cursor> {
-  items: A[];
-  totalCount?: number;
-  next: Cursor | undefined;
+  readonly items: readonly A[];
+  readonly totalCount?: number;
+  readonly next: Cursor | undefined;
 }
 
 /** Read a local cache when executed, then acquire missing data through the same Effect contract. */

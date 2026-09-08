@@ -41,7 +41,7 @@ export function resourceComponent<Props, A, E = unknown, R = never>(
     if (!retry && selected?.key === model.key) return { model };
     if (!selected)
       return {
-        model: { ...model, key: undefined, result: AsyncResult.initial() },
+        model: { ...model, key: undefined, result: AsyncResult.initial<A, E>() },
         cancel: ['load'],
       };
     return {
@@ -49,7 +49,7 @@ export function resourceComponent<Props, A, E = unknown, R = never>(
         ...model,
         key: selected.key,
         result: AsyncResult.waiting(
-          selected.key === model.key ? model.result : AsyncResult.initial(),
+          selected.key === model.key ? model.result : AsyncResult.initial<A, E>(),
         ),
       },
       commands: [
@@ -70,9 +70,11 @@ export function resourceComponent<Props, A, E = unknown, R = never>(
     };
   };
   return component<Props, ResourceModel<Props, A, E>, ResourceMessage<A, E>>({
-    init: (props) => ({ props, key: undefined, result: AsyncResult.initial() }),
-    receive: (model, props) => request({ ...model, props }),
-    update: (model, message) => {
+    init: (props) => ({ props, key: undefined, result: AsyncResult.initial<A, E>() }),
+    receive: (model, props) => request({ ...(model as ResourceModel<Props, A, E>), props }),
+    update: (snapshot, message) => {
+      // Internal commands preserve domain types; the public reducer boundary is immutable.
+      const model = snapshot as ResourceModel<Props, A, E>;
       switch (message.type) {
         case 'Retry':
           return request(model, true);

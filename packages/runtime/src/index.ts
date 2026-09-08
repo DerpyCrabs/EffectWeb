@@ -1,4 +1,4 @@
-export type { Snapshot } from './snapshot.js';
+export type { Snapshot, SnapshotOpaque, snapshotOpaque } from './snapshot.js';
 export { modelOwner, type ModelOwner, type DisposableOwner, type TaskPolicy } from './owner.js';
 export { collection, entities, sequence, type Rows } from './collection.js';
 export { component, localComponent, programView } from './component.js';
