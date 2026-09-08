@@ -280,7 +280,14 @@ function scalar(value: unknown): string {
   );
 }
 export function attribute(element: Element, name: string, value: unknown) {
-  const key = name === 'className' ? 'class' : name === 'tabIndex' ? 'tabindex' : name;
+  const key =
+    name === 'className'
+      ? 'class'
+      : name === 'tabIndex'
+        ? 'tabindex'
+        : name === 'htmlFor'
+          ? 'for'
+          : name;
   if (name === 'classList') {
     const tokens = (value ?? {}) as Record<string, boolean>;
     const next = new Set<string>();

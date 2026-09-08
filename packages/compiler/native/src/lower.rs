@@ -1198,6 +1198,7 @@ impl<'a, 's> Lower<'a, 's> {
             let key = match name.as_str() {
                 "class" | "className" | "classList" => "class",
                 "tabIndex" => "tabindex",
+                "htmlFor" => "for",
                 name => name,
             };
             let literal = !dynamic_attributes.contains(key)

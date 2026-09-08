@@ -426,3 +426,11 @@ it.each([
 ])('keeps exact native construction where HTML parsing would change the tree: %s', (jsx) => {
   expect(compile(`const Demo = view(model => ${jsx});`)).toContain('.template(');
 });
+
+it('serializes static label associations as native for attributes', () => {
+  const code = compile(
+    'const Label = view(model => <div><label htmlFor="name">Name</label><span>{model.title}</span></div>);',
+  );
+  expect(code).toContain('for=\\"name\\"');
+  expect(code).not.toContain('htmlFor=');
+});

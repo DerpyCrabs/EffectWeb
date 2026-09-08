@@ -195,6 +195,7 @@ fn render(value: &Value, ancestors: &mut Vec<String>, svg: bool) -> Option<Strin
         let name = match name {
             "className" => "class",
             "tabIndex" => "tabindex",
+            "htmlFor" => "for",
             name => name,
         };
         if svg
