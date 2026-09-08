@@ -34,7 +34,17 @@ export {
   type ProgramUpdate,
 } from './diagnostics.js';
 
-export { inputText, inputChecked, inputNumber, submit } from './form.js';
+export {
+  inputText,
+  inputChecked,
+  inputNumber,
+  submit,
+  defineField,
+  type FieldResult,
+  type FieldState,
+  type FieldMessage,
+  type FieldController,
+} from './form.js';
 export { slot, type Slot, type CompiledContent } from './dom.js';
 export { AsyncContent, type AsyncContentProps } from './AsyncContent.js';
 

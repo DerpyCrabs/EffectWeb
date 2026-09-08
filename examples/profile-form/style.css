@@ -1,0 +1,78 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #172c32;
+  background: #eff5f3;
+}
+body {
+  margin: 0;
+  padding: 3rem 1rem;
+}
+main {
+  max-width: 36rem;
+  margin: auto;
+  padding: 2rem;
+  background: white;
+  border-radius: 1rem;
+}
+h1 {
+  margin-top: 0;
+}
+label {
+  display: block;
+  font-weight: 650;
+  margin-top: 1.5rem;
+}
+p {
+  line-height: 1.5;
+}
+label + p {
+  margin: 0.4rem 0;
+  color: #51666b;
+  font-size: 0.9rem;
+}
+input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.7rem;
+  border: 1px solid #748d90;
+  border-radius: 0.35rem;
+  font: inherit;
+}
+input[aria-invalid='true'] {
+  border: 2px solid #a0242d;
+}
+[role='alert'] {
+  color: #a0242d;
+}
+[role='alert'],
+[role='status'] {
+  min-height: 1.5em;
+}
+[id$='-error'] {
+  min-height: 3em;
+  margin: 0.25rem 0;
+}
+button {
+  padding: 0.7rem 1rem;
+  margin: 0 0.5rem 0.8rem 0;
+  border-radius: 0.35rem;
+  border: 1px solid #23635b;
+  background: white;
+  font: inherit;
+  cursor: pointer;
+}
+button[type='submit'] {
+  background: #23635b;
+  color: white;
+}
+button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+:focus-visible {
+  outline: 3px solid #eab44c;
+  outline-offset: 3px;
+}
+output {
+  display: block;
+}

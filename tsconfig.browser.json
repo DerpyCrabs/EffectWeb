@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": { "types": ["node", "vite/client"], "jsxImportSource": "effectweb" },
-  "include": ["tests", "examples/reading-list", "playwright.config.ts"]
+  "include": ["tests", "examples/reading-list", "examples/profile-form", "playwright.config.ts"]
 }
