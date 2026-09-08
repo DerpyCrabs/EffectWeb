@@ -3,7 +3,13 @@ import { shareValue } from './share.js';
 import { Cause, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import type { UiLoad, UiPage } from './load.js';
-import { effectCommand, program, type Transition, type Send } from './program.js';
+import {
+  effectCommand,
+  program,
+  type Transition,
+  type Send,
+  type RunningProgram,
+} from './program.js';
 import { available } from './resource.js';
 export interface PagesModel<Props, A, Cursor> {
   readonly props: Props;
@@ -17,6 +23,31 @@ export type PagesMessage<A, Cursor> =
   | { type: 'Refresh' }
   | { type: 'Loaded'; page: UiPage<A, Cursor>; append: boolean }
   | { type: 'Failed'; cause: Cause.Cause<unknown> };
+/** An owned pagination source with immutable input updates. */
+export interface PagesProgram<Props, A, Cursor> extends RunningProgram<
+  PagesModel<Props, A, Cursor>,
+  PagesMessage<A, Cursor>
+> {
+  readonly receive: (props: Props | Snapshot<Props>) => void;
+}
+
+/** Reusable pagination transitions, or an independently owned source through create. */
+export interface Pagination<Props, A, Cursor> {
+  readonly init: (
+    props: Props | Snapshot<Props>,
+  ) => PagesModel<Props, A, Cursor> | Snapshot<PagesModel<Props, A, Cursor>>;
+  readonly receive: (
+    model: PagesModel<Props, A, Cursor> | Snapshot<PagesModel<Props, A, Cursor>>,
+    props: Props | Snapshot<Props>,
+    options?: { refresh?: boolean },
+  ) => Transition<PagesModel<Props, A, Cursor>, PagesMessage<A, Cursor>>;
+  readonly update: (
+    model: PagesModel<Props, A, Cursor> | Snapshot<PagesModel<Props, A, Cursor>>,
+    message: PagesMessage<A, Cursor>,
+  ) => Transition<PagesModel<Props, A, Cursor>, PagesMessage<A, Cursor>>;
+  readonly create: (props: Props | Snapshot<Props>) => PagesProgram<Props, A, Cursor>;
+}
+
 /**
  * Pagination owns the `page` command slot. Key changes clear results and replace the request;
  * same-key refreshes keep the last success, and retries repeat the failed cursor.
@@ -26,7 +57,7 @@ export function pages<Props, A, Cursor>(definition: {
   key: (props: Snapshot<Props>) => string | undefined;
   load: (props: Snapshot<Props>, cursor: Snapshot<Cursor> | undefined) => UiLoad<UiPage<A, Cursor>>;
   itemKey: (item: Snapshot<A>) => string;
-}) {
+}): Pagination<Props, A, Cursor> {
   type Model = PagesModel<Props, A, Cursor>;
   type Message = PagesMessage<A, Cursor>;
   const request = (model: Model, append: boolean): Transition<Model, Message> => {

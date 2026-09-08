@@ -1,18 +1,30 @@
 import { Cause, Effect } from 'effect';
-import type { RunningProgram } from './program.js';
+import type { Program, RunningProgram } from './program.js';
 import { defaultUiRuntime, type UiRuntime } from './runtime.js';
 
-export function programDriver<M, Msg>(
-  source: RunningProgram<M, Msg>,
-): ReturnType<typeof makeDriver<M, Msg, never>>;
+/** Program inspection and controlled Effect execution with application-owned services. */
+export interface ProgramDriver<M, Msg, R = never> extends Program<M, Msg> {
+  readonly activeSlots: RunningProgram<M, Msg>['activeSlots'];
+  readonly awaitSlot: (slot: string) => Promise<void>;
+  readonly awaitIdle: () => Promise<void>;
+  readonly run: <A, E>(effect: Effect.Effect<A, E, R>) => Promise<A>;
+}
+
+export function programDriver<M, Msg>(source: RunningProgram<M, Msg>): ProgramDriver<M, Msg>;
 export function programDriver<M, Msg, R>(
   source: RunningProgram<M, Msg>,
   runtime: UiRuntime<R>,
-): ReturnType<typeof makeDriver<M, Msg, R>>;
-export function programDriver<M, Msg, R>(source: RunningProgram<M, Msg>, runtime?: UiRuntime<R>) {
+): ProgramDriver<M, Msg, R>;
+export function programDriver<M, Msg, R>(
+  source: RunningProgram<M, Msg>,
+  runtime?: UiRuntime<R>,
+): ProgramDriver<M, Msg, R> {
   return makeDriver(source, runtime ?? (defaultUiRuntime as UiRuntime<R>));
 }
-function makeDriver<M, Msg, R>(source: RunningProgram<M, Msg>, runtime: UiRuntime<R>) {
+function makeDriver<M, Msg, R>(
+  source: RunningProgram<M, Msg>,
+  runtime: UiRuntime<R>,
+): ProgramDriver<M, Msg, R> {
   return {
     model: source.model,
     send: source.send,
