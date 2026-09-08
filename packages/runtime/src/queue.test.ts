@@ -293,3 +293,124 @@ it('waits for all parallel work in a shared slot before starting queued work', a
   expect(queued).toHaveBeenCalledOnce();
   app.dispose();
 });
+
+it.each(['queue', 'latest-queued'] as const)(
+  '%s processes earlier cancellation and replacement before starting the next synchronous write',
+  async (policy) => {
+    const { program } = await import('./program.js');
+    type Message = 'run' | 'cancel' | 'replace' | 'first' | 'second' | 'fresh';
+    for (const origin of ['effect', 'subscriber'] as const) {
+      for (const action of ['cancel', 'replace'] as const) {
+        const calls: string[] = [];
+        const seen: string[] = [];
+        const waiters: Promise<void>[] = [];
+        const source = program<string, Message>({
+          initial: '',
+          update: (model, message) => {
+            if (message === 'run')
+              return {
+                model,
+                commands: [
+                  {
+                    slot: 'save',
+                    policy,
+                    effect: Effect.sync(() => {
+                      calls.push('first');
+                      if (origin === 'effect') source.send(action);
+                      return 'first' as const;
+                    }),
+                  },
+                  {
+                    slot: 'save',
+                    policy,
+                    effect: Effect.sync(() => {
+                      calls.push('second');
+                      return 'second' as const;
+                    }),
+                  },
+                ],
+              };
+            if (message === 'cancel') return { model: 'canceled', cancel: ['save'] };
+            if (message === 'replace')
+              return {
+                model,
+                commands: [
+                  {
+                    slot: 'save',
+                    effect: Effect.sync(() => {
+                      calls.push('fresh');
+                      return 'fresh' as const;
+                    }),
+                  },
+                ],
+              };
+            return { model: message };
+          },
+        });
+        source.subscribe((model) => {
+          seen.push(model);
+          waiters.push(source.awaitIdle('save'));
+          if (origin === 'subscriber' && model === 'first') source.send(action);
+        });
+        source.send('run');
+        await Promise.all([...waiters, source.awaitIdle()]);
+        expect(calls).toEqual(action === 'cancel' ? ['first'] : ['first', 'fresh']);
+        expect(seen).not.toContain('second');
+        expect(source.model()).toBe(action === 'cancel' ? 'canceled' : 'fresh');
+        source.dispose();
+      }
+    }
+  },
+);
+
+it('releases deferred queued work when its completion reducer throws', async () => {
+  const { program } = await import('./program.js');
+  const queued = vi.fn();
+  const source = program({
+    initial: 0,
+    update: (model: number, message: string) => {
+      if (message === 'done') throw new Error('completion reducer');
+      return {
+        model,
+        commands: [
+          { slot: 'save', policy: 'queue', effect: Effect.succeed('done') },
+          { slot: 'save', policy: 'queue', action: Effect.sync(queued) },
+        ] as const,
+      };
+    },
+  });
+  expect(() => source.send('run')).toThrow('completion reducer');
+  await source.awaitIdle();
+  expect(queued).not.toHaveBeenCalled();
+  expect(source.activeSlots()).toEqual([]);
+  source.dispose();
+});
+
+it('latest-queued replaces pending work submitted by a synchronous completion subscriber', async () => {
+  const { program } = await import('./program.js');
+  const calls: string[] = [];
+  const write = (value: string) => ({
+    slot: 'save',
+    policy: 'latest-queued' as const,
+    effect: Effect.sync(() => {
+      calls.push(value);
+      return value;
+    }),
+  });
+  const source = program({
+    initial: '',
+    update: (model: string, message: string) => {
+      if (message === 'run') return { model, commands: [write('first'), write('outdated')] };
+      if (message === 'latest') return { model, commands: [write('newest')] };
+      return { model: message };
+    },
+  });
+  source.subscribe((model) => {
+    if (model === 'first') source.send('latest');
+  });
+  source.send('run');
+  await source.awaitIdle();
+  expect(calls).toEqual(['first', 'newest']);
+  expect(source.model()).toBe('newest');
+  source.dispose();
+});

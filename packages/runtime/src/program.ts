@@ -123,6 +123,7 @@ export function program<Model, Message>(options: {
   let disposed = false;
   let draining = false;
   const queue: Array<{ message: Message; slot?: string }> = [];
+  const deferred: Array<{ slot: string; group: Group }> = [];
   const cancel = (slot: string) => {
     // A synchronous Effect can enqueue completion behind a reset/replacement message.
     // Its fiber is already done, but cancellation still owns that unpublished completion.
@@ -184,15 +185,21 @@ export function program<Model, Message>(options: {
         if (Option.isSome(exit.value)) enqueue(exit.value.value, command.slot);
       } else reportSafely(options.onDefect ?? reportError, exit.cause);
       if (!disposed && running.get(command.slot) === group && !group.active.size) {
-        const next = group.pending.shift();
-        if (next) {
-          const nextTask: Running = {};
-          group.active.add(nextTask);
-          launch(next, group, nextTask);
-        }
+        // Process earlier reducer messages and completion subscribers before choosing the
+        // next write, so cancellation and latest-queued still apply to all pending work.
+        if (draining) deferred.push({ slot: command.slot, group });
+        else advance(command.slot, group);
       }
       notify();
     });
+  };
+  const advance = (slot: string, group: Group) => {
+    if (disposed || running.get(slot) !== group || group.active.size) return;
+    const next = group.pending.shift();
+    if (!next) return;
+    const task: Running = {};
+    group.active.add(task);
+    launch(next, group, task);
   };
   const enqueue = (message: Message, slot?: string) => {
     if (disposed) return;
@@ -200,7 +207,12 @@ export function program<Model, Message>(options: {
     if (draining) return;
     draining = true;
     try {
-      while (queue.length && !disposed) {
+      while ((queue.length || deferred.length) && !disposed) {
+        if (!queue.length) {
+          const next = deferred.shift()!;
+          advance(next.slot, next.group);
+          continue;
+        }
         const { message } = queue.shift()!;
         const transition = options.update(current as Snapshot<Model>, message);
         trace('update', undefined, message);
@@ -239,6 +251,9 @@ export function program<Model, Message>(options: {
         for (const launch of starts) launch();
       }
     } catch (error) {
+      // A failed reducer must not leave deferred work keeping awaitIdle pending.
+      for (const { slot, group } of deferred) if (running.get(slot) === group) cancel(slot);
+      deferred.length = 0;
       queue.length = 0;
       throw error;
     } finally {
@@ -275,6 +290,7 @@ export function program<Model, Message>(options: {
       if (disposed) return;
       disposed = true;
       queue.length = 0;
+      deferred.length = 0;
       for (const slot of running.keys()) cancel(slot);
       listeners.clear();
       trace('dispose');
