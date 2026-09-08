@@ -1,6 +1,6 @@
 export type { Snapshot, SnapshotOpaque, snapshotOpaque } from './snapshot.js';
 export { modelOwner, type ModelOwner, type DisposableOwner, type TaskPolicy } from './owner.js';
-export { collection, entities, sequence, type Rows } from './collection.js';
+export { collection, entities, sequence, type Rows, type Collection } from './collection.js';
 export { component, localComponent, programView } from './component.js';
 export { patchModel } from './state.js';
 export { defineActions, type ActionMessage } from './actions.js';

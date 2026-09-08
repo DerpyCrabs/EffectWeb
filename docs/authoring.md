@@ -88,6 +88,15 @@ const actions = defineActions<{ rows: { title: string }[] }>()({
 
 A helper consuming published data should accept `Snapshot<Domain>` or an already readonly domain type. A helper that really needs to mutate data must create its own copy first. Avoid casting a snapshot back to a mutable type. Development checks freeze published plain objects and arrays, including retained initial values and successful async data; production correctness still depends on immutable updates. Readonly map/set types prevent mutations through the snapshot API, but development checks do not freeze their internal storage.
 
+When upgrading a consumer, update read-only helper signatures at the point where they borrow model data. Keep mutable types for builders that own their arrays; do not silence an error by casting a published snapshot back to that builder type. Collections accept both freshly assembled items and existing snapshots, and their identity/render callbacks borrow readonly items:
+
+```ts
+type Row = { id: string; tags: string[] };
+const rows = collection<Row>((row) => row.id);
+const label = (row: Snapshot<Row>) => row.tags.join(', ');
+const List = view<{ rows: Row[] }>((model) => rows.from(model.rows).map((row) => label(row)));
+```
+
 Functions, Effects, DOM nodes, and standard external resources keep their own API and lifecycle. TypeScript cannot infer whether an arbitrary application type is a plain record or a class instance. Mark a service class explicitly when its complete instance type must survive snapshot publication:
 
 ```ts
