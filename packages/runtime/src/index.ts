@@ -9,7 +9,13 @@ export { effectEvent } from './effectEvent.js';
 export { mountView, view, type View } from './dom.js';
 export type { JSX } from './jsx.js';
 export { Portal, domBinding, domMount, type DomMount } from './mount.js';
-export { pages, type PagesMessage, type PagesModel } from './pages.js';
+export {
+  pages,
+  type PagesMessage,
+  type PagesModel,
+  type PagesProgram,
+  type Pagination,
+} from './pages.js';
 export {
   program,
   actionCommand,
@@ -65,6 +71,7 @@ export { query, type Query, type QueryKey } from './query.js';
 export { makeQueryCache, type QueryCache } from './cache.js';
 export {
   queryResource,
+  type QueryResource,
   observeQuery,
   lifetime,
   projectionCache,

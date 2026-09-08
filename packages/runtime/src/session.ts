@@ -30,6 +30,15 @@ export interface SessionContext<R = never> {
   readonly changed: () => void;
 }
 
+/** One owned selection and immutable observation of a shared query resource. */
+export interface QueryResource<Args, A, E = never> {
+  select(args: Args | undefined): void;
+  read(): AsyncResult.AsyncResult<Snapshot<A>, E>;
+  subscribe(listener: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void): () => void;
+  refresh(): void;
+  dispose(): void;
+}
+
 /**
  * Idempotent query reconciliation for snapshot ticks. Freshness is checked when entering a
  * selection (including remount), not on every same-key tick; refresh revalidates unless a request is already in flight.
@@ -37,7 +46,7 @@ export interface SessionContext<R = never> {
 export function queryResource<Args, A, E, R>(
   context: { cache: QueryCache<R>; changed?: () => void },
   definition: Query<Args, A, E, NoInfer<R>>,
-) {
+): QueryResource<Args, A, E> {
   let key: string | undefined;
   let generation = -1;
   let atom: Atom.Atom<AsyncResult.AsyncResult<Snapshot<A>, E>> | undefined;
@@ -159,7 +168,7 @@ export function observeQuery<Args, A, E, R>(
   cache: QueryCache<R>,
   definition: Query<Args, A, E, NoInfer<R>>,
   changed: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void,
-) {
+): QueryResource<Args, A, E> {
   const resource = queryResource({ cache }, definition);
   resource.subscribe(changed);
   return owner.own(resource);

@@ -24,7 +24,7 @@ export function makeQueryCache<R>(runtime?: UiRuntime<R>): QueryCache<R> {
   return createQueryCache(runtime);
 }
 
-function createQueryCache<R>(runtime?: UiRuntime<R>) {
+function createQueryCache<R>(runtime?: UiRuntime<R>): QueryCache<R> {
   const registry = AtomRegistry.make({ defaultIdleTTL: 30_000 });
   const generation = Atom.keepAlive(Atom.make(0));
   const resources = new Map<string, ResourceEntry>();
@@ -134,4 +134,21 @@ function createQueryCache<R>(runtime?: UiRuntime<R>) {
   };
 }
 
-export type QueryCache<R = never> = ReturnType<typeof createQueryCache<R>>;
+/** A cache owns one registry and the query resources published through it. */
+export interface QueryCache<R = never> {
+  readonly registry: AtomRegistry.AtomRegistry;
+  readonly generation: Atom.Writable<number>;
+  resource<A, E = unknown>(
+    key: string,
+    load: () => Effect.Effect<A, E>,
+  ): Atom.Atom<AsyncResult.AsyncResult<Snapshot<A>, E>>;
+  query<Args, A, E>(
+    definition: Query<Args, A, E, R>,
+    args: Args,
+  ): Atom.Atom<AsyncResult.AsyncResult<Snapshot<A>, E>>;
+  prefetch<Args, A, E>(definition: Query<Args, A, E, R>, args: Args): Effect.Effect<Snapshot<A>, E>;
+  invalidateQuery<Args, A, E>(definition: Query<Args, A, E, R>, ...selected: [] | [Args]): void;
+  invalidate(prefix: string): void;
+  resetResources(): void;
+  dispose(): void;
+}
