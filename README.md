@@ -4,7 +4,7 @@ Immutable Effect models and JSX compiled to direct DOM updates. No virtual DOM, 
 
 EffectWeb separates state transitions and scoped Effect work from pure snapshot views. Its Rust/Oxc compiler caches view derivations and emits granular DOM bindings. Collections declare domain identity once, and immutable structural sharing lets unchanged rows and bindings stay untouched.
 
-The API is still evolving. The runtime is `effectweb`; compiler tooling and integrations use the `@effectweb` npm scope. All packages share one release version.
+The runtime is `effectweb`; compiler tooling and integrations use the `@effectweb` npm scope. All packages share one release version.
 
 ## Packages
 
@@ -55,9 +55,9 @@ See the [authoring guide](docs/authoring.md) for choosing a state owner, growing
 
 Views read ordinary immutable values; messages update models. Effects belong to program, component, or DOM-listener scopes. Changing a loader from synchronous Effect to asynchronous Effect does not change its view contract. Promise APIs are adapted explicitly with `fromPromise`.
 
-The compiler handles dependency checks and DOM updates, but cannot infer domain identity or make arbitrary work cheap. Declare entity identity with `collection`, preserve unchanged references, and keep view derivations pure. Development snapshot checks reject in-place mutation of published plain data. Production code must still preserve immutable updates; opaque mutable objects remain outside those checks. Query caching is in memory; persistence, optimistic domain transactions, multi-tab coordination, and service acquisition remain application responsibilities.
+The compiler handles dependency checks and DOM updates, but cannot infer domain identity or make arbitrary work cheap. Declare entity identity with `collection`, preserve unchanged references, and keep view derivations pure. Published plain objects and arrays are frozen in every build, and `Snapshot<T>` exposes recursively readonly data. Opaque mutable resources keep their own lifecycle. Query identity includes every request argument; services belong in the Effect environment. Query caching is in memory; persistence, optimistic domain transactions, multi-tab coordination, and service acquisition remain application responsibilities.
 
-This package is a client-side renderer. It does not provide SSR, hydration, routing, or a stable ecosystem comparable to established UI frameworks. Runtime and compiler releases currently advance together.
+This package is a client-side renderer without SSR, hydration, or built-in routing. Runtime and compiler releases advance together.
 
 ## Development
 

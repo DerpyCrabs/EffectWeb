@@ -1,9 +1,12 @@
+import { commandSlot } from './program.js';
 import { Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { modelOwner } from './owner.js';
 import { defineTasks } from './tasks.js';
 import { controlledEffect } from './testing.js';
+
+const commandSave = commandSlot('save');
 
 it.each(['queue', 'latest-queued'] as const)(
   '%s owns ordered writes and keeps awaitIdle pending through the last write',
@@ -13,6 +16,7 @@ it.each(['queue', 'latest-queued'] as const)(
     const calls: string[] = [];
     const actions = defineTasks(app, {
       save: {
+        slot: commandSave,
         policy,
         run: (text: string) => {
           calls.push(text);
@@ -33,7 +37,7 @@ it.each(['queue', 'latest-queued'] as const)(
       expect(calls).toEqual(policy === 'queue' ? ['first', 'second'] : ['first', 'third']),
     );
     expect(idle).toBe(false);
-    expect(app.isRunning('save')).toBe(true);
+    expect(app.isRunning(commandSave)).toBe(true);
     pending.succeed(undefined);
     if (policy === 'queue') {
       await vi.waitFor(() => expect(calls).toEqual(['first', 'second', 'third']));
@@ -41,7 +45,7 @@ it.each(['queue', 'latest-queued'] as const)(
       pending.succeed(undefined);
     }
     await wait;
-    expect(app.isRunning('save')).toBe(false);
+    expect(app.isRunning(commandSave)).toBe(false);
     app.dispose();
   },
 );
@@ -51,8 +55,8 @@ it.each(['failure', 'defect'] as const)('advances queued writes after a %s', asy
   const app = modelOwner({}, { onDefect: report });
   const pending = controlledEffect<void, string>();
   const completed = vi.fn();
-  app.run('save', pending.effect, 'queue');
-  app.run('save', Effect.sync(completed), 'queue');
+  app.run(commandSave, pending.effect, 'queue');
+  app.run(commandSave, Effect.sync(completed), 'queue');
   if (kind === 'failure') pending.fail('offline');
   else pending.die('broken');
   await app.awaitIdle();
@@ -69,14 +73,14 @@ it.each(['cancel', 'dispose', 'replace'] as const)(
     const pending = Effect.callback<void>((callback) => {
       resume = callback;
     });
-    const queued = vi.fn();
-    app.run('save', pending, 'queue');
-    app.run('save', Effect.sync(queued), 'queue');
+    const queued = vi.fn<() => void>();
+    app.run(commandSave, pending, 'queue');
+    app.run(commandSave, Effect.sync(queued), 'queue');
     if (action === 'dispose') app.dispose();
-    else if (action === 'cancel') app.cancel('save');
+    else if (action === 'cancel') app.cancel(commandSave);
     else
       app.run(
-        'save',
+        commandSave,
         Effect.sync(() => app.patch({ value: 'new' })),
         'replace',
       );
@@ -177,7 +181,7 @@ it('admits batch queue policies before starting work and drains large synchronou
   app.transaction(() => {
     for (let i = 0; i < 2000; i++)
       app.run(
-        'save',
+        commandSave,
         Effect.sync(() => {
           count++;
         }),
@@ -190,7 +194,7 @@ it('admits batch queue policies before starting work and drains large synchronou
   app.transaction(() => {
     for (let i = 0; i < 10; i++)
       app.run(
-        'save',
+        commandSave,
         Effect.sync(() => {
           calls.push(i);
         }),
@@ -218,7 +222,7 @@ it('preserves queue policy through service provisioning and command mapping', as
             commands: [
               mapCommand(
                 {
-                  slot: 'save',
+                  slot: commandSave,
                   policy: 'queue',
                   effect: Effect.flatMap(Store, (store) => store.save),
                 },
@@ -247,13 +251,13 @@ it('suppresses synchronous completion messages already queued behind reset or re
     const source = program<string, Message>({
       initial: '',
       update: (model, message) => {
-        if (message === 'cancel') return { model: 'canceled', cancel: ['save'] };
+        if (message === 'cancel') return { model: 'canceled', cancel: [commandSave] };
         if (message === 'run')
           return {
             model,
             commands: [
               {
-                slot: 'save',
+                slot: commandSave,
                 policy: 'queue',
                 effect: Effect.sync(() => {
                   source.send(action);
@@ -263,7 +267,12 @@ it('suppresses synchronous completion messages already queued behind reset or re
             ],
           };
         if (message === 'replace')
-          return { model, commands: [{ slot: 'save', effect: Effect.succeed('fresh' as const) }] };
+          return {
+            model,
+            commands: [
+              { policy: 'replace', slot: commandSave, effect: Effect.succeed('fresh' as const) },
+            ],
+          };
         return { model: message };
       },
     });
@@ -281,10 +290,10 @@ it('waits for all parallel work in a shared slot before starting queued work', a
   const app = modelOwner({});
   const first = controlledEffect<void>();
   const second = controlledEffect<void>();
-  const queued = vi.fn();
-  app.run('save', first.effect, 'parallel');
-  app.run('save', second.effect, 'parallel');
-  app.run('save', Effect.sync(queued), 'queue');
+  const queued = vi.fn<() => void>();
+  app.run(commandSave, first.effect, 'parallel');
+  app.run(commandSave, second.effect, 'parallel');
+  app.run(commandSave, Effect.sync(queued), 'queue');
   first.succeed(undefined);
   await Promise.resolve();
   expect(queued).not.toHaveBeenCalled();
@@ -312,7 +321,7 @@ it.each(['queue', 'latest-queued'] as const)(
                 model,
                 commands: [
                   {
-                    slot: 'save',
+                    slot: commandSave,
                     policy,
                     effect: Effect.sync(() => {
                       calls.push('first');
@@ -321,7 +330,7 @@ it.each(['queue', 'latest-queued'] as const)(
                     }),
                   },
                   {
-                    slot: 'save',
+                    slot: commandSave,
                     policy,
                     effect: Effect.sync(() => {
                       calls.push('second');
@@ -330,13 +339,14 @@ it.each(['queue', 'latest-queued'] as const)(
                   },
                 ],
               };
-            if (message === 'cancel') return { model: 'canceled', cancel: ['save'] };
+            if (message === 'cancel') return { model: 'canceled', cancel: [commandSave] };
             if (message === 'replace')
               return {
                 model,
                 commands: [
                   {
-                    slot: 'save',
+                    policy: 'replace',
+                    slot: commandSave,
                     effect: Effect.sync(() => {
                       calls.push('fresh');
                       return 'fresh' as const;
@@ -349,7 +359,7 @@ it.each(['queue', 'latest-queued'] as const)(
         });
         source.subscribe((model) => {
           seen.push(model);
-          waiters.push(source.awaitIdle('save'));
+          waiters.push(source.awaitIdle(commandSave));
           if (origin === 'subscriber' && model === 'first') source.send(action);
         });
         source.send('run');
@@ -365,7 +375,7 @@ it.each(['queue', 'latest-queued'] as const)(
 
 it('releases deferred queued work when its completion reducer throws', async () => {
   const { program } = await import('./program.js');
-  const queued = vi.fn();
+  const queued = vi.fn<() => void>();
   const source = program({
     initial: 0,
     update: (model: number, message: string) => {
@@ -373,8 +383,8 @@ it('releases deferred queued work when its completion reducer throws', async () 
       return {
         model,
         commands: [
-          { slot: 'save', policy: 'queue', effect: Effect.succeed('done') },
-          { slot: 'save', policy: 'queue', action: Effect.sync(queued) },
+          { slot: commandSave, policy: 'queue', effect: Effect.succeed('done') },
+          { slot: commandSave, policy: 'queue', action: Effect.sync(queued) },
         ] as const,
       };
     },
@@ -390,7 +400,7 @@ it('latest-queued replaces pending work submitted by a synchronous completion su
   const { program } = await import('./program.js');
   const calls: string[] = [];
   const write = (value: string) => ({
-    slot: 'save',
+    slot: commandSave,
     policy: 'latest-queued' as const,
     effect: Effect.sync(() => {
       calls.push(value);
@@ -421,6 +431,7 @@ it('captures queued argument references and lets callers submit an owned immutab
   const seen: string[] = [];
   const tasks = defineTasks(owner, {
     save: {
+      slot: commandSave,
       policy: 'queue',
       run: (input: { text: string }) =>
         Effect.sync(() => {
@@ -428,7 +439,7 @@ it('captures queued argument references and lets callers submit an owned immutab
         }),
     },
   });
-  owner.run('save', gate.effect, 'queue');
+  owner.run(commandSave, gate.effect, 'queue');
   const draft = { text: 'accepted' };
   tasks.save({ ...draft });
   tasks.save(draft);

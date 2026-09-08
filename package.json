@@ -1,6 +1,6 @@
 {
   "name": "effectweb-workspace",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": true,
   "workspaces": [
     "packages/runtime",
@@ -18,7 +18,7 @@
     "test:compiler": "cargo test --manifest-path packages/compiler/native/Cargo.toml --locked",
     "test:package": "node scripts/package-smoke.mjs",
     "fmt": "cargo fmt --manifest-path packages/compiler/native/Cargo.toml && vp fmt",
-    "check": "cargo fmt --manifest-path packages/compiler/native/Cargo.toml --check && cargo clippy --manifest-path packages/compiler/native/Cargo.toml --locked --all-targets -- -D warnings && vp check",
+    "check": "tsc --noEmit && cargo fmt --manifest-path packages/compiler/native/Cargo.toml --check && cargo clippy --manifest-path packages/compiler/native/Cargo.toml --locked --all-targets -- -D warnings && vp check",
     "pack:release": "node scripts/pack-release.mjs",
     "version:release": "node scripts/version-release.mjs",
     "test:browser": "playwright test",
@@ -36,6 +36,8 @@
     "effect": "4.0.0-rc.112",
     "idb": "8.0.3",
     "oxfmt": "0.62.0",
+    "oxlint": "1.77.0",
+    "oxlint-tsgolint": "7.0.2001",
     "typescript": "5.9.3",
     "vite": "npm:@voidzero-dev/vite-plus-core@0.2.9",
     "vite-plus": "0.2.9"

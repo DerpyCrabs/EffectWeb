@@ -1,7 +1,8 @@
 import { Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
-import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { query } from './query.js';
+import { queryResource } from './session.js';
 import { makeQueryCache, shareValue, type QueryCache } from './cache.js';
 
 const models: QueryCache[] = [];
@@ -44,91 +45,109 @@ describe('immutable sharing and UI resources', () => {
 describe('UI resources', () => {
   it('uses the same result shape for synchronous and async Effects', async () => {
     const current = model();
-    for (const [key, load] of [
-      ['sync', () => Effect.succeed(42)],
-      ['async', () => Effect.promise(() => Promise.resolve(42))],
-    ] as const) {
-      const atom = current.resource(key, load);
-      expect(await Effect.runPromise(AtomRegistry.getResult(current.registry, atom))).toBe(42);
-      expect(AsyncResult.isSuccess(current.registry.get(atom))).toBe(true);
+    for (const load of [
+      () => Effect.succeed(42),
+      () => Effect.promise(() => Promise.resolve(42)),
+    ]) {
+      const definition = query({ name: 'same display name', load });
+      expect(await Effect.runPromise(current.prefetch(definition, true))).toBe(42);
     }
-    const undefinedResult = current.registry.get(
-      current.resource('undefined', () => Effect.succeed(undefined)),
+    const source = queryResource(
+      { cache: current },
+      query({ name: 'undefined', load: () => Effect.succeed(undefined) }),
     );
-    expect(Option.isSome(AsyncResult.value(undefinedResult))).toBe(true);
+    source.select(true);
+    expect(Option.isSome(AsyncResult.value(source.read()))).toBe(true);
+    source.dispose();
   });
 
   it('deduplicates observers, reuses cached results and shares unchanged refresh values', async () => {
     const current = model();
     const load = vi.fn(() => Effect.succeed([{ id: 1, text: 'cached' }]));
-    const first = current.resource('users:alice', load);
-    const release = current.registry.mount(first);
-    const value = Option.getOrThrow(AsyncResult.value(current.registry.get(first)));
-    release();
-    const again = current.resource('users:alice', load);
-    expect(again).toBe(first);
-    current.registry.mount(again);
+    const definition = query({ name: 'users', load });
+    const first = queryResource({ cache: current }, definition);
+    first.select(true);
+    const value = Option.getOrThrow(AsyncResult.value(first.read()));
+    first.dispose();
+    const again = queryResource({ cache: current }, definition);
+    again.select(true);
+    expect(Option.getOrThrow(AsyncResult.value(again.read()))).toBe(value);
     expect(load).toHaveBeenCalledTimes(1);
-    current.invalidate('users:');
-    expect(await Effect.runPromise(AtomRegistry.getResult(current.registry, again))).toBe(value);
+    current.invalidateQuery(definition);
+    expect(await Effect.runPromise(current.prefetch(definition, true))).toBe(value);
     expect(load).toHaveBeenCalledTimes(2);
+    again.dispose();
   });
 
   it('keeps previous success while refreshing, without leaking a result to another key', async () => {
     const current = model();
-    const alice = current.resource('alice', () => Effect.succeed('old'));
-    current.registry.mount(alice);
     let finish!: (value: string) => void;
-    current.resource('alice', () =>
-      Effect.promise(
-        () =>
-          new Promise<string>((resolve) => {
-            finish = resolve;
-          }),
-      ),
-    );
-    current.invalidate('alice');
-    const pending = current.registry.get(alice);
-    expect(pending.waiting).toBe(true);
-    expect(Option.getOrThrow(AsyncResult.value(pending))).toBe('old');
-    const bob = current.resource('bob', () => Effect.never);
-    current.registry.mount(bob);
-    expect(Option.isNone(AsyncResult.value(current.registry.get(bob)))).toBe(true);
+    let refresh = false;
+    const definition = query({
+      name: 'people',
+      load: (id: string) =>
+        id === 'bob'
+          ? Effect.never
+          : refresh
+            ? Effect.promise(
+                () =>
+                  new Promise<string>((resolve) => {
+                    finish = resolve;
+                  }),
+              )
+            : Effect.succeed('old'),
+    });
+    const alice = queryResource({ cache: current }, definition);
+    const bob = queryResource({ cache: current }, definition);
+    alice.select('alice');
+    refresh = true;
+    current.invalidateQuery(definition, 'alice');
+    expect(alice.read().waiting).toBe(true);
+    expect(Option.getOrThrow(AsyncResult.value(alice.read()))).toBe('old');
+    bob.select('bob');
+    expect(Option.isNone(AsyncResult.value(bob.read()))).toBe(true);
     finish('new');
-    expect(
-      await Effect.runPromise(
-        AtomRegistry.getResult(current.registry, alice, { suspendOnWaiting: true }),
-      ),
-    ).toBe('new');
-    expect(Option.isNone(AsyncResult.value(current.registry.get(bob)))).toBe(true);
+    expect(await Effect.runPromise(current.prefetch(definition, 'alice'))).toBe('new');
+    expect(Option.isNone(AsyncResult.value(bob.read()))).toBe(true);
+    alice.dispose();
+    bob.dispose();
   });
 
   it('interrupts account resources on reset and gives the next account fresh definitions', async () => {
     const current = model();
-    const interrupted = vi.fn();
-    const old = current.resource('profile', () =>
-      Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(interrupted))),
-    );
-    current.registry.mount(old);
+    const interrupted = vi.fn<() => void>();
+    let account = 'old';
+    const definition = query({
+      name: 'profile',
+      load: () =>
+        account === 'old'
+          ? Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(interrupted)))
+          : Effect.succeed(account),
+    });
+    const source = queryResource({ cache: current }, definition);
+    source.select(true);
     current.resetResources();
     await vi.waitFor(() => expect(interrupted).toHaveBeenCalledTimes(1));
-    const fresh = current.resource('profile', () => Effect.succeed('new account'));
-    expect(fresh).not.toBe(old);
-    expect(await Effect.runPromise(AtomRegistry.getResult(current.registry, fresh))).toBe(
-      'new account',
-    );
+    account = 'new account';
+    source.select(true);
+    expect(await Effect.runPromise(current.prefetch(definition, true))).toBe('new account');
+    source.dispose();
   });
 
   it('interrupts in-flight Effects when the app is disposed', async () => {
     const current = model();
-    const interrupted = vi.fn();
-    current.registry.mount(
-      current.resource('pending', () =>
-        Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(interrupted))),
-      ),
+    const interrupted = vi.fn<() => void>();
+    const source = queryResource(
+      { cache: current },
+      query({
+        name: 'pending',
+        load: () => Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(interrupted))),
+      }),
     );
+    source.select(true);
     current.dispose();
     await vi.waitFor(() => expect(interrupted).toHaveBeenCalledTimes(1));
+    source.dispose();
   });
 });
 
@@ -156,7 +175,6 @@ it('applies explicit field sharing without polluting ordinary comparison caching
 
 it('shares query results by domain identity for both observers and prefetch', async () => {
   const { collection } = await import('./collection.js');
-  const { query } = await import('./query.js');
   const rows = collection<{ id: number; text: string }>((item) => item.id);
   let incoming = [
     { id: 1, text: 'a' },
@@ -169,13 +187,27 @@ it('shares query results by domain identity for both observers and prefetch', as
   });
   const cache = model();
   const first = await Effect.runPromise(cache.prefetch(definition, true));
-  const atom = cache.query(definition, true);
-  const release = cache.registry.mount(atom);
+  const resource = queryResource({ cache }, definition);
+  resource.select(true);
   incoming = [...incoming].reverse();
   cache.invalidateQuery(definition);
-  const refreshed = await Effect.runPromise(AtomRegistry.getResult(cache.registry, atom));
+  const refreshed = await Effect.runPromise(cache.prefetch(definition, true));
   expect(refreshed[0]).toBe(first[1]);
   expect(refreshed[1]).toBe(first[0]);
   expect(await Effect.runPromise(cache.prefetch(definition, true))).toBe(refreshed);
-  release();
+  resource.dispose();
+});
+
+it('exposes reset observation without registry mutation and releases listeners', () => {
+  const cache = model();
+  let resets = 0;
+  const stop = cache.onReset(() => {
+    resets++;
+  });
+  expect(resets).toBe(0);
+  cache.resetResources();
+  expect(resets).toBe(1);
+  stop();
+  cache.resetResources();
+  expect(resets).toBe(1);
 });

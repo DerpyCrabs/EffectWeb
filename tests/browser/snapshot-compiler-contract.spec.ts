@@ -6,7 +6,9 @@ test('copied-array derivations update stable DOM without mutating frozen input',
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/dependencyFixture.tsx';
-    const { mountCopiedArrays } = await import(path);
+    const { mountCopiedArrays } = (await import(
+      path
+    )) as typeof import('../fixtures/dependencyFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const fixture = mountCopiedArrays(host);
@@ -45,7 +47,9 @@ test('JSX constants keep declaration bindings through helper and list shadowing'
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const fixturePath = '/tests/fixtures/compilerContractFixture.tsx';
-    const { mountLexicalCapture } = await import(fixturePath);
+    const { mountLexicalCapture } = (await import(
+      fixturePath
+    )) as typeof import('../fixtures/compilerContractFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountLexicalCapture(host);
@@ -86,7 +90,9 @@ test('detached SVG roots, branches, lists and templates retain namespace across 
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const fixturePath = '/tests/fixtures/compilerContractFixture.tsx';
-    const { mountSvgContexts } = await import(fixturePath);
+    const { mountSvgContexts } = (await import(
+      fixturePath
+    )) as typeof import('../fixtures/compilerContractFixture');
     const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     document.body.append(host);
     const source = mountSvgContexts(host);
@@ -132,7 +138,9 @@ test('template aliases refresh helper and stable row scopes and parenthesized me
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/dependencyFixture.tsx';
-    const { mountDependencies } = await import(path);
+    const { mountDependencies } = (await import(
+      path
+    )) as typeof import('../fixtures/dependencyFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountDependencies(host);
@@ -166,7 +174,9 @@ test('destructured inputs preserve field granularity, defaults, rest and current
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/compilerContractFixture.tsx';
-    const { mountDestructured } = await import(path);
+    const { mountDestructured } = (await import(
+      path
+    )) as typeof import('../fixtures/compilerContractFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const fixture = mountDestructured(host);

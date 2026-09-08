@@ -28,8 +28,11 @@ it('treats accessors as opaque without executing getters or replacing descriptor
 });
 
 it('preserves own __proto__ data while reusing unchanged nested values', () => {
-  const previous = JSON.parse('{"data":{"x":1},"__proto__":{"admin":false}}');
-  const next = JSON.parse('{"data":{"x":1},"__proto__":{"admin":true}}');
+  const previous = JSON.parse('{"data":{"x":1},"__proto__":{"admin":false}}') as {
+    data: { x: number };
+    __proto__: { admin: boolean };
+  };
+  const next = JSON.parse('{"data":{"x":1},"__proto__":{"admin":true}}') as typeof previous;
   const result = shareValue(previous, next);
   expect(result).toEqual(next);
   expect(result.data).toBe(previous.data);
@@ -91,4 +94,25 @@ it('keeps cyclic graphs opaque without overflowing or constructing a broken cycl
   const newChild = { id: 1 };
   const oldDag = { a: oldChild, b: oldChild };
   expect(shareValue(oldDag, { a: newChild, b: newChild })).toBe(oldDag);
+});
+
+it('borrows frozen and unfrozen publications, including custom shared branches', () => {
+  for (const frozen of [true, false]) {
+    const item = { count: 1 };
+    const previous = { items: [item], revision: 0 };
+    if (frozen) {
+      Object.freeze(item);
+      Object.freeze(previous.items);
+      Object.freeze(previous);
+    }
+    const next = { items: [{ count: 1 }], revision: 1 };
+    const value = shareValue(previous, next, {
+      items: (old, incoming) => shareValue(old, incoming),
+    });
+    expect(value).not.toBe(previous);
+    expect(value.items).toBe(previous.items);
+    expect(value.revision).toBe(1);
+    expect(previous.revision).toBe(0);
+    expect(next.items[0]).not.toBe(item);
+  }
 });

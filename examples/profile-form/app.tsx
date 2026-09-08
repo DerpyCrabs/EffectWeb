@@ -1,3 +1,4 @@
+import { commandSlot } from 'effectweb';
 import './style.css';
 import { Effect } from 'effect';
 import {
@@ -13,6 +14,8 @@ import {
   type Transition,
 } from 'effectweb';
 import { effectCommand, mapCommand } from 'effectweb/program';
+
+const commandSave = commandSlot('save');
 
 export interface Profile {
   readonly username: string;
@@ -114,7 +117,8 @@ export function createProfileForm(service: ProfileService = demoService) {
       model: { ...model, status: 'saving' },
       commands: [
         ...(next.commands ?? []),
-        effectCommand('save', () => service.save(profile), {
+        effectCommand(commandSave, () => service.save(profile), {
+          policy: 'replace',
           onSuccess: (profile): Message => ({ type: 'Saved', profile }),
           onFailure: (): Message => ({ type: 'SaveFailed' }),
         }),
@@ -142,7 +146,7 @@ export function createProfileForm(service: ProfileService = demoService) {
             message.message,
           );
           return finishValidation(
-            editing ? { ...next, cancel: [...(next.cancel ?? []), 'save'] } : next,
+            editing ? { ...next, cancel: [...(next.cancel ?? []), commandSave] } : next,
           );
         }
         case 'Submit': {
@@ -163,7 +167,7 @@ export function createProfileForm(service: ProfileService = demoService) {
           const second = liftHours(first.model, { type: 'Reset' });
           return {
             model: { ...second.model, status: 'editing', saved: undefined, saveError: undefined },
-            cancel: [...(first.cancel ?? []), ...(second.cancel ?? []), 'save'],
+            cancel: [...(first.cancel ?? []), ...(second.cancel ?? []), commandSave],
           };
         }
         case 'Saved':

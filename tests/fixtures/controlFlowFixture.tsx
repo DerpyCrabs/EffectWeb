@@ -33,6 +33,7 @@ export function mountControlFlow(parent: HTMLElement) {
             </section>
           );
         }
+        case 'error':
         default:
           return <p role="alert">{item.message}</p>;
       }

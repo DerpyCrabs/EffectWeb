@@ -1,5 +1,6 @@
 import type { JSX, View } from 'effectweb';
-import { attach, attribute, compiled, event } from 'effectweb/dom';
+// oxlint-disable-next-line no-restricted-imports -- Precompiled icon integration owns raw DOM bindings and their scopes.
+import { attach, attribute, compiled, bindEvent } from 'effectweb/dom';
 
 export type LucideProps = JSX.IntrinsicElements['svg'] & {
   size?: number | string | undefined;
@@ -32,10 +33,13 @@ export function withIconAttributes(
           if (/^on[A-Z]/u.test(name)) {
             if (!listeners.has(name) && typeof next[name] === 'function') {
               listeners.add(name);
-              event(scope, svg, name, (nativeEvent) => {
-                const handler = (scope.value as Record<string, unknown>)[name];
-                if (typeof handler === 'function') return handler(nativeEvent);
-              });
+              bindEvent(
+                scope,
+                svg,
+                name,
+                () => [(scope.value as Record<string, unknown>)[name]],
+                () => (scope.value as Record<string, unknown>)[name],
+              );
             }
           } else if (!Object.is(previous[name], next[name])) {
             attribute(svg, name, next[name]);

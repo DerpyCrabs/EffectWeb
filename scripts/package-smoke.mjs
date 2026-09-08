@@ -49,6 +49,8 @@ writeFileSync(
         vite: '8.2.2',
         typescript: '5.9.3',
         oxlint: '1.77.0',
+        'oxlint-tsgolint': '7.0.2001',
+        '@effect/tsgo': '0.32.1',
       },
     },
     null,
@@ -90,8 +92,22 @@ assert.ok(
 for (const name of ['effectweb', '@effectweb/compiler', '@effectweb/lucide']) {
   const directory = join(temp, 'node_modules', name);
   const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
+  if (name === '@effectweb/compiler') {
+    assert.equal(manifest.bin, undefined, 'The compiler must not ship a project-check CLI');
+    for (const name of ['./project', './tsconfig.json', './oxlint.json'])
+      assert.equal(manifest.exports[name], undefined, 'Project configuration belongs to consumers');
+    for (const name of ['typescript', 'oxlint', 'oxlint-tsgolint', '@effect/tsgo'])
+      assert.equal(
+        manifest.dependencies?.[name],
+        undefined,
+        'Checker tools are consumer dev dependencies',
+      );
+    assert.ok(!existsSync(join(directory, 'dist/project.js')));
+  }
   for (const entry of Object.values(manifest.exports)) {
-    for (const target of Object.values(entry).filter((target) => !target.includes('*')))
+    for (const target of (typeof entry === 'string' ? [entry] : Object.values(entry)).filter(
+      (target) => !target.includes('*'),
+    ))
       assert.ok(existsSync(join(directory, target)), `${name}: missing export ${target}`);
   }
 }
@@ -129,12 +145,22 @@ writeFileSync(
       moduleResolution: 'Bundler',
       lib: ['ES2022', 'DOM', 'DOM.Iterable'],
       strict: true,
+      noUncheckedIndexedAccess: true,
+      exactOptionalPropertyTypes: true,
+      noImplicitReturns: true,
+      noFallthroughCasesInSwitch: true,
+      noUncheckedSideEffectImports: true,
+      noImplicitOverride: true,
+      forceConsistentCasingInFileNames: true,
+      allowUnreachableCode: false,
+      allowUnusedLabels: false,
       skipLibCheck: true,
+      resolveJsonModule: false,
       noEmit: true,
       jsx: 'preserve',
       jsxImportSource: 'effectweb',
     },
-    include: ['app.tsx'],
+    include: ['*.ts', '*.tsx'],
   }),
 );
 writeFileSync(
@@ -149,7 +175,12 @@ import { Camera } from '@effectweb/lucide';
 import AlarmCheck from '@effectweb/lucide/icons/alarm-check';
 import type { IconName } from '@effectweb/lucide/dynamic';
 import { mountAuthoring } from './authoringFixture';
-Object.assign(window, { mountAuthoring });
+import { mountContracts } from './contractsFixture';
+import { ownershipContracts } from './ownershipFixture';
+import { Editor } from './safeAuthoringFixture';
+import { createLazyViewFixture } from './lazyViewFixture';
+import { mountPortal } from './portalFixture';
+Object.assign(window, { mountAuthoring, mountContracts, ownershipContracts, Editor, createLazyViewFixture, mountPortal });
 const name: IconName = 'camera';
 // @ts-expect-error Unknown icon names must fail at compile time.
 const badName: IconName = 'not-a-lucide-icon';
@@ -173,6 +204,35 @@ writeFileSync(
   join(temp, 'authoringFixture.tsx'),
   readFileSync('tests/fixtures/authoringFixture.tsx'),
 );
+for (const file of [
+  'contractsFixture.tsx',
+  'scalarContract.ts',
+  'ownershipFixture.tsx',
+  'safeAuthoringFixture.tsx',
+  'lazyViewFixture.tsx',
+  'lazyViewModule.tsx',
+  'portalFixture.tsx',
+  'nativeEventsFixture.tsx',
+]) {
+  writeFileSync(join(temp, file), readFileSync(`tests/fixtures/${file}`));
+}
+for (const file of [
+  'contracts.typecheck.tsx',
+  'async.typecheck.tsx',
+  'query.typecheck.ts',
+  'commands.typecheck.ts',
+  'tasks.typecheck.ts',
+  'lazy.typecheck.tsx',
+  'portal.typecheck.tsx',
+  'native-jsx.typecheck.ts',
+]) {
+  const source = readFileSync(`packages/runtime/src/${file}`, 'utf8').replace(
+    /(['"])\.\/([A-Za-z]+)\.js\1/gu,
+    (_match, quote, module) =>
+      `${quote}${['AsyncContent', 'owner', 'dom', 'index', 'snapshot'].includes(module) ? 'effectweb' : `effectweb/${module}`}${quote}`,
+  );
+  writeFileSync(join(temp, file), source);
+}
 writeFileSync(
   join(temp, '.oxlintrc.json'),
   JSON.stringify({
@@ -180,7 +240,7 @@ writeFileSync(
     rules: { 'effectweb/valid-view': 'error' },
   }),
 );
-run(process.execPath, ['node_modules/oxlint/bin/oxlint', 'app.tsx'], temp);
+run(process.execPath, ['node_modules/oxlint/bin/oxlint', '--no-ignore', 'app.tsx'], temp);
 const lintProbe = join(temp, 'lint-probe.tsx');
 writeFileSync(
   lintProbe,
@@ -192,7 +252,7 @@ const Bad = view((model: { items: number[] }) => {
 );
 const lint = spawnSync(
   process.execPath,
-  ['node_modules/oxlint/bin/oxlint', '--format', 'json', 'lint-probe.tsx'],
+  ['node_modules/oxlint/bin/oxlint', '--no-ignore', '--format', 'json', 'lint-probe.tsx'],
   { cwd: temp, encoding: 'utf8' },
 );
 assert.equal(lint.status, 1, 'Invalid view must fail the packed lint integration');
@@ -212,11 +272,52 @@ const Good = view((model: { items: number[] }) => {
   return <p>{sorted.length}</p>;
 });`,
 );
-run(process.execPath, ['node_modules/oxlint/bin/oxlint', 'lint-probe.tsx'], temp);
+run(process.execPath, ['node_modules/oxlint/bin/oxlint', '--no-ignore', 'lint-probe.tsx'], temp);
 // The suppression probe deliberately bypasses the compiler; remove it before build/type checks.
 unlinkSync(lintProbe);
+// These are the consumer's own tools and configuration, independent of the compiler package.
+run(
+  process.execPath,
+  ['node_modules/@effect/tsgo/dist/effect-tsgo.cjs', 'patch', '--no-typescript', '--oxlint'],
+  temp,
+);
+writeFileSync(
+  join(temp, '.oxlintrc.json'),
+  JSON.stringify({
+    plugins: ['typescript', 'effecttsgo'],
+    jsPlugins: ['@effectweb/compiler/oxlint'],
+    options: { typeAware: true, typeCheck: true },
+    rules: {
+      'effectweb/valid-view': 'error',
+      'effectweb/query-key': 'error',
+      'effecttsgo/floating-effect': 'error',
+      'typescript/no-explicit-any': 'error',
+      'typescript/no-floating-promises': ['error', { ignoreVoid: false }],
+      'typescript/no-misused-promises': 'error',
+      'typescript/no-unsafe-argument': 'error',
+      'typescript/no-unsafe-assignment': 'error',
+      'typescript/no-unsafe-call': 'error',
+      'typescript/no-unsafe-member-access': 'error',
+      'typescript/no-unsafe-return': 'error',
+      'typescript/switch-exhaustiveness-check': 'error',
+    },
+  }),
+);
 run(process.execPath, ['node_modules/typescript/bin/tsc', '--noEmit'], temp);
+const lintFiles = readdirSync(temp).filter((name) => /\.tsx?$/u.test(name));
+run(
+  process.execPath,
+  ['node_modules/oxlint/bin/oxlint', '--no-ignore', '--type-aware', '--type-check', ...lintFiles],
+  temp,
+);
+const projectProbe = join(temp, 'unrelated.ts');
+writeFileSync(projectProbe, 'export const label: string = 123;\n');
+const consumerTsconfig = readFileSync(join(temp, 'tsconfig.json'));
+unlinkSync(join(temp, 'tsconfig.json'));
+// A library build works without tsconfig and does not check unrelated application sources.
 run(process.execPath, ['node_modules/vite/bin/vite.js', 'build'], temp);
+writeFileSync(join(temp, 'tsconfig.json'), consumerTsconfig);
+unlinkSync(projectProbe);
 const bundle = readdirSync(join(temp, 'dist/assets'))
   .filter((name) => name.endsWith('.js'))
   .map((name) => readFileSync(join(temp, 'dist/assets', name), 'utf8'))
@@ -241,6 +342,12 @@ const service = Context.Service('package-smoke/service');
 const cache = makeQueryCache(uiRuntime(Context.make(service, 'shared')));
 const definition = query({ name: 'smoke', load: () => service });
 assert.equal(await Effect.runPromise(cache.prefetch(definition, true)), 'shared');
+assert.equal(cache.setQueryData(definition, true, 'written'), 'written');
+assert.equal(
+  cache.updateQueryData(definition, true, (value) => `${value}:updated`),
+  'written:updated',
+);
+assert.equal(await Effect.runPromise(cache.prefetch(definition, true)), 'written:updated');
 cache.dispose();
 const server = createServer((request, response) => {
   const pathname = new URL(request.url, 'http://localhost').pathname;
@@ -273,8 +380,8 @@ try {
   assert.equal(await page.locator('.lucide-camera').getAttribute('width'), '26');
   assert.equal(
     await page.locator('html').getAttribute('data-snapshot-frozen'),
-    'false',
-    'Production builds must disable automatic snapshot checks',
+    'true',
+    'Published plain snapshots must stay protected in production',
   );
   assert.equal(
     await page.evaluate(() => window.originalCamera === document.querySelector('.lucide-camera')),
@@ -314,6 +421,145 @@ try {
     clicks: ['old', 'new'],
     hosts: ['start:old', 'stop:old', 'start:new', 'stop:new'],
   });
+  const ownership = await page.evaluate(() => window.ownershipContracts());
+  assert.deepEqual(
+    ownership.lifecycle,
+    Array.from({ length: 8 }, () => ({
+      started: ['started'],
+      afterUpdate: ['started'],
+      errors: [],
+    })),
+  );
+  assert.deepEqual(
+    ownership.optionalTransitions,
+    Array.from({ length: 4 }, () => ({
+      events: ['started', 'interrupted', 'replacement', 'replacement interrupted'],
+      errors: [],
+    })),
+  );
+  assert.deepEqual(ownership.optionalEvents, { direct: [], spread: [] });
+  assert.deepEqual(ownership.modelSpreadEvents, ['started']);
+  assert.deepEqual(ownership.selfRemoval, {
+    model: { show: false },
+    dom: '',
+    cleanups: ['disposed'],
+  });
+  assert.equal(ownership.blurDraft, 'unfinished draft');
+  assert.equal(ownership.publishedDraft, 'published edit');
+  const contracts = await page.evaluate(async () => {
+    const host = document.createElement('section');
+    document.body.append(host);
+    const fixture = window.mountContracts(host);
+    await new Promise((done) => setTimeout(done, 0));
+    const selections = () => Array.from(host.querySelectorAll('select'), (node) => node.value);
+    const before = selections();
+    host.querySelector('[data-bound]').click();
+    const clicked = fixture.source.model().clicked;
+    const first = host.querySelector('[data-cell]');
+    fixture.source.send({
+      selected: 'c',
+      options: ['b', 'c'],
+      style: { color: 'green' },
+      label: 'packed',
+    });
+    const after = selections();
+    fixture.source.send({ options: [] });
+    fixture.source.send({ options: ['x', 'c'] });
+    const restored = selections();
+    const values = {
+      before,
+      after,
+      restored,
+      clicked,
+      styles: Array.from(host.querySelectorAll('[data-style],[data-style-spread]'), (node) => [
+        node.style.color,
+        node.style.backgroundColor,
+      ]),
+      falseValues: [
+        host.querySelector('[data-spell]').spellcheck,
+        host.querySelector('[data-drag]').draggable,
+        host.querySelector('[data-edit]').isContentEditable,
+        host.querySelector('[data-translate]').translate,
+      ],
+      staticValues: ['draggable', 'spellcheck', 'contenteditable'].map((name) =>
+        host.querySelector('[data-static]').getAttribute(name),
+      ),
+      staticTranslate: host.querySelector('[data-static]').getAttribute('translate'),
+      download: host.querySelector('[data-download]').getAttribute('download'),
+      content: host.querySelector('[data-values]').textContent,
+      sameCell: first === host.querySelector('[data-cell]'),
+      cells: Array.from(host.querySelectorAll('[data-cell]'), (node) => node.textContent),
+      scalar: host.querySelector('[data-scalar]').textContent,
+      portal: document.querySelector('[data-overlay]').textContent,
+      ordinary: host.querySelector('[data-own-portal]').textContent,
+    };
+    fixture.dispose();
+    host.remove();
+    return {
+      ...values,
+      errors: fixture.errors,
+      lifetime: fixture.lifetime(),
+      portalRemoved: !document.querySelector('[data-overlay]'),
+    };
+  });
+  assert.deepEqual(contracts, {
+    before: ['b', 'b'],
+    after: ['c', 'c'],
+    restored: ['c', 'c'],
+    clicked: 1,
+    styles: [
+      ['green', ''],
+      ['green', ''],
+    ],
+    falseValues: [false, false, false, false],
+    staticTranslate: 'no',
+    download: null,
+    staticValues: ['false', 'false', 'false'],
+    content: 'ab2',
+    sameCell: true,
+    cells: ['packed:one', 'packed:two'],
+    scalar: 'packed',
+    portal: 'packed',
+    ordinary: 'packed',
+    errors: [],
+    lifetime: { starts: 2, stops: 2 },
+    portalRemoved: true,
+  });
+  const placement = await page.evaluate(async () => {
+    const host = document.createElement('section');
+    const target = document.createElement('aside');
+    document.body.append(host, target);
+    const portal = window.mountPortal(host, target);
+    const portalPlaced = !!target.querySelector('[data-portal-content]');
+    portal.update(target, 'packaged');
+    const portalText = target.querySelector('button')?.textContent;
+    portal.dispose();
+    const portalRemoved = target.childNodes.length === 0;
+    const lazy = window.createLazyViewFixture(host);
+    lazy.mount('packed', 'initial');
+    lazy.update('packed', 'latest');
+    await lazy.resolve(0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const button = host.querySelector('[data-lazy-loaded]');
+    button?.click();
+    const text = button?.textContent;
+    lazy.dispose();
+    const state = lazy.state();
+    const remaining = host.childNodes.length;
+    host.remove();
+    target.remove();
+    return { portalPlaced, portalText, portalRemoved, text, remaining, state };
+  });
+  assert.equal(placement.portalPlaced, true);
+  assert.equal(placement.portalText, 'packaged:0');
+  assert.equal(placement.portalRemoved, true);
+  assert.equal(placement.text, 'latest');
+  assert.equal(placement.remaining, 0);
+  assert.equal(placement.state.starts, 1);
+  assert.equal(placement.state.loadedMounts, 1);
+  assert.equal(placement.state.loadedDisposals, 1);
+  assert.deepEqual(placement.state.events, [{ id: 'packed', title: 'latest' }]);
+  assert.deepEqual(placement.state.errors, []);
   assert.deepEqual(errors, []);
 } finally {
   await browser?.close();

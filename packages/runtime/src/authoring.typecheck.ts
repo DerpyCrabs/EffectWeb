@@ -25,6 +25,7 @@ dispatch.Add();
 // @ts-expect-error Payload types come from the handler.
 dispatch.Add('2');
 // @ts-expect-error No invented actions.
+// oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
 dispatch.Missing();
 // @ts-expect-error Completion messages retain their exact payload tuple.
 actions.update({ count: 0 }, { type: 'Add', args: ['2'] });
@@ -89,7 +90,8 @@ owner.edit('count', (n) => n + 1);
 // @ts-expect-error Field updates preserve their value type.
 owner.edit('count', () => 'bad');
 // @ts-expect-error Transactions are synchronous.
-void owner.transaction(async () => {});
+const invalidTransaction = owner.transaction(async () => {});
+invalidTransaction.catch(() => {});
 // @ts-expect-error Unknown model fields are rejected.
 owner.patch({ missing: true });
 
@@ -105,6 +107,7 @@ owner.source.subscribe((model) => {
 const arrayOwner = modelOwner({ values: [1] });
 arrayOwner.edit('values', (values) => {
   // @ts-expect-error edit receives a readonly array.
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
   values.push(2);
   return [...values, 2];
 });

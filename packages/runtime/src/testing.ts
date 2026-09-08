@@ -1,11 +1,11 @@
 import { Cause, Effect } from 'effect';
-import type { Program, RunningProgram } from './program.js';
+import type { CommandSlot, Program, RunningProgram } from './program.js';
 import { defaultUiRuntime, type UiRuntime } from './runtime.js';
 
 /** Program inspection and controlled Effect execution with application-owned services. */
 export interface ProgramDriver<M, Msg, R = never> extends Program<M, Msg> {
   readonly activeSlots: RunningProgram<M, Msg>['activeSlots'];
-  readonly awaitSlot: (slot: string) => Promise<void>;
+  readonly awaitSlot: (slot: CommandSlot) => Promise<void>;
   readonly awaitIdle: () => Promise<void>;
   readonly run: <A, E>(effect: Effect.Effect<A, E, R>) => Promise<A>;
 }
@@ -31,7 +31,7 @@ function makeDriver<M, Msg, R>(
     subscribe: source.subscribe,
     dispose: source.dispose,
     activeSlots: source.activeSlots,
-    awaitSlot: (slot: string) => source.awaitIdle(slot),
+    awaitSlot: (slot: CommandSlot) => source.awaitIdle(slot),
     awaitIdle: () => source.awaitIdle(),
     run: <A, E>(effect: Effect.Effect<A, E, R>) => Effect.runPromise(runtime.provide(effect)),
   };

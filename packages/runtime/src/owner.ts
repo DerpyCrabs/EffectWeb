@@ -1,6 +1,12 @@
-import { protectSnapshot, checkSnapshotsByDefault, type Snapshot } from './snapshot.js';
+import { protectSnapshot, type Snapshot } from './snapshot.js';
 import { Effect } from 'effect';
-import { program, type Command, type Program, type TaskPolicy } from './program.js';
+import {
+  program,
+  type Command,
+  type Program,
+  type TaskPolicy,
+  type CommandSlot,
+} from './program.js';
 import { patchModel } from './state.js';
 import { runAll, reportError, type ReportError } from './errors.js';
 import type { UiRuntime } from './runtime.js';
@@ -13,6 +19,12 @@ export interface DisposableOwner {
 export interface ModelOwner<Model extends object, R = never> extends DisposableOwner {
   readonly source: Program<Model, never>;
   readonly read: () => Snapshot<Model>;
+  /** Expose only controller-selected editable fields to a view. */
+  readonly fields: <const Keys extends readonly (keyof Model)[]>(
+    ...keys: Keys
+  ) => {
+    readonly [K in Keys[number]]: (value: Model[K] | Snapshot<Model[K]>) => void;
+  };
   readonly patch: (changes: Partial<Model> | Partial<Snapshot<Model>>) => void;
   readonly edit: <K extends keyof Model>(
     key: K,
@@ -23,17 +35,17 @@ export interface ModelOwner<Model extends object, R = never> extends DisposableO
     work: () => A & (A extends PromiseLike<unknown> ? never : unknown),
   ) => A;
   readonly run: (
-    slot: string,
+    slot: CommandSlot,
     effect: Effect.Effect<unknown, unknown, R>,
-    policy?: TaskPolicy,
+    policy: TaskPolicy,
   ) => void;
-  readonly cancel: (slot: string) => void;
-  readonly isRunning: (slot: string) => boolean;
+  readonly cancel: (slot: CommandSlot) => void;
+  readonly isRunning: (slot: CommandSlot) => boolean;
   readonly awaitIdle: () => Promise<void>;
   readonly dispose: () => void;
 }
 
-type Options = { checkSnapshots?: boolean; name?: string; onDefect?: ReportError };
+type Options = { name?: string; onDefect?: ReportError };
 export function modelOwner<Model extends object>(
   initial: Model,
   options?: Options,
@@ -48,8 +60,13 @@ export function modelOwner<Model extends object, R>(
 ): ModelOwner<Model, R> {
   type Operation =
     | { type: 'Patch'; changes: Partial<Model> | Partial<Snapshot<Model>> }
-    | { type: 'Run'; slot: string; effect: Effect.Effect<unknown, unknown, R>; policy: TaskPolicy }
-    | { type: 'Cancel'; slot: string };
+    | {
+        type: 'Run';
+        slot: CommandSlot;
+        effect: Effect.Effect<unknown, unknown, R>;
+        policy: TaskPolicy;
+      }
+    | { type: 'Cancel'; slot: CommandSlot };
   type Batch = readonly Operation[];
   let disposed = false;
   let staged: { model: Model; operations: Operation[] } | undefined;
@@ -63,7 +80,7 @@ export function modelOwner<Model extends object, R>(
       if (single?.type === 'Patch')
         return { model: patchModel(model, single.changes as Partial<Model>) };
       const commands: Command<Batch, R>[] = [];
-      const cancel = new Set<string>();
+      const cancel = new Set<CommandSlot>();
       for (const operation of operations) {
         if (operation.type === 'Patch')
           model = patchModel(model, operation.changes as Partial<Model>);
@@ -86,10 +103,7 @@ export function modelOwner<Model extends object, R>(
     },
   });
   const read = (): Snapshot<Model> =>
-    protectSnapshot(
-      staged?.model ?? source.model(),
-      options.checkSnapshots ?? checkSnapshotsByDefault,
-    ) as Snapshot<Model>;
+    protectSnapshot(staged?.model ?? source.model()) as Snapshot<Model>;
   const submit = (operation: Operation) => {
     if (disposed) return;
     if (staged) {
@@ -110,6 +124,18 @@ export function modelOwner<Model extends object, R>(
     source: { model: source.model, send: source.send, subscribe: source.subscribe, dispose },
     read,
     patch,
+    fields: (...keys) => {
+      const controls = Object.create(null) as {
+        [K in (typeof keys)[number]]: (value: Model[K] | Snapshot<Model[K]>) => void;
+      };
+      for (const key of keys) {
+        Object.defineProperty(controls, key, {
+          enumerable: true,
+          value: (value: unknown) => patch({ [key]: value } as Partial<Model>),
+        });
+      }
+      return Object.freeze(controls);
+    },
     edit: (key, change) => {
       if (!disposed) {
         const changes: Partial<Model> = {};
@@ -147,7 +173,7 @@ export function modelOwner<Model extends object, R>(
         staged = parent;
       }
     },
-    run: (slot, effect, policy = 'replace') => submit({ type: 'Run', slot, effect, policy }),
+    run: (slot, effect, policy) => submit({ type: 'Run', slot, effect, policy }),
     cancel: (slot) => submit({ type: 'Cancel', slot }),
     isRunning: (slot) => source.activeSlots().includes(slot),
     awaitIdle: source.awaitIdle,

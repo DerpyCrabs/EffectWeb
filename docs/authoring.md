@@ -17,7 +17,7 @@ Views calculate presentation from their input snapshot. Event handlers send mess
 
 Declare list identity once with `collection`/`entities`, or explicitly choose positional identity with `sequence` when position is the intended identity. A domain row ID must remain stable across edits. The compiler can reject common raw object lists, but it cannot choose your application's identity rule.
 
-Keep unchanged branches by reference. Construct a new array for an insertion and a new object for an edited row; return the existing model for a no-op. `Snapshot<Model>` makes published nested data readonly. Development snapshot checks also catch mutation through retained references and untyped code.
+Keep unchanged branches by reference. Construct a new array for an insertion and a new object for an edited row; return the existing model for a no-op. `Snapshot<Model>` makes published nested data readonly. Published plain objects and arrays are frozen in every build, including values held through retained references or untyped code.
 
 ## Compose views with explicit ownership
 
@@ -66,7 +66,7 @@ const actions = defineActions<Model>()({
 
 A component keeps parent input under `props`; `receive` handles parent changes separately from local messages. Use a standalone `program` when the model belongs outside a mounted child, and connect its existing ownership with `programView` or `mountView`.
 
-Commands are part of the transition. Use `effectCommand` to turn success or failure into a message and `mapCommand` when composing a child reducer. Scope disposal cancels owned work. Domain state should describe what the UI can display after success, failure, cancellation, or a new parent input.
+Commands are part of the transition. Create stable operation identities with `commandSlot` and choose an explicit concurrency `policy`. Use `effectCommand` to turn success or failure into a message and `mapCommand` when composing a child reducer. Scope disposal cancels owned work. Domain state should describe what the UI can display after success, failure, cancellation, or a new parent input.
 
 ## Add an asynchronous operation
 
@@ -117,7 +117,7 @@ const actions = defineActions<{ rows: { title: string }[] }>()({
 });
 ```
 
-A helper consuming published data should accept `Snapshot<Domain>` or an already readonly domain type. A helper that really needs to mutate data must create its own copy first. Avoid casting a snapshot back to a mutable type. Development checks freeze published plain objects and arrays, including retained initial values and successful async data; production correctness still depends on immutable updates. Readonly map/set types prevent mutations through the snapshot API, but development checks do not freeze their internal storage.
+A helper consuming published data should accept `Snapshot<Domain>` or an already readonly domain type. A helper that really needs to mutate data must create its own copy first. Avoid casting a snapshot back to a mutable type. Published plain objects and arrays are frozen in every build, including retained initial values and successful async data. Readonly map/set types prevent mutations through the snapshot API, but freezing does not protect their internal storage.
 
 When upgrading a consumer, update read-only helper signatures at the point where they borrow model data. Keep mutable types for builders that own their arrays; do not silence an error by casting a published snapshot back to that builder type. Collections accept both freshly assembled items and existing snapshots, and their identity/render callbacks borrow readonly items:
 

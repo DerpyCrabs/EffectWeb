@@ -1,5 +1,5 @@
 import type { Cause, Effect } from 'effect';
-import { effectCommand, type Transition } from './program.js';
+import { commandSlot, effectCommand, type Transition } from './program.js';
 import type { Snapshot } from './snapshot.js';
 import type { EffectEventRequest } from './effectEvent.js';
 
@@ -68,7 +68,7 @@ export interface FieldController<Draft, Value, R = never> {
 
 /**
  * Immutable editable field, composed into a program/component with mapCommand.
- * IDs must be unique within the owning program. Commands inherit that program's scope;
+ * Each definition owns a unique operation token. Commands inherit the program's scope;
  * edits, reset and replacement validations cancel the field's previous command.
  *
  * Parsing runs on init/change/reset. Display validation runs only on validateOn
@@ -84,7 +84,7 @@ export function defineField<Draft extends string | boolean, Value, E = never, R 
   ) => Effect.Effect<string | undefined, E, R>;
   readonly onFailure?: (cause: Cause.Cause<E>) => string;
 }): FieldController<Draft, Value, R> {
-  const slot = `field:${options.id}`;
+  const slot = commandSlot(`field:${options.id}`);
   const init = (draft: Draft): FieldState<Draft, Value> => ({
     draft,
     initial: draft,
@@ -117,6 +117,7 @@ export function defineField<Draft extends string | boolean, Value, E = never, R 
       model: { ...model, revision, validation: 'pending', error: undefined },
       commands: [
         effectCommand(slot, () => check(value), {
+          policy: 'replace',
           onSuccess: (error): FieldMessage<Draft> => ({ type: 'Validated', revision, error }),
           onFailure: (cause): FieldMessage<Draft> => ({
             type: 'Validated',

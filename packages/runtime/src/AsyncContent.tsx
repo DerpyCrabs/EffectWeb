@@ -1,9 +1,12 @@
+import { commandSlot } from './program.js';
 import { Cause, Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { component } from './component.js';
 import { view, type Slot, type View } from './index.js';
 import type { JSX } from './jsx.js';
 import { effectCommand, type Transition } from './program.js';
+
+const commandPending = commandSlot('pending');
 
 export interface AsyncContentProps<A, E> {
   result: AsyncResult.AsyncResult<A, E>;
@@ -21,18 +24,20 @@ const implementation = component<Props, Model, Message>({
   init: (props) => ({ props, pending: false, visible: false }),
   receive(model, props): Transition<Model, Message> {
     const pending = props.result.waiting && Option.isNone(AsyncResult.value(props.result));
-    if (!pending) return { model: { props, pending: false, visible: false }, cancel: ['pending'] };
+    if (!pending)
+      return { model: { props, pending: false, visible: false }, cancel: [commandPending] };
     if (model.pending && model.props.pendingDelay === props.pendingDelay)
       return { model: { ...model, props } };
     const delay = Math.max(0, props.pendingDelay ?? 0);
     return {
       model: { props, pending: true, visible: delay === 0 },
-      cancel: ['pending'],
+      cancel: [commandPending],
       commands:
         delay === 0
           ? []
           : [
-              effectCommand('pending', () => Effect.sleep(delay), {
+              effectCommand(commandPending, () => Effect.sleep(delay), {
+                policy: 'replace',
                 onSuccess: (): Message => ({ type: 'ShowPending' }),
                 onFailure: (): Message => ({ type: 'ShowPending' }),
               }),
@@ -60,7 +65,7 @@ const implementation = component<Props, Model, Message>({
 });
 
 /** Presentation only: resource owners choose identity, loading, caching and cancellation. */
-export const AsyncContent = implementation as unknown as {
-  <A, E>(props: AsyncContentProps<A, E>): JSX.Element;
+export const AsyncContent = implementation as unknown as JSX.ComponentType & {
+  <A, E>(this: never, props: AsyncContentProps<A, E>): JSX.Element;
   readonly build: View<Props, never>['build'];
 };

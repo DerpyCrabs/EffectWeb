@@ -10,6 +10,13 @@
     "exactOptionalPropertyTypes": true,
     "noEmit": true,
     "jsx": "preserve",
-    "types": ["node"]
+    "types": ["node"],
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false
   }
 }

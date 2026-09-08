@@ -9,9 +9,13 @@ for (const name of ['compiler', 'runtime', 'lucide']) {
   rmSync(`${root}/dist`, { recursive: true, force: true });
   mkdirSync(`${root}/dist`, { recursive: true });
   for (const file of readdirSync(`${root}/src`)) {
-    if (!/\.tsx?$/.test(file) || /\.(test|typecheck)\.ts$/.test(file)) continue;
+    if (file.endsWith('.json')) {
+      writeFileSync(`${root}/dist/${file}`, readFileSync(`${root}/src/${file}`));
+      continue;
+    }
+    if (!/\.tsx?$/.test(file) || /\.(test|typecheck)\.tsx?$/.test(file)) continue;
     let source = readFileSync(`${root}/src/${file}`, 'utf8');
-    if (file.endsWith('.tsx'))
+    if (/\.tsx?$/u.test(file))
       source = JSON.parse(
         compile(
           source,

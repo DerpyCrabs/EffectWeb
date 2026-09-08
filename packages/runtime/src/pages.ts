@@ -1,5 +1,6 @@
+import { commandSlot } from './program.js';
 import type { Snapshot } from './snapshot.js';
-import { shareValue } from './share.js';
+import { shareData } from './sharing.js';
 import { Cause, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import type { UiLoad, UiPage } from './load.js';
@@ -11,22 +12,24 @@ import {
   type RunningProgram,
 } from './program.js';
 import { available } from './resource.js';
+const commandPage = commandSlot('page');
+
 export interface PagesModel<Props, A, Cursor> {
   readonly props: Props;
   readonly key: string | undefined;
   readonly result: AsyncResult.AsyncResult<UiPage<A, Cursor>, unknown>;
   readonly append: boolean;
 }
+export type PagesRequest = { type: 'More' } | { type: 'Retry' } | { type: 'Refresh' };
+/** Low-level reducer protocol, including completions for explicit program composition. */
 export type PagesMessage<A, Cursor> =
-  | { type: 'More' }
-  | { type: 'Retry' }
-  | { type: 'Refresh' }
+  | PagesRequest
   | { type: 'Loaded'; page: UiPage<A, Cursor>; append: boolean }
   | { type: 'Failed'; cause: Cause.Cause<unknown> };
 /** An owned pagination source with immutable input updates. */
 export interface PagesProgram<Props, A, Cursor> extends RunningProgram<
   PagesModel<Props, A, Cursor>,
-  PagesMessage<A, Cursor>
+  PagesRequest
 > {
   readonly receive: (props: Props | Snapshot<Props>) => void;
 }
@@ -70,10 +73,11 @@ export function pages<Props, A, Cursor>(definition: {
       model: { ...model, append, result: AsyncResult.waiting(model.result) },
       commands: [
         effectCommand(
-          'page',
+          commandPage,
           () =>
             definition.load(model.props as Snapshot<Props>, cursor as Snapshot<Cursor> | undefined),
           {
+            policy: 'replace',
             onSuccess: (page): Message => ({ type: 'Loaded', page, append }),
             onFailure: (cause): Message => ({ type: 'Failed', cause }),
           },
@@ -97,7 +101,7 @@ export function pages<Props, A, Cursor>(definition: {
       const props = input as Props;
       const key = definition.key(props as Snapshot<Props>);
       if (key === model.key) {
-        const shared = shareValue(model.props, props);
+        const shared = shareData(model.props, props);
         const next = shared === model.props ? model : { ...model, props: shared };
         return options.refresh ? request(next, false) : { model: next };
       }
@@ -108,7 +112,7 @@ export function pages<Props, A, Cursor>(definition: {
         append: false,
         result: AsyncResult.initial<UiPage<A, Cursor>, unknown>(),
       };
-      return key === undefined ? { model: next, cancel: ['page'] } : request(next, false);
+      return key === undefined ? { model: next, cancel: [commandPage] } : request(next, false);
     },
     update(snapshot: Model | Snapshot<Model>, message: Message): Transition<Model, Message> {
       const model = snapshot as Model;
@@ -161,7 +165,7 @@ export function pages<Props, A, Cursor>(definition: {
       });
       const receive = (props: Props | Snapshot<Props>) => source.send({ type: 'Input', props });
       receive(props);
-      return { ...source, send: source.send as Send<Message>, receive };
+      return { ...source, send: source.send as Send<PagesRequest>, receive };
     },
   };
 }

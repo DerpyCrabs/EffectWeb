@@ -1,7 +1,10 @@
 import type { Send, Transition } from './program.js';
 import type { Snapshot } from './snapshot.js';
 
-type Handler<Model> = (model: Snapshot<Model>, ...args: never[]) => Transition<Model, unknown>;
+type Handler<Model, R> = (
+  model: Snapshot<Model>,
+  ...args: never[]
+) => Transition<Model, unknown, R>;
 type Arguments<F> = F extends (model: never, ...args: infer Args) => unknown ? Args : never;
 type HandlerMessage<Handlers> = {
   [Name in keyof Handlers]: { readonly type: Name; readonly args: Arguments<Handlers[Name]> };
@@ -20,8 +23,8 @@ type Dispatch<Handlers> = {
   [Name in keyof Handlers]: (...args: Arguments<Handlers[Name]>) => void;
 };
 
-export function defineActions<Model>() {
-  return <Handlers extends Record<string, Handler<Model>>>(handlers: Handlers) => {
+export function defineActions<Model, R = never>() {
+  return <Handlers extends Record<string, Handler<Model, R>>>(handlers: Handlers) => {
     type Message = HandlerMessage<Handlers>;
     const message = Object.create(null) as Creators<Handlers>;
     for (const name of Object.keys(handlers) as (keyof Handlers)[]) {
@@ -53,6 +56,7 @@ export function defineActions<Model>() {
           model: Snapshot<Model>,
           ...args: unknown[]
         ) => ReturnType<Handlers[keyof Handlers]>;
+        // oxlint-disable-next-line typescript/no-unsafe-return -- The indexed handler and ReturnType refer to the same validated generic member.
         return handler(model, ...action.args);
       },
     };

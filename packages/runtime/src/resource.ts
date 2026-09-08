@@ -1,3 +1,4 @@
+import { commandSlot } from './program.js';
 import type { Snapshot } from './snapshot.js';
 import { Cause, Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
@@ -7,13 +8,16 @@ import { component } from './component.js';
 import { defaultUiRuntime, type UiRuntime } from './runtime.js';
 import type { View } from './dom.js';
 import { effectCommand, type Transition } from './program.js';
+const commandLoad = commandSlot('load');
+
 export interface ResourceModel<Props, A, E = unknown> {
   readonly props: Props;
   readonly key: string | undefined;
   readonly result: AsyncResult.AsyncResult<A, E>;
 }
-export type ResourceMessage<A, E = unknown> =
-  | { type: 'Retry' }
+export type ResourceMessage = { type: 'Retry' };
+type InternalMessage<A, E> =
+  | ResourceMessage
   | { type: 'Loaded'; value: A }
   | { type: 'Failed'; cause: Cause.Cause<E> };
 export const available = <A>(result: AsyncResult.AsyncResult<A, unknown>) =>
@@ -30,20 +34,20 @@ export function resourceComponent<Props, A, E = unknown, R = never>(
     request: (
       props: Snapshot<Props>,
     ) => { key: string; load: () => UiLoad<A, E, R>; delay?: number } | undefined;
-    view: View<ResourceModel<Props, A, E>, ResourceMessage<A, E>>;
+    view: View<ResourceModel<Props, A, E>, ResourceMessage>;
   } & ([R] extends [never] ? { runtime?: UiRuntime<R> } : { runtime: UiRuntime<R> }),
 ): View<Props, never> {
   const runtime = definition.runtime ?? (defaultUiRuntime as UiRuntime<R>);
   const request = (
     model: ResourceModel<Props, A, E>,
     retry = false,
-  ): Transition<ResourceModel<Props, A, E>, ResourceMessage<A, E>> => {
+  ): Transition<ResourceModel<Props, A, E>, InternalMessage<A, E>> => {
     const selected = definition.request(model.props as Snapshot<Props>);
     if (!retry && selected?.key === model.key) return { model };
     if (!selected)
       return {
         model: { ...model, key: undefined, result: AsyncResult.initial<A, E>() },
-        cancel: ['load'],
+        cancel: [commandLoad],
       };
     return {
       model: {
@@ -55,7 +59,7 @@ export function resourceComponent<Props, A, E = unknown, R = never>(
       },
       commands: [
         effectCommand(
-          'load',
+          commandLoad,
           () =>
             runtime.provide(
               selected.delay
@@ -63,14 +67,15 @@ export function resourceComponent<Props, A, E = unknown, R = never>(
                 : loadEffect(selected.load),
             ),
           {
-            onSuccess: (value): ResourceMessage<A, E> => ({ type: 'Loaded', value }),
-            onFailure: (cause): ResourceMessage<A, E> => ({ type: 'Failed', cause }),
+            policy: 'replace',
+            onSuccess: (value): InternalMessage<A, E> => ({ type: 'Loaded', value }),
+            onFailure: (cause): InternalMessage<A, E> => ({ type: 'Failed', cause }),
           },
         ),
       ],
     };
   };
-  return component<Props, ResourceModel<Props, A, E>, ResourceMessage<A, E>>({
+  return component<Props, ResourceModel<Props, A, E>, InternalMessage<A, E>>({
     init: (props) => ({
       props: props as Props,
       key: undefined,

@@ -1,3 +1,4 @@
+import { commandSlot } from './program.js';
 import type { Snapshot } from './snapshot.js';
 import { Cause, Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
@@ -12,6 +13,8 @@ import {
 } from './program.js';
 import { patchModel } from './state.js';
 import { defaultUiRuntime, type UiRuntime } from './runtime.js';
+
+const commandTask = commandSlot('task');
 
 export type TaskModel<Props, State, A, E = unknown> = State & {
   readonly props: Props;
@@ -71,7 +74,7 @@ export function taskComponent<Props, State extends object, Input, A, E = unknown
                   definition.identity(model.props as Snapshot<Props>),
                   definition.identity(message.props),
                 )
-                ? { model: init(message.props), cancel: ['task'] }
+                ? { model: init(message.props), cancel: [commandTask] }
                 : {
                     model: Object.is(model.props, message.props)
                       ? model
@@ -90,13 +93,14 @@ export function taskComponent<Props, State extends object, Input, A, E = unknown
                 commands: [
                   {
                     ...effectCommand(
-                      'task',
+                      commandTask,
                       () =>
                         definition.task.run(
                           snapshot as unknown as Snapshot<State & { readonly props: Props }>,
                           message.input,
                         ),
                       {
+                        policy: definition.task.policy,
                         onSuccess: (value): Message => ({ type: 'Succeeded', value }),
                         onFailure: (cause): Message => ({ type: 'Failed', cause }),
                       },
@@ -106,13 +110,16 @@ export function taskComponent<Props, State extends object, Input, A, E = unknown
                 ],
               };
             case 'Cancel':
-              return { model: { ...model, task: AsyncResult.initial<A, E>() }, cancel: ['task'] };
+              return {
+                model: { ...model, task: AsyncResult.initial<A, E>() },
+                cancel: [commandTask],
+              };
             case 'Succeeded':
               return {
                 model: {
                   ...model,
                   task: AsyncResult.success(message.value, {
-                    waiting: source.activeSlots().includes('task'),
+                    waiting: source.activeSlots().includes(commandTask),
                   }),
                 },
               };
@@ -122,7 +129,7 @@ export function taskComponent<Props, State extends object, Input, A, E = unknown
                   ...model,
                   task: AsyncResult.failureWithPrevious(message.cause, {
                     previous: Option.some(model.task),
-                    waiting: source.activeSlots().includes('task'),
+                    waiting: source.activeSlots().includes(commandTask),
                   }),
                 },
               };

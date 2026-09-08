@@ -4,7 +4,9 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/');
   await page.evaluate(async () => {
     const path = '/examples/profile-form/app.tsx';
-    const { mountProfileForm } = await import(path);
+    const { mountProfileForm } = (await import(
+      path
+    )) as typeof import('../../examples/profile-form/app');
     mountProfileForm(document.body);
   });
 });
@@ -85,7 +87,10 @@ test('unmount interrupts form validation and removes its DOM', async ({ page }) 
   const result = await page.evaluate(async () => {
     const appPath = '/examples/profile-form/app.tsx';
     const effectPath = '/node_modules/effect/dist/Effect.js';
-    const [{ mountProfileForm }, Effect] = await Promise.all([import(appPath), import(effectPath)]);
+    const [{ mountProfileForm }, Effect] = await Promise.all([
+      import(appPath) as Promise<typeof import('../../examples/profile-form/app')>,
+      import(effectPath) as Promise<typeof import('effect/Effect')>,
+    ]);
     let interrupted = false;
     const host = document.createElement('div');
     document.body.append(host);

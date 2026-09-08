@@ -1,7 +1,6 @@
 import { createServer } from 'node:http';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
-import { cpus } from 'node:os';
 import { chromium } from '@playwright/test';
 
 const [directory, output, roundsArgument = '7'] = process.argv.slice(2);
@@ -10,7 +9,7 @@ if (!directory || !output)
 const root = resolve(directory);
 const rounds = Number(roundsArgument);
 if (!Number.isInteger(rounds) || rounds < 1) throw new Error('Rounds must be positive');
-const server = createServer(async (request, response) => {
+const server = createServer((request, response) => {
   const file = resolve(root, `.${new URL(request.url, 'http://localhost').pathname}`);
   if (!file.startsWith(root + '/')) {
     response.writeHead(403).end();
@@ -20,7 +19,9 @@ const server = createServer(async (request, response) => {
     response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
     response.setHeader('Content-Type', extname(file) === '.html' ? 'text/html' : 'text/javascript');
-    response.end(await readFile(file));
+    readFile(file)
+      .then((data) => response.end(data))
+      .catch(() => response.writeHead(404).end());
   } catch {
     response.writeHead(404).end();
   }
@@ -89,15 +90,7 @@ try {
       await page.close();
     }
   }
-  const report = {
-    date: new Date().toISOString(),
-    browser: browser.version(),
-    cpu: cpus()[0]?.model,
-    rounds,
-    warmupPairs: 1,
-    rows: 1000,
-    results,
-  };
+  const report = { date: new Date().toISOString(), rounds, warmupPairs: 1, rows: 1000, results };
   await writeFile(output, JSON.stringify(report, null, 2) + '\n');
   const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
   for (const renderer of ['snapshot']) {

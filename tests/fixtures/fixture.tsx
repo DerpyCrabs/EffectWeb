@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { collection, mountView, program, view, ViewBinding } from 'effectweb';
+import { commandSlot, collection, mountView, program, view, ViewBinding } from 'effectweb';
 
 export interface Item {
   readonly id: number;
@@ -20,11 +20,8 @@ type Message =
   | { type: 'Send'; id: number; text: string }
   | { type: 'Acknowledged'; id: number; serverId: number };
 const items = collection<Item>((item) => item.id);
-const counters = { labels: 0 };
-const label = (text: string) => {
-  counters.labels++;
-  return text.toUpperCase();
-};
+import { counters, label } from './fixtureInstrumentation';
+const commandSend = commandSlot('send');
 // The counter is instrumentation only. Production view helpers must be pure.
 const ItemView = view<Item, Message>((model, send) => {
   const { id, text } = model;
@@ -80,7 +77,8 @@ export function mountFixture(parent: HTMLElement, count = 1000) {
             model: { ...model, items: [...model.items, { id: message.id, text: message.text }] },
             commands: [
               {
-                slot: `send:${message.id}`,
+                slot: commandSend,
+                policy: 'parallel',
                 effect: Effect.callback<Message>((resume) => {
                   acknowledgements.set(message.id, (serverId) =>
                     resume(Effect.succeed({ type: 'Acknowledged', id: message.id, serverId })),

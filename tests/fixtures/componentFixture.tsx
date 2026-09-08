@@ -1,5 +1,8 @@
+import { commandSlot } from 'effectweb';
 import { Effect } from 'effect';
 import { component, localComponent, domBinding, mountView, Portal, program, view } from 'effectweb';
+
+const commandCount = commandSlot('count');
 
 const Local = localComponent<{ title: string; id: string }, { count: number; text: string }>({
   init: () => ({ count: 0, text: '' }),
@@ -33,7 +36,8 @@ const Child = component<Props, ChildModel, ChildMessage>({
           model: { ...model, count: model.count + 1 },
           commands: [
             {
-              slot: 'count',
+              policy: 'replace',
+              slot: commandCount,
               effect: Effect.succeed({ type: 'Loaded', count: model.count + 1 } as const),
             },
           ],

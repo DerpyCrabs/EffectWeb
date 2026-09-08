@@ -1,4 +1,4 @@
-import { shareValue } from './share.js';
+import { shareData } from './sharing.js';
 import type { Snapshot } from './snapshot.js';
 export type Identity = string | number;
 
@@ -84,7 +84,7 @@ function makeCollection<A>(identity: (item: A, index: number) => Identity) {
         }
         old = byIdentity.get(key);
       }
-      const value = old === undefined ? item : shareValue(old, item);
+      const value = old === undefined ? item : shareData(old, item);
       if (!Object.is(value, previous[index])) equal = false;
       if (!Object.is(value, item) && !result) result = next.slice();
       if (result) result[index] = value;
@@ -102,12 +102,11 @@ function makeCollection<A>(identity: (item: A, index: number) => Identity) {
 
 export interface Collection<A> {
   from(this: void, items: readonly (A | Snapshot<A>)[]): Rows<Snapshot<A>>;
-  share<B extends A | Snapshot<A>>(this: void, previous: B[], next: B[]): B[];
   share<B extends A | Snapshot<A>>(
     this: void,
     previous: readonly B[],
     next: readonly B[],
-  ): readonly B[];
+  ): readonly Snapshot<B>[];
 }
 
 export function collection<A>(

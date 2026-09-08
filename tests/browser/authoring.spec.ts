@@ -6,7 +6,9 @@ test('ordinary props, explicit dispatch and spreads update without replacing DOM
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/authoringFixture.tsx';
-    const { mountAuthoring } = await import(path);
+    const { mountAuthoring } = (await import(
+      path
+    )) as typeof import('../fixtures/authoringFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const f = mountAuthoring(host);

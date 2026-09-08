@@ -14,7 +14,7 @@ interface Props {
   load: () => Effect.Effect<number, unknown>;
 }
 function mountResource(props: Props) {
-  let child!: Scope<ResourceModel<Props, number>, ResourceMessage<number>>;
+  let child!: Scope<ResourceModel<Props, number>, ResourceMessage>;
   const scope = new Scope<Props, never>(props, () => {});
   const resource = resourceComponent({
     request: (props: Props) => ({ key: props.key, load: props.load }),

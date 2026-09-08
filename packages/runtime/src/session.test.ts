@@ -1,6 +1,7 @@
 import { Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { expect, it, vi } from 'vitest';
+import { cacheInternals } from './cache-internals.js';
 import { query } from './query.js';
 import { modelOwner } from './owner.js';
 import { resourceError } from './resource.js';
@@ -11,7 +12,7 @@ import { queryResource, observeQuery } from './session.js';
 it('selects typed query arguments, shares across sessions, and clears values across account changes', async () => {
   let account = 'first';
   const load = vi.fn((id: string) => Effect.succeed(`${account}:${id}`));
-  const profile = query({ name: 'profile', key: (id: string) => id, load });
+  const profile = query({ name: 'profile', load });
   const cache = makeQueryCache();
   const context = { cache, changed: vi.fn() };
   const first = queryResource(context, profile);
@@ -121,7 +122,7 @@ it('owns typed query publications, shares requests, retains undefined successes 
         finish = () => resume(Effect.succeed(undefined));
       }),
   });
-  const seen = vi.fn();
+  const seen = vi.fn<(result: AsyncResult.AsyncResult<undefined, string>) => void>();
   const first = observeQuery(owner, cache, definition, (result) => owner.patch({ result }));
   const second = observeQuery(owner, cache, definition, seen);
   first.select(true);
@@ -156,7 +157,7 @@ it('formats query errors without exposing the Error constructor prefix', () => {
 
 it('never delivers a superseded result after a listener selects another query', async () => {
   const cache = makeQueryCache();
-  const definition = query({ name: 'selection', key: (id: string) => id, load: Effect.succeed });
+  const definition = query({ name: 'selection', load: (id: string) => Effect.succeed(id) });
   await Effect.runPromise(cache.prefetch(definition, 'A'));
   await Effect.runPromise(cache.prefetch(definition, 'B'));
   const source = queryResource({ cache }, definition);
@@ -177,14 +178,14 @@ it.each(['select', 'reset', 'dispose'] as const)(
   'releases subscriptions after reentrant %s during setup',
   (action) => {
     const cache = makeQueryCache();
-    const original = cache.registry.subscribe.bind(cache.registry);
+    const original = cacheInternals(cache).registry.subscribe.bind(cacheInternals(cache).registry);
     const releases: Array<ReturnType<typeof vi.fn>> = [];
-    vi.spyOn(cache.registry, 'subscribe').mockImplementation((...args) => {
+    vi.spyOn(cacheInternals(cache).registry, 'subscribe').mockImplementation((...args) => {
       const release = vi.fn(original(...args));
       releases.push(release);
       return release;
     });
-    const definition = query({ name: 'selection', key: (id: string) => id, load: Effect.succeed });
+    const definition = query({ name: 'selection', load: (id: string) => Effect.succeed(id) });
     let triggered = false;
     const source = queryResource(
       {
@@ -214,7 +215,7 @@ it('isolates throwing query listeners and stops publication when disposed', () =
   const cache = makeQueryCache();
   const definition = query({ name: 'listeners', load: () => Effect.succeed(1) });
   const source = queryResource({ cache }, definition);
-  const seen = vi.fn();
+  const seen = vi.fn<(result: AsyncResult.AsyncResult<number, never>) => void>();
   source.subscribe(() => {
     throw new Error('observer');
   });

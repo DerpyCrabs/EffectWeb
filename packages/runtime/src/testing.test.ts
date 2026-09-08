@@ -1,3 +1,4 @@
+import { commandSlot } from './program.js';
 import { Context, Effect } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, it } from 'vitest';
@@ -5,6 +6,10 @@ import { effectCommand, program } from './program.js';
 import { uiRuntime } from './runtime.js';
 import { programDriver, controlledEffect } from './testing.js';
 import { observePrograms } from './diagnostics.js';
+
+const commandRead = commandSlot('read');
+const commandDelay = commandSlot('delay');
+const commandService = commandSlot('service');
 
 describe('public program test driver', () => {
   it('awaits a named slot after its completion message has passed through the real queue', async () => {
@@ -16,7 +21,8 @@ describe('public program test driver', () => {
           ? {
               model,
               commands: [
-                effectCommand('read', () => controlled.effect, {
+                effectCommand(commandRead, () => controlled.effect, {
+                  policy: 'replace',
                   onSuccess: (value) => value,
                   onFailure: () => 0,
                 }),
@@ -27,7 +33,7 @@ describe('public program test driver', () => {
     const driver = programDriver(source);
     driver.send(-1);
     let settled = false;
-    const idle = driver.awaitSlot('read').then(() => {
+    const idle = driver.awaitSlot(commandRead).then(() => {
       settled = true;
     });
     await Promise.resolve();
@@ -51,7 +57,8 @@ describe('public program test driver', () => {
               ? {
                   model,
                   commands: [
-                    effectCommand('delay', () => Effect.sleep('1 hour').pipe(Effect.as(7)), {
+                    effectCommand(commandDelay, () => Effect.sleep('1 hour').pipe(Effect.as(7)), {
+                      policy: 'replace',
                       onSuccess: (value) => value,
                       onFailure: () => 0,
                     }),
@@ -63,7 +70,7 @@ describe('public program test driver', () => {
         driver.send(-1);
         expect(driver.model()).toBe(0);
         yield* Effect.promise(() => driver.run(TestClock.adjust('1 hour')));
-        yield* Effect.promise(() => driver.awaitSlot('delay'));
+        yield* Effect.promise(() => driver.awaitSlot(commandDelay));
         expect(driver.model()).toBe(7);
         driver.dispose();
       }).pipe(Effect.provide(TestClock.layer())),
@@ -83,9 +90,9 @@ describe('public program test driver', () => {
               model,
               commands: [
                 effectCommand(
-                  'service',
+                  commandService,
                   () => Effect.map(NumberService, (service) => service.value),
-                  { onSuccess: (value) => value, onFailure: () => 0 },
+                  { policy: 'replace', onSuccess: (value) => value, onFailure: () => 0 },
                 ),
               ],
             }

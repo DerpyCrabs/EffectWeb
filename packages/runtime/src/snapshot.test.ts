@@ -7,7 +7,7 @@ import { program } from './program.js';
 describe('published snapshot protection', () => {
   it('rejects nested mutation through retained inputs and subscriber values', () => {
     const initial = { items: [{ text: 'before' }] };
-    const app = modelOwner(initial, { checkSnapshots: true });
+    const app = modelOwner(initial);
     try {
       expect(() => initial.items.push({ text: 'bad' })).toThrow(TypeError);
       expect(() => {
@@ -32,9 +32,9 @@ describe('published snapshot protection', () => {
   it('protects reducers before they can mutate and keeps the last valid model', () => {
     const app = program({
       initial: { values: [1] },
-      checkSnapshots: true,
       update(model, _message: void) {
         // @ts-expect-error Runtime guard also catches untyped mutations.
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
         model.values.push(2);
         return { model };
       },
@@ -48,7 +48,7 @@ describe('published snapshot protection', () => {
   });
 
   it('protects staged transaction reads and rolls back a mutation failure', () => {
-    const app = modelOwner({ record: { count: 0 } }, { checkSnapshots: true });
+    const app = modelOwner({ record: { count: 0 } });
     try {
       expect(() =>
         app.transaction(() => {
@@ -81,7 +81,7 @@ describe('published snapshot protection', () => {
         return 1;
       },
     };
-    const app = modelOwner({ service, effect, record }, { checkSnapshots: true });
+    const app = modelOwner({ service, effect, record });
     try {
       expect(reads).toBe(0);
       app.read().service.increment();
@@ -100,7 +100,7 @@ describe('published snapshot protection', () => {
     const root: { self?: unknown; [key]: typeof child } = { [key]: child };
     root.self = root;
     Object.freeze(root);
-    const app = modelOwner(root, { checkSnapshots: true });
+    const app = modelOwner(root);
     try {
       expect(() => {
         child.value = 2;
@@ -115,7 +115,7 @@ describe('published snapshot protection', () => {
     const failure = AsyncResult.failure(Cause.fail('offline'), {
       previousSuccess: Option.some(AsyncResult.success([{ text: 'retained' }])),
     });
-    const app = modelOwner({ success, failure }, { checkSnapshots: true });
+    const app = modelOwner({ success, failure });
     try {
       expect(() => {
         success.value[0]!.text = 'bad';
@@ -132,11 +132,11 @@ describe('published snapshot protection', () => {
     }
   });
 
-  it('does not freeze input when checks are disabled and preserves shared references', () => {
+  it('protects inputs while preserving shared references', () => {
     const data = { nested: { count: 0 } };
-    const app = modelOwner(data, { checkSnapshots: false });
+    const app = modelOwner(data);
     try {
-      expect(Object.isFrozen(data)).toBe(false);
+      expect(Object.isFrozen(data)).toBe(true);
       app.patch({ nested: data.nested });
       expect(app.read()).toBe(data);
       app.edit('nested', (nested) => nested);

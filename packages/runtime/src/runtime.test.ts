@@ -1,3 +1,4 @@
+import { commandSlot } from './program.js';
 import { Effect, Fiber } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { Scope } from './dom.js';
@@ -5,6 +6,8 @@ import { observeBindings } from './diagnostics.js';
 import { fromPromise } from './load.js';
 import { program } from './program.js';
 import { sessionGroup } from './session.js';
+
+const commandLoad = commandSlot('load');
 
 describe('UI failure isolation', () => {
   it('finishes all cleanups in reverse order and only disposes once', () => {
@@ -57,7 +60,9 @@ describe('UI failure isolation', () => {
       onDefect: errors,
       update: (_: number, value: number) => ({
         model: value,
-        ...(value === 1 ? { commands: [{ slot: 'load', effect: Effect.succeed(2) }] } : {}),
+        ...(value === 1
+          ? { commands: [{ policy: 'replace', slot: commandLoad, effect: Effect.succeed(2) }] }
+          : {}),
       }),
     });
     source.subscribe(() => {
@@ -113,7 +118,7 @@ it('adapts a Promise factory lazily and forwards interruption through AbortSigna
 });
 
 it('reports changed dependency names without retaining model data', () => {
-  const updates = vi.fn();
+  const updates = vi.fn<(update: import('./diagnostics.js').BindingUpdate) => void>();
   const stop = observeBindings(updates);
   const scope = new Scope({ title: 'first', count: 0 }, () => {});
   scope.watch(

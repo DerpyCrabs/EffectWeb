@@ -6,7 +6,9 @@ test('inspector shows source dependencies, counts and change reasons; label asso
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/inspectorFixture.tsx';
-    const { mountInspectorFixture } = await import(path);
+    const { mountInspectorFixture } = (await import(
+      path
+    )) as typeof import('../fixtures/inspectorFixture');
     const app = document.createElement('div'),
       panel = document.createElement('div');
     document.body.append(app, panel);

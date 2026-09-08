@@ -1,6 +1,10 @@
+import { commandSlot } from 'effectweb';
 import { Cause, Context, Effect } from 'effect';
 import { collection, effectCommand, mountView, view, type Command } from 'effectweb';
 import { uiRuntime } from 'effectweb/runtime';
+
+const commandSave = commandSlot('save');
+const commandLoad = commandSlot('load');
 
 export interface Entry {
   readonly id: string;
@@ -138,10 +142,15 @@ export function mountReadingList(parent: Element, storage: Storage) {
     }),
   );
   const save = (items: readonly Entry[]): Command<Message, ReadingStorage> =>
-    effectCommand('save', () => Effect.flatMap(ReadingStorage, (storage) => storage.save(items)), {
-      onSuccess: (): Message => ({ type: 'Saved' }),
-      onFailure: (cause): Message => ({ type: 'Failed', error: storageFailure(cause) }),
-    });
+    effectCommand(
+      commandSave,
+      () => Effect.flatMap(ReadingStorage, (storage) => storage.save(items)),
+      {
+        policy: 'replace',
+        onSuccess: (): Message => ({ type: 'Saved' }),
+        onFailure: (cause): Message => ({ type: 'Failed', error: storageFailure(cause) }),
+      },
+    );
   const source = runtime.program<Model, Message>({
     name: 'reading-list',
     initial: { entries: [], draft: '', filter: '', loaded: false, saving: false, error: '' },
@@ -152,9 +161,10 @@ export function mountReadingList(parent: Element, storage: Storage) {
             model: { ...model, error: '' },
             commands: [
               effectCommand(
-                'load',
+                commandLoad,
                 () => Effect.flatMap(ReadingStorage, (storage) => storage.load),
                 {
+                  policy: 'replace',
                   onSuccess: (entries): Message => ({ type: 'Loaded', entries }),
                   onFailure: (cause): Message => ({ type: 'Failed', error: storageFailure(cause) }),
                 },

@@ -61,7 +61,7 @@ const Bad=view(model => <ui.Button />);`;
     expect(diagnose(text, 'custom.tsx', { importSource: './ui' })).toEqual([
       expect.objectContaining({
         severity: 'warning',
-        message: expect.stringContaining('whole model'),
+        message: expect.stringContaining('whole model') as unknown,
       }),
     ]);
     const reports: { message: string }[] = [];
@@ -102,14 +102,14 @@ const Bad=view(model => <ui.Button />);`;
     expect(reports).toEqual([]);
   });
 
-  it('ignores unrelated functions and does not lint non-TSX files', () => {
+  it('ignores unrelated functions and files outside the TypeScript compiler contract', () => {
     expect(
       diagnose(`function view(f) { return f; } const A=view(model => {model.x++;});`, 'other.tsx'),
     ).toEqual([]);
     const reports: unknown[] = [];
     plugin.rules['valid-view']
       .create({
-        filename: 'other.ts',
+        filename: 'other.js',
         sourceCode: { text: source },
         options: [],
         report: (d) => reports.push(d),
@@ -149,13 +149,13 @@ it('gives mutable captures and performance advice distinct actionable categories
       code: 'EW2001',
       category: 'unprovable-dependency',
       severity: 'error',
-      remedy: expect.stringContaining('model'),
+      remedy: expect.stringContaining('model') as unknown,
     }),
     expect.objectContaining({
       code: 'EW3001',
       category: 'performance',
       severity: 'warning',
-      remedy: expect.stringContaining('fields'),
+      remedy: expect.stringContaining('fields') as unknown,
     }),
   ]);
 });
@@ -165,12 +165,12 @@ it.each([
   `key: args => args.account, load: args => api(args.account, args.page)`,
   `key: () => 'fixed', load: args => api(args.page)`,
   `key: ({account: owner}) => [owner], load: ({page: cursor}) => api(cursor)`,
-])('reports query load argument omissions through native analysis and TS lint', (definition) => {
+])('rejects legacy query projections through native analysis and TS lint', (definition) => {
   const text = `import {query as defineQuery} from 'effectweb'; const q = defineQuery({name: 'page', ${definition}});`;
   expect(diagnose(text, 'queries.ts')[0]).toMatchObject({
     code: 'EW2002',
-    severity: 'warning',
-    remedy: expect.stringContaining('page'),
+    severity: 'error',
+    remedy: expect.stringContaining('every request argument') as unknown,
   });
   const reports: unknown[] = [];
   plugin.rules['query-key']
@@ -189,9 +189,18 @@ it.each([
   `key: args => makeKey(args), load: args => api(args.page)`,
   `key: buildKey, load: args => api(args.page)`,
   `key: ({account, ...rest}) => [account, rest], load: args => api(args.page)`,
-])('keeps complete or unprovable query keys silent: %s', (definition) => {
+])('rejects projections even when their completeness is unprovable: %s', (definition) => {
   expect(
-    diagnose(`import {query} from 'effectweb'; const q = query({${definition}});`, 'queries.ts'),
+    diagnose(`import {query} from 'effectweb'; const q = query({${definition}});`, 'queries.ts')[0],
+  ).toMatchObject({ code: 'EW2002', severity: 'error' });
+});
+
+it('accepts complete automatic request identity', () => {
+  expect(
+    diagnose(
+      `import {query} from 'effectweb'; const q = query({load: args => api(args.filter.status)});`,
+      'queries.ts',
+    ),
   ).toEqual([]);
 });
 
@@ -219,4 +228,20 @@ it('surfaces parser or native-analysis failures when query-key is used on TypeSc
     })
     .Program();
   expect(reports[0]?.message).toContain('[EW1000]');
+});
+
+it('checks scalar views in .ts through the same correctness rule', () => {
+  const reports: { message: string }[] = [];
+  plugin.rules['valid-view']
+    .create({
+      filename: 'scalar.ts',
+      options: [],
+      sourceCode: {
+        text: "import { view } from 'effectweb/dom'; const V = view(m => Math.random());",
+      },
+      report: (d) => reports.push(d),
+    })
+    .Program();
+  expect(reports).toHaveLength(1);
+  expect(reports[0]!.message).toContain('randomness');
 });

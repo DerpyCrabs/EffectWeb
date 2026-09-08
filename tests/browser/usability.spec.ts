@@ -6,7 +6,9 @@ test('async content keeps successful DOM through refresh and recoverable failure
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/usabilityFixture.tsx';
-    const { mountAsyncContent } = await import(path);
+    const { mountAsyncContent } = (await import(
+      path
+    )) as typeof import('../fixtures/usabilityFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountAsyncContent(host);
@@ -64,7 +66,9 @@ test('pending delay only applies before data and cannot reappear after settlemen
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/usabilityFixture.tsx';
-    const { mountAsyncContent } = await import(path);
+    const { mountAsyncContent } = (await import(
+      path
+    )) as typeof import('../fixtures/usabilityFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountAsyncContent(host);
@@ -103,7 +107,7 @@ test('form adapters capture native composition values and preserve the input sel
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/usabilityFixture.tsx';
-    const { mountForm } = await import(path);
+    const { mountForm } = (await import(path)) as typeof import('../fixtures/usabilityFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountForm(host);
@@ -160,7 +164,7 @@ test('native event callbacks read the latest model, reset their input and schedu
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/usabilityFixture.tsx';
-    const { mountForm } = await import(path);
+    const { mountForm } = (await import(path)) as typeof import('../fixtures/usabilityFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountForm(host);
@@ -186,7 +190,7 @@ test('the Vite development plugin enables snapshot protection automatically', as
   const result = await page.evaluate(async () => {
     'use strict';
     const path = '/tests/fixtures/usabilityFixture.tsx';
-    const { mountForm } = await import(path);
+    const { mountForm } = (await import(path)) as typeof import('../fixtures/usabilityFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const app = mountForm(host);
@@ -194,6 +198,7 @@ test('the Vite development plugin enables snapshot protection automatically', as
       const initial = app.model();
       let rejected = false;
       try {
+        // @ts-expect-error Deliberately verify protection against an untyped retained alias.
         initial.text = 'mutated';
       } catch (error) {
         rejected = error instanceof TypeError;

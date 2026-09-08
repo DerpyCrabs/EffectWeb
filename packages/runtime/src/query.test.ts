@@ -2,6 +2,7 @@ import { Context, Effect, Fiber, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { makeQueryCache } from './cache.js';
+import { cacheInternals } from './cache-internals.js';
 import { query } from './query.js';
 import { uiRuntime } from './runtime.js';
 
@@ -9,7 +10,7 @@ const disposals: Array<() => void> = [];
 const cache = () => {
   const model = makeQueryCache();
   disposals.push(() => model.dispose());
-  return model;
+  return { ...model, ...cacheInternals(model) };
 };
 afterEach(() => {
   for (const dispose of disposals.splice(0)) dispose();
@@ -26,7 +27,7 @@ describe('typed shared queries', () => {
         finish = () => resume(Effect.succeed({ id: args.id }));
       }),
     );
-    const profile = query({ name: 'profile', key: (args: { id: string }) => args.id, load });
+    const profile = query({ name: 'profile', load });
     const model = cache();
     const first = model.query(profile, { id: 'alice' });
     const second = model.query(profile, { id: 'alice' });
@@ -46,7 +47,6 @@ describe('typed shared queries', () => {
     const calls: string[] = [];
     const profile = query({
       name: 'profile',
-      key: (id: string) => id,
       load: (id: string) =>
         Effect.sync(() => {
           calls.push(id);
@@ -134,7 +134,7 @@ describe('typed shared queries', () => {
     const model = cache();
     let account = 'old';
     let finish!: () => void;
-    const interrupted = vi.fn();
+    const interrupted = vi.fn<() => void>();
     const profile = query({
       name: 'me',
       load: () =>
@@ -156,7 +156,7 @@ describe('typed shared queries', () => {
   });
 
   it('interrupts shared work only with its owning cache, not another consumer leaving', async () => {
-    const interrupted = vi.fn();
+    const interrupted = vi.fn<() => void>();
     const data = query({
       name: 'pending',
       load: () => Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(interrupted))),
@@ -183,7 +183,6 @@ describe('typed shared queries', () => {
     type Missing = { readonly _tag: 'Missing'; readonly id: string };
     const data = query({
       name: 'catalog',
-      key: (id: string) => id,
       load: (id: string) =>
         Effect.flatMap(Catalog, ({ prefix }) =>
           id ? Effect.succeed(`${prefix}:${id}`) : Effect.fail<Missing>({ _tag: 'Missing', id }),
@@ -197,7 +196,8 @@ describe('typed shared queries', () => {
     expect(failure._tag).toBe('Failure');
     const typingOnly = () => {
       // @ts-expect-error A service-requiring query cannot run without its service context.
-      makeQueryCache().query(data, 'a');
+      const invalid = makeQueryCache().prefetch(data, 'a');
+      void invalid;
       // @ts-expect-error Query arguments keep their declared type.
       model.invalidateQuery(data, 4);
     };

@@ -1,9 +1,12 @@
+import { commandSlot } from './program.js';
 import { Context, Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { describe, expect, it } from 'vitest';
 import { defineTasks } from './tasks.js';
 import { controlledEffect, programDriver } from './testing.js';
 import { uiRuntime } from './runtime.js';
+
+const commandGeneration = commandSlot('generation');
 
 class Store extends Context.Service<
   Store,
@@ -13,6 +16,66 @@ const value = <A, E>(result: AsyncResult.AsyncResult<A, E>) =>
   Option.getOrUndefined(AsyncResult.value(result));
 
 describe('named owned tasks', () => {
+  it('forwards optional, defaulted and required inputs while allowing tasks without inputs', async () => {
+    const calls: Array<[string, string | undefined]> = [];
+    const definition = defineTasks({ init: () => ({ text: 'draft' }) }).tasks({
+      optional: {
+        policy: 'drop',
+        run: (_model, input?: string) => {
+          calls.push(['optional', input]);
+          return Effect.succeed(input);
+        },
+      },
+      defaulted: {
+        policy: 'drop',
+        run: (_model, input = 'default') => {
+          calls.push(['defaulted', input]);
+          return Effect.succeed(input);
+        },
+      },
+      required: {
+        policy: 'drop',
+        run: (_model, input: string) => {
+          calls.push(['required', input]);
+          return Effect.succeed(input);
+        },
+      },
+      noInput: { policy: 'drop', run: () => Effect.succeed('no input') },
+      modelOnly: { policy: 'drop', run: (model) => Effect.succeed(model.text) },
+    });
+    const source = definition.create(undefined);
+    const controls = definition.controls(source.send);
+    controls.run('optional');
+    controls.run('defaulted');
+    controls.run('required', 'required payload');
+    controls.run('noInput');
+    controls.run('modelOnly');
+    await source.awaitIdle();
+    expect(source.model().tasks.optional).toMatchObject({ _tag: 'Success', value: undefined });
+    expect(value(source.model().tasks.defaulted)).toBe('default');
+    expect(value(source.model().tasks.required)).toBe('required payload');
+    expect(value(source.model().tasks.noInput)).toBe('no input');
+    expect(value(source.model().tasks.modelOnly)).toBe('draft');
+
+    controls.run('optional', 'optional payload');
+    controls.run('defaulted', 'defaulted payload');
+    await source.awaitIdle();
+    expect(value(source.model().tasks.optional)).toBe('optional payload');
+    expect(value(source.model().tasks.defaulted)).toBe('defaulted payload');
+    controls.run('defaulted', undefined);
+    await source.awaitIdle();
+    expect(value(source.model().tasks.defaulted)).toBe('default');
+    expect(calls).toEqual([
+      ['optional', undefined],
+      ['defaulted', 'default'],
+      ['required', 'required payload'],
+      ['optional', 'optional payload'],
+      ['defaulted', 'defaulted payload'],
+      ['defaulted', 'default'],
+    ]);
+    source.dispose();
+  });
+
   it('infers results and errors, supplies shared test services, and settles without public completion messages', async () => {
     const pending = controlledEffect<number, 'offline'>();
     const saved: string[] = [];
@@ -42,15 +105,15 @@ describe('named owned tasks', () => {
     actions.patch({ text: 'edited' });
     actions.run('save', '?');
     actions.run('preview');
-    await driver.awaitSlot('task:preview');
+    await driver.awaitSlot(definition.slot('preview'));
     expect(value(driver.model().tasks.preview)).toBe('EDITED');
     expect(saved).toEqual(['one!']);
     pending.fail('offline');
-    await driver.awaitSlot('task:save');
+    await driver.awaitSlot(definition.slot('save'));
     expect(AsyncResult.isFailure(driver.model().tasks.save)).toBe(true);
     actions.run('save', '?');
     pending.succeed(42);
-    await driver.awaitSlot('task:save');
+    await driver.awaitSlot(definition.slot('save'));
     expect(value(driver.model().tasks.save)).toBe(42);
     expect(saved).toEqual(['one!', 'edited?']);
     driver.dispose();
@@ -133,7 +196,7 @@ it('binds controller tasks with lazy arguments, shared slots, parallel work and 
   const calls: string[] = [];
   const actions = defineTasks(app, {
     send: {
-      slot: 'generation',
+      slot: commandGeneration,
       policy: 'drop',
       run: (text: string) => {
         calls.push(text);
@@ -141,7 +204,7 @@ it('binds controller tasks with lazy arguments, shared slots, parallel work and 
       },
     },
     retry: {
-      slot: 'generation',
+      slot: commandGeneration,
       policy: 'drop',
       run: () => {
         calls.push('retry');
@@ -176,5 +239,5 @@ it('binds controller tasks with lazy arguments, shared slots, parallel work and 
   await app.awaitIdle();
   actions.send('after disposal');
   expect(calls).not.toContain('after disposal');
-  expect(app.isRunning('generation')).toBe(false);
+  expect(app.isRunning(commandGeneration)).toBe(false);
 });

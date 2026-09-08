@@ -6,7 +6,7 @@ test('compiled children forward, mount independently and preserve captures and l
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/slotsFixture.tsx';
-    const { mountSlots } = await import(path);
+    const { mountSlots } = (await import(path)) as typeof import('../fixtures/slotsFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountSlots(host);
@@ -67,7 +67,7 @@ test('slots retain SVG and foreignObject insertion context', async ({ page }) =>
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/slotsFixture.tsx';
-    const { mountSvgSlots } = await import(path);
+    const { mountSvgSlots } = (await import(path)) as typeof import('../fixtures/slotsFixture');
     const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     document.body.append(host);
     const source = mountSvgSlots(host);
@@ -94,7 +94,9 @@ test('derived slot placements survive structural sharing and replacement with ot
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/slotsFixture.tsx';
-    const { mountChangingSlots } = await import(path);
+    const { mountChangingSlots } = (await import(
+      path
+    )) as typeof import('../fixtures/slotsFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountChangingSlots(host);

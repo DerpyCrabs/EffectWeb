@@ -1,5 +1,5 @@
-import type { Snapshot } from './snapshot.js';
 import type { Effect } from 'effect';
+import { registerQuery, type QueryDefinition } from './query-internals.js';
 
 /** Canonical data identity: plain objects, dense arrays, and finite scalar values. */
 export type QueryKey =
@@ -61,48 +61,46 @@ export function encodeQueryKey(key: QueryKey): string {
   return encode(key);
 }
 
-let nextQueryId = 0;
+/** Data-only request arguments. Services belong in the Effect environment. */
+export type QueryArgs<A> = A extends string | number | boolean | null | undefined
+  ? A
+  : A extends (...args: never[]) => unknown
+    ? never
+    : A extends object
+      ? { readonly [K in keyof A]: K extends symbol ? never : QueryArgs<A[K]> }
+      : never;
 
+declare const queryType: unique symbol;
+/** An opaque typed definition. Every request argument participates in cache identity. */
 export interface Query<Args, A, E = never, R = never> {
-  readonly id: number;
   readonly name: string;
-  readonly key: (args: Args) => QueryKey;
-  readonly load: (args: Args) => Effect.Effect<A, E, R>;
-  /** Revalidate on activation/prefetch after this many milliseconds. No polling timer. */
-  readonly staleTime: number;
-  /** Reuse unchanged domain entities before publishing a refreshed result. */
-  readonly share?: (previous: Snapshot<A>, next: A) => A | Snapshot<A>;
+  readonly [queryType]: (args: Args) => Effect.Effect<A, E, R>;
 }
 
-/** Identity belongs to arguments, never callback identity. Separate caches isolate independent data scopes. */
-export function query<A, E = never, R = never>(definition: {
-  readonly name: string;
-  readonly load: () => Effect.Effect<A, E, R>;
+type Definition<Args, A, E, R> = Omit<QueryDefinition<Args, A, E, R>, 'staleTime'> & {
   readonly staleTime?: number;
-  readonly share?: (previous: Snapshot<A>, next: A) => A | Snapshot<A>;
-}): Query<true, A, E, R>;
-export function query<Args, A, E = never, R = never>(definition: {
-  readonly name: string;
-  readonly key: (args: Args) => QueryKey;
-  readonly load: (args: Args) => Effect.Effect<A, E, R>;
-  readonly staleTime?: number;
-  readonly share?: (previous: Snapshot<A>, next: A) => A | Snapshot<A>;
-}): Query<Args, A, E, R>;
-export function query<Args, A, E = never, R = never>(definition: {
-  readonly name: string;
-  readonly key?: (args: Args) => QueryKey;
-  readonly load: (args: Args) => Effect.Effect<A, E, R>;
-  /** Defaults to explicit invalidation, while unused values retain the cache's 30 second TTL. */
-  readonly staleTime?: number;
-  readonly share?: (previous: Snapshot<A>, next: A) => A | Snapshot<A>;
-}): Query<Args, A, E, R> {
+  /** Custom projections can silently reuse a different request's result. */
+  readonly key?: never;
+};
+
+export function query<Args, A, E = never, R = never>(
+  definition: Definition<Args, A, E, R> &
+    (Args extends QueryArgs<Args> ? unknown : { readonly nonSerializableQueryArguments: never }),
+): Query<Args, A, E, R>;
+export function query<A, E = never, R = never>(
+  definition: Definition<true, A, E, R> & { readonly load: () => Effect.Effect<A, E, R> },
+): Query<true, A, E, R>;
+export function query<Args, A, E = never, R = never>(
+  definition: Definition<Args, A, E, R>,
+): Query<Args, A, E, R> {
+  if ('key' in definition)
+    throw new TypeError(
+      'Query identity includes all arguments. Remove key and provide services through the Effect environment.',
+    );
   const staleTime = definition.staleTime ?? Infinity;
   if (Number.isNaN(staleTime) || staleTime < 0)
     throw new RangeError('Query staleTime must be nonnegative.');
-  return Object.freeze({
-    ...definition,
-    key: definition.key ?? (() => ''),
-    id: ++nextQueryId,
-    staleTime,
-  });
+  const result = Object.freeze({ name: definition.name }) as Query<Args, A, E, R>;
+  registerQuery(result, Object.freeze({ ...definition, staleTime }));
+  return result;
 }

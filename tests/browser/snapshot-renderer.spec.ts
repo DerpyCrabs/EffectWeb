@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => {
   await page.evaluate(async () => {
     document.body.replaceChildren();
     const fixturePath = '/tests/fixtures/fixture.tsx';
-    const fixture = await import(fixturePath);
+    const fixture = (await import(fixturePath)) as typeof import('../fixtures/fixture');
     const host = document.createElement('div');
     document.body.append(host);
     window.snapshotFixture = fixture.mountFixture(host);
@@ -108,7 +108,7 @@ test('conditional removal releases listeners; optional data and remounts remain 
 test('duplicate identities fail explicitly and clean up a partial mount', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const fixturePath = '/tests/fixtures/fixture.tsx';
-    const fixture = await import(fixturePath);
+    const fixture = (await import(fixturePath)) as typeof import('../fixtures/fixture');
     const host = document.createElement('div');
     document.body.append(host);
     try {
@@ -129,7 +129,7 @@ test('one event sees one snapshot across multiple dispatches, including an extra
 }) => {
   const result = await page.evaluate(async () => {
     const fixturePath = '/tests/fixtures/fixture.tsx';
-    const fixture = await import(fixturePath);
+    const fixture = (await import(fixturePath)) as typeof import('../fixtures/fixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = fixture.mountEventSnapshot(host);
@@ -148,7 +148,7 @@ test('root collection regions keep updating after detached construction and bran
 }) => {
   const result = await page.evaluate(async () => {
     const fixturePath = '/tests/fixtures/fixture.tsx';
-    const fixture = await import(fixturePath);
+    const fixture = (await import(fixturePath)) as typeof import('../fixtures/fixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = fixture.mountRootList(host);
@@ -169,7 +169,7 @@ test('dynamic attributes remove obsolete styles and classes without resetting an
 }) => {
   const result = await page.evaluate(async () => {
     const fixturePath = '/tests/fixtures/fixture.tsx';
-    const fixture = await import(fixturePath);
+    const fixture = (await import(fixturePath)) as typeof import('../fixtures/fixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = fixture.mountAttributes(host);

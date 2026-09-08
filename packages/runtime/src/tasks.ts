@@ -4,7 +4,14 @@ import { Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { programView } from './component.js';
 import type { View } from './dom.js';
-import { effectCommand, program, type Send, type RunningProgram } from './program.js';
+import {
+  commandSlot,
+  type CommandSlot,
+  effectCommand,
+  program,
+  type Send,
+  type RunningProgram,
+} from './program.js';
 import { defaultUiRuntime, type UiRuntime } from './runtime.js';
 import { patchModel } from './state.js';
 
@@ -20,7 +27,17 @@ type AnyDefinitions = Record<
   { readonly run: (...args: never[]) => Effect.Effect<unknown, unknown, unknown> }
 >;
 type Input<T extends AnyDefinitions[string]> =
-  Parameters<T['run']> extends [unknown, infer I, ...unknown[]] ? I : void;
+  Parameters<T['run']> extends [unknown, ...infer Inputs]
+    ? Inputs extends []
+      ? void
+      : Inputs[0]
+    : void;
+type InputArguments<T extends AnyDefinitions[string]> =
+  Input<T> extends void
+    ? [input?: Input<T>]
+    : Parameters<T['run']> extends [unknown, unknown, ...unknown[]]
+      ? [input: Input<T>]
+      : [input?: Input<T>];
 export type TaskResults<T extends AnyDefinitions> = {
   readonly [K in keyof T]: AsyncResult.AsyncResult<
     Effect.Success<ReturnType<T[K]['run']>>,
@@ -55,8 +72,8 @@ type Init<Props, State> = {
 interface ControllerTask<R> {
   readonly run: (...args: never[]) => Effect.Effect<unknown, unknown, R>;
   readonly policy: TaskPolicy;
-  /** Actions sharing a slot share cancellation and concurrency rules. Defaults to the action name. */
-  readonly slot?: string;
+  /** Actions sharing a slot share cancellation and concurrency rules. Defaults to a fresh operation identity for this definition. */
+  readonly slot?: CommandSlot;
 }
 export function defineTasks<
   Owner extends Pick<ModelOwner<object>, 'run'>,
@@ -78,11 +95,12 @@ export function defineTasks<Props, State extends object, R>(
   definitions?: Record<string, ControllerTask<R>>,
 ): unknown {
   if ('run' in definition) {
-    const actions: Record<string, (...args: never[]) => void> = Object.create(null);
+    const actions = Object.create(null) as Record<string, (...args: never[]) => void>;
     for (const [name, task] of Object.entries(definitions!)) {
+      const slot = task.slot ?? commandSlot(name);
       actions[name] = (...args) =>
         definition.run(
-          task.slot ?? name,
+          slot,
           Effect.suspend(() => task.run(...args)),
           task.policy,
         );
@@ -112,7 +130,8 @@ function taskBuilder<Props, State extends object, R>(
         | { type: 'Input'; props: Snapshot<Props> }
         | { type: 'Settled'; task: keyof T; result: AsyncResult.AsyncResult<unknown, unknown> };
       const names = Object.keys(definitions) as Array<keyof T & string>;
-      const slot = (name: keyof T) => `task:${String(name)}`;
+      const slots = new Map(names.map((name) => [name, commandSlot(`task:${name}`)]));
+      const slot = (name: keyof T) => slots.get(name as keyof T & string)!;
       const initialResults = () =>
         Object.fromEntries(names.map((name) => [name, AsyncResult.initial()])) as TaskResults<T>;
       const init = (props: Snapshot<Props>): Model =>
@@ -123,7 +142,7 @@ function taskBuilder<Props, State extends object, R>(
         result: AsyncResult.AsyncResult<unknown, unknown>,
       ): Model => ({ ...model, tasks: { ...model.tasks, [task]: result } });
       const resetIdentities = (before: Model, model: Model) => {
-        const cancel: string[] = [];
+        const cancel: CommandSlot[] = [];
         for (const name of names) {
           const identity = definitions[name]!.identity;
           if (
@@ -180,6 +199,7 @@ function taskBuilder<Props, State extends object, R>(
                             task.run(snapshot as unknown as Snapshot<Base>, message.input as never),
                           ),
                         {
+                          policy: task.policy,
                           onSuccess: (value): Internal => ({
                             type: 'Settled',
                             task: message.task,
@@ -236,10 +256,8 @@ function taskBuilder<Props, State extends object, R>(
         owner.send({ type: 'Input', props: props as Snapshot<Props> });
       };
       const controls = (send: Send<Message>) => ({
-        run: <K extends keyof T>(
-          task: K,
-          ...input: Input<T[K]> extends void ? [input?: Input<T[K]>] : [input: Input<T[K]>]
-        ) => send({ type: 'Run', task, input: input[0] } as Message),
+        run: <K extends keyof T>(task: K, ...input: InputArguments<T[K]>) =>
+          send({ type: 'Run', task, input: input[0] } as Message),
         patch: (
           fields: (Partial<State> | Partial<Snapshot<State>>) & {
             readonly props?: never;
@@ -250,6 +268,7 @@ function taskBuilder<Props, State extends object, R>(
         reset: (task: keyof T) => send({ type: 'Reset', task }),
       });
       return {
+        slot,
         create,
         receive,
         controls,

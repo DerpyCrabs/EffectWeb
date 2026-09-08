@@ -1,4 +1,4 @@
-import { protectSnapshot, checkSnapshotsByDefault, type Snapshot } from './snapshot.js';
+import { protectSnapshot, type Snapshot } from './snapshot.js';
 import { reportError, reportSafely } from './errors.js';
 import { traceProgram, nextProgramId, hasProgramObservers } from './diagnostics.js';
 import { Cause, Effect, Fiber, Option, Stream } from 'effect';
@@ -7,10 +7,16 @@ export type Send<Message> = (message: Message) => void;
 /** queue retains FIFO requests; latest-queued retains only the newest pending request. */
 export type TaskPolicy = 'replace' | 'drop' | 'parallel' | 'queue' | 'latest-queued';
 
+declare const slotType: unique symbol;
+/** Stable operation identity. Equal diagnostic names never share cancellation. */
+export type CommandSlot = symbol & { readonly [slotType]: true };
+export const commandSlot = (name: string): CommandSlot => Symbol(name) as CommandSlot;
+const taskPolicies: readonly string[] = ['replace', 'drop', 'parallel', 'queue', 'latest-queued'];
+
 /** A slot owns either one completion or a stream of progress/events, canceled together. */
 export type Command<Message, R = never> = {
-  readonly slot: string;
-  readonly policy?: TaskPolicy;
+  readonly slot: CommandSlot;
+  readonly policy: TaskPolicy;
 } & (
   | {
       readonly effect: Effect.Effect<Message, never, R>;
@@ -31,22 +37,28 @@ export type Command<Message, R = never> = {
 
 /** A lazy request settles successes, typed failures and defects through one message contract. */
 export function effectCommand<A, E, Success, Failure, R = never>(
-  slot: string,
+  slot: CommandSlot,
   load: () => Effect.Effect<A, E, R>,
   handlers: {
+    readonly policy: TaskPolicy;
     readonly onSuccess: (value: A) => Success;
     readonly onFailure: (cause: Cause.Cause<E>) => Failure;
   },
 ): Command<Success | Failure, R> {
-  return { slot, effect: Effect.suspend(load).pipe(Effect.matchCause(handlers)) };
+  return {
+    slot,
+    policy: handlers.policy,
+    effect: Effect.suspend(load).pipe(Effect.matchCause(handlers)),
+  };
 }
 
 /** Owned work with no model result. Failures use the program's error reporter. */
 export function actionCommand<R = never>(
-  slot: string,
+  slot: CommandSlot,
   action: () => Effect.Effect<unknown, unknown, R>,
+  policy: TaskPolicy,
 ): Command<never, R> {
-  return { slot, action: Effect.suspend(action).pipe(Effect.asVoid) };
+  return { slot, policy, action: Effect.suspend(action).pipe(Effect.asVoid) };
 }
 
 export function mapCommand<A, B, R = never>(
@@ -61,7 +73,7 @@ export function mapCommand<A, B, R = never>(
 export interface Transition<Model, Message, R = never> {
   readonly model: Model | Snapshot<Model>;
   readonly commands?: readonly Command<Message, R>[];
-  readonly cancel?: readonly string[];
+  readonly cancel?: readonly CommandSlot[];
 }
 export interface Program<Model, Message> {
   readonly model: () => Snapshot<Model>;
@@ -70,22 +82,20 @@ export interface Program<Model, Message> {
   readonly dispose: () => void;
 }
 export interface RunningProgram<Model, Message> extends Program<Model, Message> {
-  readonly activeSlots: () => readonly string[];
-  readonly awaitIdle: (slot?: string) => Promise<void>;
+  readonly activeSlots: () => readonly CommandSlot[];
+  readonly awaitIdle: (slot?: CommandSlot) => Promise<void>;
 }
 
 export function program<Model, Message>(options: {
   initial: Model | Snapshot<Model>;
   name?: string;
-  checkSnapshots?: boolean;
   update: (model: Snapshot<Model>, message: Message) => Transition<Model, Message>;
   onDefect?: (cause: unknown) => void;
 }): RunningProgram<Model, Message> {
-  const checkSnapshots = options.checkSnapshots ?? checkSnapshotsByDefault;
   const id = nextProgramId();
   const trace = (
     kind: import('./diagnostics').ProgramUpdate['kind'],
-    slot?: string,
+    slot?: CommandSlot,
     message?: Message,
   ) =>
     hasProgramObservers() &&
@@ -93,7 +103,7 @@ export function program<Model, Message>(options: {
       program: id,
       ...(options.name ? { name: options.name } : {}),
       kind,
-      ...(slot ? { slot } : {}),
+      ...(slot ? { slot: slot.description ?? 'command' } : {}),
       ...(message &&
       typeof message === 'object' &&
       'type' in message &&
@@ -101,7 +111,7 @@ export function program<Model, Message>(options: {
         ? { message: message.type }
         : {}),
     });
-  const waiters = new Set<{ slot: string | undefined; done: () => void }>();
+  const waiters = new Set<{ slot: CommandSlot | undefined; done: () => void }>();
   const notify = () => {
     for (const waiter of waiters) {
       if (
@@ -115,16 +125,16 @@ export function program<Model, Message>(options: {
   };
   // A program publishes one immutable value. It needs no reactive dependency graph;
   // Effect still owns all command fibers, streams, and cancellation below.
-  let current = protectSnapshot(options.initial, checkSnapshots) as Model;
+  let current = protectSnapshot(options.initial) as Model;
   const listeners = new Set<(model: Snapshot<Model>) => void>();
   type Running = { fiber?: Fiber.Fiber<Option.Option<Message>, unknown> };
   type Group = { active: Set<Running>; pending: Command<Message>[] };
-  const running = new Map<string, Group>();
+  const running = new Map<CommandSlot, Group>();
   let disposed = false;
   let draining = false;
-  const queue: Array<{ message: Message; slot?: string }> = [];
-  const deferred: Array<{ slot: string; group: Group }> = [];
-  const cancel = (slot: string) => {
+  const queue: Array<{ message: Message; slot?: CommandSlot }> = [];
+  const deferred: Array<{ slot: CommandSlot; group: Group }> = [];
+  const cancel = (slot: CommandSlot) => {
     // A synchronous Effect can enqueue completion behind a reset/replacement message.
     // Its fiber is already done, but cancellation still owns that unpublished completion.
     for (let index = queue.length - 1; index >= 0; index--)
@@ -193,7 +203,7 @@ export function program<Model, Message>(options: {
       notify();
     });
   };
-  const advance = (slot: string, group: Group) => {
+  const advance = (slot: CommandSlot, group: Group) => {
     if (disposed || running.get(slot) !== group || group.active.size) return;
     const next = group.pending.shift();
     if (!next) return;
@@ -201,7 +211,7 @@ export function program<Model, Message>(options: {
     group.active.add(task);
     launch(next, group, task);
   };
-  const enqueue = (message: Message, slot?: string) => {
+  const enqueue = (message: Message, slot?: CommandSlot) => {
     if (disposed) return;
     queue.push(slot === undefined ? { message } : { message, slot });
     if (draining) return;
@@ -215,9 +225,15 @@ export function program<Model, Message>(options: {
         }
         const { message } = queue.shift()!;
         const transition = options.update(current as Snapshot<Model>, message);
+        for (const command of transition.commands ?? []) {
+          if (typeof command.slot !== 'symbol' || !taskPolicies.includes(command.policy))
+            throw new TypeError(
+              'Commands require a commandSlot() token and an explicit concurrency policy.',
+            );
+        }
         trace('update', undefined, message);
         for (const slot of transition.cancel ?? []) cancel(slot);
-        const next = protectSnapshot(transition.model, checkSnapshots) as Model;
+        const next = protectSnapshot(transition.model) as Model;
         if (!Object.is(current, next)) {
           current = next;
           for (const listener of listeners) listener(current as Snapshot<Model>);
@@ -227,7 +243,7 @@ export function program<Model, Message>(options: {
         // supersede earlier work in the same transaction without executing it.
         for (const command of transition.commands ?? []) {
           if (disposed) break;
-          const policy = command.policy ?? 'replace';
+          const policy = command.policy;
           let group = running.get(command.slot);
           if (policy === 'drop' && group) continue;
           if (policy === 'replace') {

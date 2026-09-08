@@ -364,6 +364,69 @@ impl<'a, 's> Lower<'a, 's> {
             .map(|(value, _)| value)
             .collect()
     }
+    fn event_value(
+        &mut self,
+        e: &'a Expression<'a>,
+        env: &Env<'a>,
+        scope: &str,
+        out: &mut String,
+    ) -> Result<String> {
+        if let Expression::ArrowFunctionExpression(f) = unwrapped(e) {
+            if f.r#async {
+                return self.fail(e.span(), "Async work belongs in commands. Event handlers dispatch messages synchronously.");
+            }
+            let handler = self.uid("handler");
+            let value = self.event_handler(e, env);
+            out.push_str(&format!("const {handler}={value};"));
+            return Ok(handler);
+        }
+        let cached = self.uid("handler");
+        let dependencies = self.deps(e, env).join(",");
+        let compute = self.snapshot_function(e, env);
+        out.push_str(&format!(
+            "const {cached}={scope}.derive(()=>[{dependencies}],{compute});"
+        ));
+        Ok(format!("{cached}()"))
+    }
+    fn spread_value(
+        &mut self,
+        e: &'a Expression<'a>,
+        env: &Env<'a>,
+        scope: &str,
+        out: &mut String,
+    ) -> Result<String> {
+        if let Expression::ObjectExpression(object) = unwrapped(e)
+            && object.properties.iter().all(|property| match property {
+                ObjectPropertyKind::ObjectProperty(property) => {
+                    !property.computed && !property.method && property.key.static_name().is_some()
+                }
+                ObjectPropertyKind::SpreadProperty(_) => true,
+            })
+        {
+            let mut fields = vec![];
+            for property in &object.properties {
+                match property {
+                    ObjectPropertyKind::ObjectProperty(property) => {
+                        let name = property.key.static_name().unwrap();
+                        let value = if name.starts_with("on")
+                            && name.chars().nth(2).is_some_and(|c| c.is_ascii_uppercase())
+                        {
+                            self.event_value(&property.value, env, scope, out)?
+                        } else {
+                            self.snapshot(&property.value, env)
+                        };
+                        fields.push(format!("{}:({value})", quote(&name)));
+                    }
+                    ObjectPropertyKind::SpreadProperty(property) => {
+                        let value = self.spread_value(&property.argument, env, scope, out)?;
+                        fields.push(format!("...({value})"));
+                    }
+                }
+            }
+            return Ok(format!("{{{}}}", fields.join(",")));
+        }
+        Ok(self.snapshot(e, env))
+    }
     /// Expressions and labels share ordering and deduplication, including template captures.
     fn dependencies(
         &self,
@@ -509,6 +572,12 @@ impl<'a, 's> Lower<'a, 's> {
         }
         let Some(id) = reference.symbol else {
             if [
+                "globalThis",
+                "self",
+                "performance",
+                "crypto",
+                "navigator",
+                "location",
                 "window",
                 "document",
                 "Date",
@@ -555,10 +624,12 @@ impl<'a, 's> Lower<'a, 's> {
         // A reference to a callback is stable data. Inspect its body only when called
         // during rendering, so event handlers and command factories remain deferred.
         if called && let Some(body) = self.index.helpers.get(&id) {
-            for (span, message) in &self.index.global_calls {
+            for (span, message) in &self.index.violations {
                 if span.start >= body.start
                     && span.end <= body.end
                     && !self.index.deferred_host_body(*span, *body)
+                    && !self.index.references(*span).any(|r| r.in_action)
+                    && !self.index.owns_mutation(*span, *body)
                 {
                     return self.fail(*span, message);
                 }
@@ -585,10 +656,11 @@ impl<'a, 's> Lower<'a, 's> {
         let Some(Expression::ArrowFunctionExpression(f)) =
             call.arguments.first().and_then(|a| a.as_expression())
         else {
-            return self.fail(call.span,"view((model, send) => JSX) requires a model parameter, an optional named dispatch parameter, and a synchronous pure body.");
+            return self.fail(call.span,"view((model, send) => JSX) takes a synchronous pure arrow with an optional model parameter and optional named dispatch parameter.");
         };
         if f.r#async
-            || !(1..=2).contains(&f.params.items.len())
+            || call.arguments.len() != 1
+            || f.params.items.len() > 2
             || f.params.rest.is_some()
             || f.params.items.iter().any(|p| p.initializer.is_some())
             || f.params
@@ -596,7 +668,7 @@ impl<'a, 's> Lower<'a, 's> {
                 .get(1)
                 .is_some_and(|p| !matches!(p.pattern, BindingPattern::BindingIdentifier(_)))
         {
-            return self.fail(call.span,"view((model, send) => JSX) requires a model parameter, an optional named dispatch parameter, and a synchronous pure body.");
+            return self.fail(call.span,"view((model, send) => JSX) takes a synchronous pure arrow with an optional model parameter and optional named dispatch parameter.");
         }
         for (span, message) in &self.index.violations {
             if span.start >= f.span.start
@@ -611,9 +683,12 @@ impl<'a, 's> Lower<'a, 's> {
                 return self.fail(*span, message);
             }
         }
-        let mut roots: HashSet<_> = self
-            .index
-            .binding_names(f.params.items[0].pattern.span())
+        let mut roots: HashSet<_> = f
+            .params
+            .items
+            .first()
+            .map(|parameter| self.index.binding_names(parameter.pattern.span()))
+            .unwrap_or_default()
             .into_iter()
             .map(|(id, _)| id)
             .collect();
@@ -653,6 +728,12 @@ impl<'a, 's> Lower<'a, 's> {
                 }
                 self.external_capture(r, false, false, &mut HashSet::new())?;
             } else if [
+                "globalThis",
+                "self",
+                "performance",
+                "crypto",
+                "navigator",
+                "location",
                 "window",
                 "document",
                 "Date",
@@ -676,35 +757,37 @@ impl<'a, 's> Lower<'a, 's> {
         let parent = self.uid("parent");
         let before = self.uid("before");
         let mut env = Env::new();
-        let input = &f.params.items[0].pattern;
-        if let Some(dispatch) = f.params.items.get(1)
-            && let BindingPattern::BindingIdentifier(id) = &dispatch.pattern
-            && self
-                .index
-                .references(input.span())
-                .any(|reference| reference.symbol == id.symbol_id.get())
-        {
-            return self.fail(input.span(), "Parameter defaults cannot capture dispatch. Declare that default inside the view body.");
-        }
-
         let mut prelude = String::new();
-        if Self::simple_input(input) {
-            Self::bind_simple_input(input, format!("{scope}.value"), &mut env);
-        } else {
-            let mut names = vec![];
-            Self::input_names(input, &mut names);
-            let bindings = names
-                .iter()
-                .map(|(_, name)| name.clone())
-                .collect::<Vec<_>>()
-                .join(",");
-            let cached = self.uid("input");
-            let pattern = self.raw(input.span());
-            prelude = format!(
-                "const {cached}={scope}.derive(()=>[{scope}.value],()=>(({pattern})=>[{bindings}])({scope}.value));"
-            );
-            for (index, (id, _)) in names.into_iter().enumerate() {
-                env.insert(id, Value::Read(format!("{cached}()[{index}]")));
+        if let Some(parameter) = f.params.items.first() {
+            let input = &parameter.pattern;
+            if let Some(dispatch) = f.params.items.get(1)
+                && let BindingPattern::BindingIdentifier(id) = &dispatch.pattern
+                && self
+                    .index
+                    .references(input.span())
+                    .any(|reference| reference.symbol == id.symbol_id.get())
+            {
+                return self.fail(input.span(), "Parameter defaults cannot capture dispatch. Declare that default inside the view body.");
+            }
+
+            if Self::simple_input(input) {
+                Self::bind_simple_input(input, format!("{scope}.value"), &mut env);
+            } else {
+                let mut names = vec![];
+                Self::input_names(input, &mut names);
+                let bindings = names
+                    .iter()
+                    .map(|(_, name)| name.clone())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let cached = self.uid("input");
+                let pattern = self.raw(input.span());
+                prelude = format!(
+                    "const {cached}={scope}.derive(()=>[{scope}.value],()=>(({pattern})=>[{bindings}])({scope}.value));"
+                );
+                for (index, (id, _)) in names.into_iter().enumerate() {
+                    env.insert(id, Value::Read(format!("{cached}()[{index}]")));
+                }
             }
         }
         if let Some(p) = f.params.items.get(1)
@@ -1445,15 +1528,6 @@ impl<'a, 's> Lower<'a, 's> {
                 );
             }
         };
-        if tag == "Portal" {
-            let p = self.uid("parent");
-            let b = self.uid("before");
-            let body = self.children(&e.children, env, scope, &p, &b)?;
-            return Ok(format!(
-                "{mark}{}.portal({scope},({scope},{p},{b})=>{{{body}}});",
-                self.runtime
-            ));
-        }
         let component = tag.chars().next().is_some_and(|c| c.is_ascii_uppercase());
         if component {
             if let JSXElementName::IdentifierReference(n) = &e.opening_element.name
@@ -1613,13 +1687,14 @@ impl<'a, 's> Lower<'a, 's> {
                 let mut seen = HashSet::new();
                 reads.retain(|read| seen.insert(read.clone()));
                 let compute = format!("()=>{{{group_captures}return ({{{}}});}}", props.join(","));
-                out.push_str(&format!("const {model}={scope}.derive(()=>[{}],{compute});{}.child({scope},{parent},{before},{tag},()=>[{model}()],{model},()=>{{}});", reads.join(","), self.runtime));
+                out.push_str(&format!("const {model}={scope}.derive(()=>[{}],{compute});{}.child({scope},{parent},{before},{tag},()=>[{model}()],{model},{}.unboundSend);", reads.join(","), self.runtime, self.runtime));
             } else {
                 out.push_str(&format!(
-                    "{}.child({scope},{parent},{before},{tag},()=>[{}],()=>({{{}}}),()=>{{}});",
+                    "{}.child({scope},{parent},{before},{tag},()=>[{}],()=>({{{}}}),{}.unboundSend);",
                     self.runtime,
                     reads.join(","),
-                    props.join(",")
+                    props.join(","),
+                    self.runtime
                 ));
             }
             return Ok(out);
@@ -1659,14 +1734,12 @@ impl<'a, 's> Lower<'a, 's> {
                 let read = if name.starts_with("on")
                     && name.chars().nth(2).is_some_and(|c| c.is_ascii_uppercase())
                 {
-                    if matches!(value.expr(),Some(Expression::ArrowFunctionExpression(f)) if f.r#async)
-                    {
-                        return self.fail(e.span, "Async work belongs in commands. Event handlers dispatch messages synchronously.");
+                    match value.expr() {
+                        Some(expr) => self.event_value(expr, env, scope, &mut out)?,
+                        None => value.rewrite(self, env),
                     }
-                    value
-                        .expr()
-                        .map(|expr| self.event_handler(expr, env))
-                        .unwrap_or_else(|| value.rewrite(self, env))
+                } else if let Attr::Spread(expr) = value {
+                    self.spread_value(expr, env, scope, &mut out)?
                 } else {
                     value
                         .expr()
@@ -1682,7 +1755,7 @@ impl<'a, 's> Lower<'a, 's> {
             let mut seen = HashSet::new();
             deps.retain(|dep| seen.insert(dep.clone()));
             return Ok(format!(
-                "{}.bindAttributes({scope},{element},()=>[{}],()=>({{{}}}));",
+                "{out}{}.bindAttributes({scope},{element},()=>[{}],()=>({{{}}}));",
                 self.runtime,
                 deps.join(","),
                 props.join(",")
@@ -1706,21 +1779,15 @@ impl<'a, 's> Lower<'a, 's> {
             } else if name.starts_with("on")
                 && name.chars().nth(2).is_some_and(|c| c.is_ascii_uppercase())
             {
-                if matches!(value.expr(),Some(Expression::ArrowFunctionExpression(f)) if f.r#async)
-                {
-                    return self.fail(e.span,"Async work belongs in commands. Event handlers dispatch messages synchronously.");
-                }
                 let handler = match value.expr() {
-                    Some(expr) => self.event_handler(expr, env),
-                    None => {
-                        let event = self.uid("event");
-                        format!("({event})=>({})({event})", value.rewrite(self, env))
-                    }
+                    Some(expr) => self.event_value(expr, env, scope, &mut out)?,
+                    None => value.rewrite(self, env),
                 };
                 out.push_str(&format!(
-                    "{}.event({scope},{element},{},{handler});",
+                    "{}.bindEvent({scope},{element},{},()=>[{}],()=>({handler}));",
                     self.runtime,
-                    quote(&name)
+                    quote(&name),
+                    deps.join(",")
                 ));
             } else {
                 let read = value.rewrite(self, env);

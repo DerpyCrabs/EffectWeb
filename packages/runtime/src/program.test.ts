@@ -1,6 +1,13 @@
+import { commandSlot } from './program.js';
 import { Cause, Effect, Queue, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { actionCommand, effectCommand, mapCommand, program, type Command } from './program.js';
+
+const commandTransfer = commandSlot('transfer');
+const commandWork = commandSlot('work');
+const commandLoad = commandSlot('load');
+const commandRequest = commandSlot('request');
+const commandAction = commandSlot('action');
 
 describe('immutable model and command runtime', () => {
   it('accepts synchronous stream progress and owns cancellation of replaced streams', async () => {
@@ -14,7 +21,8 @@ describe('immutable model and command runtime', () => {
               model,
               commands: [
                 {
-                  slot: 'transfer',
+                  policy: 'replace',
+                  slot: commandTransfer,
                   stream: Stream.callback<number>((queue) =>
                     Effect.gen(function* () {
                       queues.push(queue);
@@ -55,7 +63,8 @@ describe('immutable model and command runtime', () => {
         model: message,
         commands: [
           {
-            slot: 'work',
+            policy: 'replace',
+            slot: commandWork,
             effect: Effect.sync(() => {
               started = true;
               return 2;
@@ -96,7 +105,8 @@ describe('immutable model and command runtime', () => {
               model,
               commands: [
                 {
-                  slot: 'load',
+                  policy: 'replace',
+                  slot: commandLoad,
                   effect: Effect.callback<number>((resume) => {
                     completions.push((value) => resume(Effect.succeed(value)));
                     return Effect.sync(() => {
@@ -133,7 +143,7 @@ describe('Effect command completion', () => {
       let failure: Cause.Cause<unknown> | undefined;
       let started = false;
       const command = effectCommand(
-        'request',
+        commandRequest,
         () => {
           started = true;
           if (kind === 'throw') throw problem;
@@ -144,6 +154,7 @@ describe('Effect command completion', () => {
               : Effect.die(problem);
         },
         {
+          policy: 'replace',
           onSuccess: (value) => value,
           onFailure: (cause) => {
             failure = cause;
@@ -172,7 +183,7 @@ describe('Effect command completion', () => {
     const source = program<number, Message>({
       initial: 0,
       update: (model, message) => {
-        if (message.type === 'Cancel') return { model, cancel: ['request'] };
+        if (message.type === 'Cancel') return { model, cancel: [commandRequest] };
         if (message.type === 'Result') {
           messages.push(message.value);
           return { model: message.value };
@@ -182,7 +193,7 @@ describe('Effect command completion', () => {
           commands: [
             mapCommand(
               effectCommand(
-                'request',
+                commandRequest,
                 () =>
                   Effect.callback<number>((resume) => {
                     completions.push((value) => resume(Effect.succeed(value)));
@@ -190,7 +201,7 @@ describe('Effect command completion', () => {
                       finalized++;
                     });
                   }),
-                { onSuccess: (value) => value, onFailure: () => -1 },
+                { policy: 'replace', onSuccess: (value) => value, onFailure: () => -1 },
               ),
               (value): Message => ({ type: 'Result', value }),
             ),
@@ -220,16 +231,19 @@ describe('Effect command completion', () => {
       started = 0,
       finalized = 0;
     const command: Command<number> = mapCommand(
-      actionCommand('action', () =>
-        Effect.gen(function* () {
-          started++;
-          yield* Effect.addFinalizer(() =>
-            Effect.sync(() => {
-              finalized++;
-            }),
-          );
-          return yield* Effect.never;
-        }).pipe(Effect.scoped),
+      actionCommand(
+        commandAction,
+        () =>
+          Effect.gen(function* () {
+            started++;
+            yield* Effect.addFinalizer(() =>
+              Effect.sync(() => {
+                finalized++;
+              }),
+            );
+            return yield* Effect.never;
+          }).pipe(Effect.scoped),
+        'replace',
       ),
       () => {
         mapped++;
@@ -260,10 +274,14 @@ describe('Effect command completion', () => {
         model: message,
         commands: [
           mapCommand(
-            actionCommand('action', () => {
-              if (message === 1) throw new Error('action');
-              return Effect.void;
-            }),
+            actionCommand(
+              commandAction,
+              () => {
+                if (message === 1) throw new Error('action');
+                return Effect.void;
+              },
+              'replace',
+            ),
             () => {
               mapped++;
               return 99;
@@ -318,4 +336,41 @@ it('keeps snapshot publication synchronous, deduplicated and safe when subscript
   await Promise.all(idle);
   expect(seen).toEqual([1, 1, 2, 2, 3]);
   expect(app.activeSlots()).toEqual([]);
+});
+
+it('isolates independent operation tokens even when their diagnostic names match', async () => {
+  const first = commandSlot('mutation');
+  const second = commandSlot('mutation');
+  const stopped: string[] = [];
+  const source = program({
+    initial: 0,
+    update: (model, message: 'first' | 'second' | 'cancel') =>
+      message === 'cancel'
+        ? { model, cancel: [first] }
+        : {
+            model,
+            commands: [
+              {
+                slot: message === 'first' ? first : second,
+                policy: 'replace',
+                action: Effect.never.pipe(
+                  Effect.onInterrupt(() =>
+                    Effect.sync(() => {
+                      stopped.push(message);
+                    }),
+                  ),
+                ),
+              },
+            ],
+          },
+  });
+  source.send('first');
+  source.send('second');
+  expect(source.activeSlots()).toEqual([first, second]);
+  expect(stopped).toEqual([]);
+  source.send('cancel');
+  await source.awaitIdle(first);
+  expect(source.activeSlots()).toEqual([second]);
+  source.dispose();
+  await expect.poll(() => stopped).toEqual(['first', 'second']);
 });

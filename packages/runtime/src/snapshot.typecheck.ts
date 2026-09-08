@@ -17,16 +17,19 @@ export function publishedSnapshotTypes() {
     Keep: (model) => ({ model }),
     Invalid: (model) => {
       // @ts-expect-error Published arrays cannot be mutated.
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
       model.items.push({ text: 'bad', tags: [] });
       // @ts-expect-error Published nested objects cannot be mutated.
       model.items[0]!.text = 'bad';
       // @ts-expect-error Deeply nested arrays cannot be mutated.
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
       model.items[0]!.tags.sort();
       return { model };
     },
   });
   const app = program({ initial: { items: [], selected: 0 } as Model, update: actions.update });
   // @ts-expect-error Reads have the same immutable contract as reducers.
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
   app.model().items.pop();
   app.subscribe((model) => {
     // @ts-expect-error Subscribers cannot change published state.
@@ -39,6 +42,7 @@ export function publishedSnapshotTypes() {
   owner.patch({ items: owner.read().items });
   view<Model>((model) => {
     // @ts-expect-error View render inputs are immutable too.
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
     model.items.splice(0, 1);
     return model.items[0]?.text;
   });
@@ -72,12 +76,15 @@ export function opaqueAndResultTypes(
   model.callback('still callable');
   const data = available(model.result);
   // @ts-expect-error Successful query/task data remains deeply readonly after extraction.
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
   data?.names.push('bad');
   // @ts-expect-error Mutable container APIs are unavailable from a snapshot.
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
   model.map.set('bad', { count: 1 });
   // @ts-expect-error Container values are immutable too.
   model.map.get('x')!.count++;
   // @ts-expect-error Tuple elements retain recursive protection.
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
   model.tuple[1].values.push(1);
 }
 
@@ -93,5 +100,6 @@ export function rootAndOptionalResourceTypes(
   service?.increment();
   model.callback?.('callable optional field');
   // @ts-expect-error Root containers have the same readonly contract as nested ones.
+  // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
   map.set('x', { count: 1 });
 }

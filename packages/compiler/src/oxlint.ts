@@ -26,11 +26,7 @@ function rule(category: Diagnostic['category'] | 'errors') {
     create(context: Context) {
       return {
         Program() {
-          if (
-            !context.filename.endsWith('.tsx') &&
-            !(category === 'unprovable-dependency' && context.filename.endsWith('.ts'))
-          )
-            return;
+          if (!/\.tsx?$/u.test(context.filename) || context.filename.endsWith('.d.ts')) return;
           const importSource = context.options[0]?.importSource ?? 'effectweb';
           let cached = results.get(context.sourceCode);
           if (!cached || cached.text !== context.sourceCode.text) {

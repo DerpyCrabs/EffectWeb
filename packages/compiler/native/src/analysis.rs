@@ -20,6 +20,14 @@ fn unwrapped<'a>(mut expression: &'a Expression<'a>) -> &'a Expression<'a> {
     }
 }
 
+fn property_depth(expression: &Expression<'_>) -> usize {
+    match unwrapped(expression) {
+        Expression::StaticMemberExpression(member) => 1 + property_depth(&member.object),
+        Expression::ComputedMemberExpression(member) => 1 + property_depth(&member.object),
+        _ => 0,
+    }
+}
+
 fn method<'a>(expression: &'a Expression<'a>) -> Option<(&'a Expression<'a>, &'a str)> {
     match unwrapped(expression) {
         Expression::StaticMemberExpression(member) => {
@@ -106,11 +114,13 @@ pub struct Reference {
 pub struct Index<'a, 's> {
     pub scoping: &'s Scoping,
     pub host_callbacks: HashMap<SymbolId, usize>,
+    pub event_callbacks: HashSet<SymbolId>,
     host_acquisitions: HashSet<Span>,
     pub refs: Vec<Reference>,
     pub calls: Vec<&'a CallExpression<'a>>,
     pub bindings: Vec<(Span, SymbolId, String)>,
     pub violations: Vec<(Span, String)>,
+    mutation_targets: HashMap<Span, (Span, bool, usize, usize)>,
     pub helpers: HashMap<SymbolId, Span>,
     pub initializers: HashMap<SymbolId, &'a Expression<'a>>,
     pub callback_mutations: Vec<(&'a Expression<'a>, Span, &'a str)>,
@@ -126,11 +136,13 @@ impl<'a, 's> Index<'a, 's> {
         Self {
             scoping,
             host_callbacks: HashMap::new(),
+            event_callbacks: HashSet::new(),
             host_acquisitions: HashSet::new(),
             refs: vec![],
             calls: vec![],
             bindings: vec![],
             violations: vec![],
+            mutation_targets: HashMap::new(),
             helpers: HashMap::new(),
             initializers: HashMap::new(),
             callback_mutations: vec![],
@@ -175,38 +187,51 @@ impl<'a, 's> Index<'a, 's> {
         if let Some(function) = self.spread_callback(true) {
             return Some(function);
         }
-        let (position, attribute) =
-            self.parents
-                .iter()
-                .enumerate()
-                .rev()
-                .find_map(|(i, node)| {
-                    if let AstKind::JSXAttribute(attribute) = node {
-                        Some((i, attribute))
-                    } else {
-                        None
-                    }
-                })?;
-        let JSXAttributeName::Identifier(name) = &attribute.name else {
-            return None;
-        };
-        if !name.name.starts_with("on")
-            || !name
-                .name
-                .chars()
-                .nth(2)
-                .is_some_and(|c| c.is_ascii_uppercase())
-        {
-            return None;
-        }
-        self.parents[position + 1..].iter().find_map(|node| {
-            if let AstKind::ArrowFunctionExpression(function) = node {
-                (!contains_jsx_body(&function.body)).then_some(*function)
-            } else {
-                None
+        for node in self.parents.iter().rev() {
+            if let AstKind::CallExpression(call) = node
+                && let Expression::Identifier(callee) = unwrapped(&call.callee)
+                && self
+                    .symbol(callee)
+                    .is_some_and(|id| self.event_callbacks.contains(&id))
+                && let Some(callback) = call.arguments.get(1).and_then(Argument::as_expression)
+                && let Expression::ArrowFunctionExpression(function) = unwrapped(callback)
+                && self
+                    .parents
+                    .iter()
+                    .any(|parent| parent.span() == function.span)
+                && !contains_jsx_body(&function.body)
+            {
+                return Some(function);
             }
+        }
+        self.parents.iter().rev().find_map(|node| {
+            let AstKind::JSXAttribute(attribute) = node else {
+                return None;
+            };
+            let JSXAttributeName::Identifier(name) = &attribute.name else {
+                return None;
+            };
+            if !name.name.starts_with("on")
+                || !name
+                    .name
+                    .chars()
+                    .nth(2)
+                    .is_some_and(|c| c.is_ascii_uppercase())
+            {
+                return None;
+            }
+            let Some(JSXAttributeValue::ExpressionContainer(container)) = &attribute.value else {
+                return None;
+            };
+            let Expression::ArrowFunctionExpression(function) =
+                unwrapped(container.expression.as_expression()?)
+            else {
+                return None;
+            };
+            (!contains_jsx_body(&function.body)).then_some(&**function)
         })
     }
+
     fn callback_prop(&self) -> bool {
         if self.spread_callback(false).is_some() {
             return true;
@@ -341,6 +366,70 @@ impl<'a, 's> Index<'a, 's> {
             .filter(|(s, _, _)| s.start >= span.start && s.end <= span.end)
             .map(|(_, id, name)| (*id, name.clone()))
             .collect()
+    }
+
+    /// Helper-owned bindings and fresh buffers may be mutated without changing inputs.
+    /// A shallow allocation owns its own properties, not the objects stored inside it.
+    pub fn owns_mutation(&self, span: Span, body: Span) -> bool {
+        let Some((target, binding, depth, actual_depth)) = self.mutation_targets.get(&span) else {
+            return false;
+        };
+        let Some(reference) = self.references(*target).next() else {
+            return false;
+        };
+        let Some(id) = reference.symbol else {
+            return false;
+        };
+        let declaration = self.scoping.symbol_span(id);
+        if declaration.start < body.start || declaration.end > body.end {
+            return false;
+        }
+        if *binding {
+            return true;
+        }
+        self.owns_buffer(id, body, actual_depth <= depth, &mut HashSet::new())
+    }
+    fn owns_buffer(
+        &self,
+        id: SymbolId,
+        body: Span,
+        shallow: bool,
+        seen: &mut HashSet<SymbolId>,
+    ) -> bool {
+        let declaration = self.scoping.symbol_span(id);
+        if declaration.start < body.start || declaration.end > body.end || !seen.insert(id) {
+            return false;
+        }
+        let Some(init) = self.initializers.get(&id) else {
+            return false;
+        };
+        match unwrapped(init) {
+            Expression::ArrayExpression(_) | Expression::ObjectExpression(_) => shallow,
+            Expression::Identifier(alias) => self
+                .symbol(alias)
+                .is_some_and(|id| self.owns_buffer(id, body, shallow, seen)),
+            Expression::CallExpression(call) => {
+                matches!(unwrapped(&call.callee), Expression::Identifier(id) if id.name == "structuredClone" && self.symbol(id).is_none())
+                    || (shallow
+                        && method(&call.callee).is_some_and(|(_, name)| {
+                            [
+                                "slice",
+                                "map",
+                                "filter",
+                                "concat",
+                                "toSorted",
+                                "toReversed",
+                                "toSpliced",
+                            ]
+                            .contains(&name)
+                        }))
+            }
+            Expression::NewExpression(new) => {
+                shallow
+                    && matches!(unwrapped(&new.callee), Expression::Identifier(id) if ["Array", "Map", "Set"].contains(&id.name.as_str()) && self.symbol(id).is_none())
+            }
+            _ => false,
+        }
     }
 
     /// Follow borrowed member reads and destructuring aliases, never fresh allocations.
@@ -525,6 +614,10 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                         && (ARRAY_MUTATORS.contains(&method)
                             || ["set", "add", "delete", "clear"].contains(&method))
                     {
+                        self.mutation_targets.insert(
+                            call.span,
+                            (receiver.span(), false, 0, property_depth(receiver)),
+                        );
                         self.violations.push((call.span,format!("Views cannot call mutating method {method}. Use an immutable operation or a command.")));
                     }
                     if action && !fresh_array && ARRAY_MUTATORS.contains(&method) {
@@ -544,22 +637,69 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                     }
                 }
             }
-            AstKind::AssignmentExpression(n) if !matches!(&n.left, AssignmentTarget::StaticMemberExpression(member) if self.event_dom_node(&member.object)) => {
+            AstKind::AssignmentExpression(n) if !matches!(&n.left, AssignmentTarget::StaticMemberExpression(member) if self.event_dom_node(&member.object)) =>
+            {
+                self.mutation_targets.insert(
+                    n.span,
+                    (
+                        n.left.span(),
+                        matches!(n.left, AssignmentTarget::AssignmentTargetIdentifier(_)),
+                        1,
+                        match &n.left {
+                            AssignmentTarget::AssignmentTargetIdentifier(_) => 0,
+                            AssignmentTarget::StaticMemberExpression(m) => {
+                                1 + property_depth(&m.object)
+                            }
+                            AssignmentTarget::ComputedMemberExpression(m) => {
+                                1 + property_depth(&m.object)
+                            }
+                            _ => usize::MAX,
+                        },
+                    ),
+                );
                 self.violations.push((
                     n.span,
                     "Views do not mutate state. Dispatch a message and change the model in update."
                         .into(),
                 ))
             }
-            AstKind::UpdateExpression(n) => self.violations.push((
-                n.span,
-                "Views do not mutate state. Dispatch a message and change the model in update."
-                    .into(),
-            )),
-            AstKind::UnaryExpression(n) if n.operator.as_str() == "delete" => self
-                .violations
-                .push((n.span, "Views do not mutate state.".into())),
-            AstKind::AwaitExpression(n) => self
+            AstKind::UpdateExpression(n) => {
+                self.mutation_targets.insert(
+                    n.span,
+                    (
+                        n.argument.span(),
+                        matches!(
+                            n.argument,
+                            SimpleAssignmentTarget::AssignmentTargetIdentifier(_)
+                        ),
+                        1,
+                        match &n.argument {
+                            SimpleAssignmentTarget::AssignmentTargetIdentifier(_) => 0,
+                            SimpleAssignmentTarget::StaticMemberExpression(m) => {
+                                1 + property_depth(&m.object)
+                            }
+                            SimpleAssignmentTarget::ComputedMemberExpression(m) => {
+                                1 + property_depth(&m.object)
+                            }
+                            _ => usize::MAX,
+                        },
+                    ),
+                );
+                self.violations.push((
+                    n.span,
+                    "Views do not mutate state. Dispatch a message and change the model in update."
+                        .into(),
+                ));
+            }
+            AstKind::UnaryExpression(n) if n.operator.as_str() == "delete" => {
+                self.mutation_targets.insert(
+                    n.span,
+                    (n.argument.span(), false, 1, property_depth(&n.argument)),
+                );
+                self.violations
+                    .push((n.span, "Views do not mutate state.".into()));
+            }
+            AstKind::AwaitExpression(n) if !self.host_callback() => self
                 .violations
                 .push((n.span, "Async work belongs in commands.".into())),
             _ => {}

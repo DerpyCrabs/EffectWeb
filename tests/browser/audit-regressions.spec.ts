@@ -6,7 +6,7 @@ test('preserves blur drafts through native input and composition, then accepts o
   await page.goto('/');
   await page.evaluate(async () => {
     const path = '/tests/fixtures/auditFixture.tsx';
-    const { mountControls } = await import(path);
+    const { mountControls } = (await import(path)) as typeof import('../fixtures/auditFixture');
     mountControls(document.body);
   });
   const accepted = page.getByLabel('Blur accepted');
@@ -36,7 +36,7 @@ test('restores rejected delegated input, select changes, and checkbox clicks', a
   await page.goto('/');
   await page.evaluate(async () => {
     const path = '/tests/fixtures/auditFixture.tsx';
-    const { mountControls } = await import(path);
+    const { mountControls } = (await import(path)) as typeof import('../fixtures/auditFixture');
     mountControls(document.body);
   });
   await page.getByLabel('Delegated rejected').fill('edit');
@@ -51,7 +51,7 @@ test('native input handlers receive the edit before controlled restoration', asy
   await page.goto('/');
   await page.evaluate(async () => {
     const path = '/tests/fixtures/auditFixture.tsx';
-    const { mountControls } = await import(path);
+    const { mountControls } = (await import(path)) as typeof import('../fixtures/auditFixture');
     mountControls(document.body);
   });
   await page.getByLabel('Normalized').fill('updated');
@@ -68,7 +68,7 @@ test('restores normalized and rejected native edits even when the model does not
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/auditFixture.tsx';
-    const { mountControls } = await import(path);
+    const { mountControls } = (await import(path)) as typeof import('../fixtures/auditFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const app = mountControls(host);
@@ -99,7 +99,7 @@ test('clears a dirty checked property when its bound value becomes undefined', a
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/auditFixture.tsx';
-    const { mountControls } = await import(path);
+    const { mountControls } = (await import(path)) as typeof import('../fixtures/auditFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const app = mountControls(host);
@@ -121,7 +121,7 @@ test('leaves composition edits alone until composition ends and drops pending wo
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/auditFixture.tsx';
-    const { mountControls } = await import(path);
+    const { mountControls } = (await import(path)) as typeof import('../fixtures/auditFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const app = mountControls(host);

@@ -16,11 +16,45 @@ it.each([
 });
 
 it.each([
+  `const ambient={count:0}; const read=()=>++ambient.count;`,
+  `const ambient={count:0}; function read(){ambient.count=1;return 1;}`,
+  `const ambient={count:0}; const mutate=()=>delete ambient.count; const read=mutate;`,
+  `const ambient=[]; const read=()=>ambient.push(1);`,
+  `const ambient=new Map(); const read=()=>ambient.set('key',1);`,
+  `const ambient=[]; const alias=ambient; const mutate=()=>alias.reverse(); const read=()=>mutate();`,
+  `const read=(input)=>{const alias=input;alias.count++;return alias.count;};`,
+  `const read=(input)=>{const copy={input};copy.input.count++;return 1;};`,
+  `const read=(input)=>{const copy=[input];let i=0;copy[i].count++;return 1;};`,
+  `const read=()=>globalThis.Date.now();`,
+  `const clock=globalThis;const read=()=>clock['Date'].now();`,
+  `const read=()=>globalThis.Math.random();`,
+  `const read=()=>performance.now();`,
+])('rejects mutation and ambient reads through render helper calls: %s', (source) => {
+  expect(() => compile(`${source} view(model=><b>{read(model.value)}</b>);`)).toThrow(
+    /mutate|mutating method|Read /u,
+  );
+});
+
+it.each([
+  `const read=(input)=>{const result=[];result.push(input);return result.length;};`,
+  `const read=(input)=>{const result={count:input};result.count++;return result.count;};`,
+  `const read=(input)=>{const result={count:input};delete result.count;return 0;};`,
+  `const read=(input)=>{const result=[];const alias=result;alias.push(input);return result.length;};`,
+  `const read=(input)=>{const result=structuredClone(input);result.nested.count++;return result;};`,
+  `const read=(input)=>{const result=input.slice();result.sort();return result.length;};`,
+  `const read=(input)=>{let result=input;result++;return result;};`,
+  `const read=(input)=>{const globalThis=input;return globalThis.Date.now();};`,
+])('allows pure helpers to mutate their own bindings and fresh buffers: %s', (source) => {
+  expect(compile(`${source} view(model=><b>{read(model.value)}</b>);`)).toContain('.compiled(');
+});
+
+it.each([
   `let observer; const observe=()=>{observer=window.innerWidth;return ()=>{};}; const mount=()=>domMount(()=>observe()); view(model=><div use={mount()}/>);`,
   `const mount=()=>domMount(element=>{const width=document.documentElement.clientWidth;element.style.width=width+'px';return ()=>{};}); view(model=><div use={mount()}/>);`,
   `const mount=()=>domMount(element=>Effect.gen(function*(){let visible=true;const motion=window.matchMedia('screen');visible=false;yield* Effect.never;})); view(model=><div use={mount()}/>);`,
   `const mount=()=>domBinding('input',()=>{consume(Math.random(),localStorage.getItem('key'));return ()=>{};}); view(model=><div use={mount()}/>);`,
   `view(model=><div use={domMount(()=>consume(window.innerWidth))}/>);`,
+  `const mount=()=>domMount(()=>Effect.tryPromise(async()=>{await import('player');await Promise.resolve();}));view(model=><div use={mount()}/>);`,
 ])('keeps DOM host callback work deferred through render helpers: %s', (source) => {
   expect(compile(`import { domMount, domBinding } from 'effectweb'; ${source}`)).toContain(
     '.compiled(',
@@ -105,13 +139,13 @@ it.each([
 
 it('permits event-time randomness without requiring an extracted helper', () => {
   expect(compile(`view((model,send)=><button onClick={()=>send(Math.random())}/>);`)).toContain(
-    '.event(',
+    '.bindEvent(',
   );
   expect(
     compile(
       `const random=()=>Math.random();view((model,send)=><button onClick={()=>send(random())}/>);`,
     ),
-  ).toContain('.event(');
+  ).toContain('.bindEvent(');
 });
 
 it('keeps pure helper locals and event-only work outside render capture checks', () => {
@@ -124,12 +158,12 @@ it('keeps pure helper locals and event-only work outside render capture checks',
     compile(
       `const actions=defineActions({Run:()=>Date.now()});view((model,send)=>{const dispatch=actions.bind(send);return <button onClick={()=>dispatch.Run()}/>;});`,
     ),
-  ).toContain('.event(');
+  ).toContain('.bindEvent(');
   expect(
     compile(
       `view(model=><button onClick={()=>{const local=[];local.push(model.id);consume(local);}}/>);`,
     ),
-  ).toContain('.event(');
+  ).toContain('.bindEvent(');
   expect(compile(`const clock=Date; view(model=><p>{clock.UTC(model.year,0,1)}</p>);`)).toContain(
     '.compiled(',
   );
@@ -154,7 +188,7 @@ describe('snapshot JSX compiler contract', () => {
     expect(code).toContain('.compiled(');
     expect(code).toContain('.derive(');
     expect(code).toContain('.each(');
-    expect(code).toContain('.event(');
+    expect(code).toContain('.bindEvent(');
     expect(code).toContain('.template(');
     expect(code).not.toContain('createSignal');
     expect(code).not.toContain('Proxy');
@@ -439,7 +473,7 @@ it('allows native input resets and deferred browser access inside event callback
     event.currentTarget.value = '';
     queueMicrotask(() => requestAnimationFrame(() => document.getElementById(model.next)?.focus()));
   }} />)`),
-  ).toContain('.event(');
+  ).toContain('.bindEvent(');
 });
 it.each([
   'view(model => <p>{document.title}</p>)',
@@ -488,7 +522,7 @@ it('captures snapshots inside event handlers while preserving Effect-returning b
     send({count:model.count + 1});
     return effectEvent('drop', () => task(model.count, event)) (event);
   }}>Go</button>);`);
-  expect(code).toContain('.event(');
+  expect(code).toContain('.bindEvent(');
   expect(code).toContain('return effectEvent(');
   expect(code).not.toContain('dispatchEvent');
   expect(code).not.toContain('synchronousProgram');
@@ -564,4 +598,77 @@ it('keeps direct spread event callbacks deferred and checks eager spread express
     `{style:{onClick:()=>window.alert('nested')}}`,
   ])
     expect(() => compile(`view(p=><button {...${expression}}/>);`)).toThrow(/Read window/u);
+});
+
+it.each([true, false])(
+  'preserves public marker identity and scalar .ts authoring (development=%s)',
+  (development) => {
+    for (const source of ['effectweb', 'effectweb/dom']) {
+      const result = compileSource(
+        `import { view as render } from '${source}'; const alias=render; export const Label=alias<{label:string}>(model=>model.label);`,
+        'label.ts',
+        { development },
+      );
+      expect(result.diagnostics).toEqual([]);
+      expect(result.code).toContain('.compiled(');
+      expect(result.code).not.toContain('= alias(');
+      expect(result.code).toContain('effectweb/dom');
+    }
+    const staticView = compileSource(
+      `import {view} from 'effectweb'; export const Label=view(()=> <b>Static</b>);`,
+      'static.tsx',
+      { development },
+    );
+    expect(staticView.code).toContain('.compiled(');
+    expect(staticView.diagnostics).toEqual([]);
+    const namedPortal = compileSource(
+      `import {view, Portal as Overlay} from 'effectweb'; const Portal=view(m=><b>{m.label}</b>); const Parent=view(m=><><Portal label={m.label}/><Overlay children={m.label}/></>);`,
+      'portals.tsx',
+      { development },
+    );
+    expect(namedPortal.diagnostics).toEqual([]);
+    expect(namedPortal.code).not.toContain('.portal(');
+    expect(namedPortal.code).toContain(', Portal,');
+    expect(namedPortal.code).toContain(', Overlay,');
+  },
+);
+
+it.each([true, false])(
+  'rejects compiler markers escaping their owner (development=%s)',
+  (development) => {
+    for (const source of [
+      "import * as EW from 'effectweb'; const A=EW.view(m=>m.text);",
+      "import {view} from 'effectweb'; const escaped=[view];",
+      "export {view as render} from 'effectweb';",
+      "export * from 'effectweb';",
+      "import * as EW from 'effectweb'; export const api=EW;",
+      "import * as EW from 'effectweb'; const {view}=EW; const A=view(m=>m.text);",
+      "import {view} from 'effectweb'; export const render=view;",
+      "import * as EW from 'effectweb'; const alias=EW; const A=alias.view(m=>m.text);",
+      "import {slot} from 'effectweb/dom'; const content=slot(()=> 'hello');",
+      "import {view} from 'effectweb'; const A=view(m=> {const B=view(()=> 'inner'); return m.text;});",
+    ]) {
+      expect(() => compileSource(source, 'markers.ts', { development })).toThrow(/EW1001/u);
+    }
+  },
+);
+
+it.each(['effectweb', 'effectweb/effectEvent'])(
+  'keeps recognized Effect event callbacks deferred in every attribute form: %s',
+  (module) => {
+    for (const attribute of [
+      `onClick={request('replace', () => Effect.sync(() => records.push('clicked')))}`,
+      `{...{ onClick: request('replace', () => Effect.sync(() => records.push('clicked'))) }}`,
+    ]) {
+      const source = `import {view} from 'effectweb'; import {effectEvent as request} from '${module}'; import {Effect} from 'effect'; const records=[]; view(model=><button ${attribute}/>);`;
+      expect(compileSource(source, 'event-factory.tsx').code).toContain('.compiled(');
+    }
+  },
+);
+it.each([
+  `onClick={(() => window.alert('eager'))()}`,
+  `{...{onClick:(() => window.alert('eager'))()}}`,
+  `onClick={make(() => window.alert('eager'))}`,
+])('does not treat an arbitrary eager event factory as a deferred callback: %s', (attribute) => {
+  expect(() => compile(`view(model=><button ${attribute}/>);`)).toThrow(/Read window/u);
 });

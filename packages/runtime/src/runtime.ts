@@ -11,7 +11,6 @@ export interface UiRuntime<R> {
     initial: M | Snapshot<M>;
     update: (model: Snapshot<M>, message: Msg) => Transition<M, Msg, R>;
     name?: string;
-    checkSnapshots?: boolean;
     onDefect?: (cause: unknown) => void;
   }) => RunningProgram<M, Msg>;
 }

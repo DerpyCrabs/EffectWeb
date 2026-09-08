@@ -1,5 +1,21 @@
 //! Serialize compiler-owned static DOM shapes. Reject HTML parser repair cases;
 //! those keep their exact native-node construction plan.
+// Shared with the DOM runtime; template serialization must preserve the same attribute semantics.
+fn attribute_metadata() -> &'static serde_json::Value {
+    static DATA: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+    DATA.get_or_init(|| {
+        serde_json::from_str(include_str!("../../../runtime/src/dom-attributes.json"))
+            .expect("valid DOM attribute metadata")
+    })
+}
+fn attribute_kind(kind: &str, name: &str) -> bool {
+    attribute_metadata()[kind]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item.as_str() == Some(name))
+}
+
 use serde_json::Value;
 
 fn escape(value: &str) -> Option<String> {
@@ -192,12 +208,10 @@ fn render(value: &Value, ancestors: &mut Vec<String>, svg: bool) -> Option<Strin
     let mut attributes = std::collections::BTreeMap::new();
     for pair in attrs.as_chunks::<2>().0 {
         let name = pair[0].as_str()?;
-        let name = match name {
-            "className" => "class",
-            "tabIndex" => "tabindex",
-            "htmlFor" => "for",
-            name => name,
-        };
+        let name = attribute_metadata()["aliases"]
+            .get(name)
+            .and_then(|value| value.as_str())
+            .unwrap_or(name);
         if svg
             && name.chars().any(|c| c.is_ascii_uppercase())
             && !matches!(
@@ -228,29 +242,23 @@ fn render(value: &Value, ancestors: &mut Vec<String>, svg: bool) -> Option<Strin
         ) {
             return None;
         }
-        let value = &pair[1];
+        let value = if pair[1].is_boolean() {
+            attribute_metadata()["booleanValues"]
+                .get(name)
+                .and_then(|values| values.get(pair[1].to_string()))
+                .unwrap_or(&pair[1])
+        } else {
+            &pair[1]
+        };
         if value.is_null()
-            || (value == false && !name.starts_with("aria-") && !name.starts_with("data-"))
+            || (value == false
+                && !attribute_kind("booleanish", name)
+                && !name.starts_with("aria-")
+                && !name.starts_with("data-"))
         {
             attributes.remove(name);
         } else {
-            let value = if value == true
-                && matches!(
-                    name,
-                    "disabled"
-                        | "multiple"
-                        | "hidden"
-                        | "autofocus"
-                        | "controls"
-                        | "autoplay"
-                        | "loop"
-                        | "playsinline"
-                        | "readonly"
-                        | "required"
-                        | "open"
-                        | "inert"
-                        | "download"
-                ) {
+            let value = if value == true && attribute_kind("boolean", name) {
                 String::new()
             } else {
                 value

@@ -1,3 +1,4 @@
+import { commandSlot, type CommandSlot, type TaskPolicy } from './program.js';
 /* oxlint-disable effecttsgo/missing-effect-context -- Negative service-requirement type contracts. */
 import { Context, Effect } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
@@ -5,6 +6,9 @@ import { defineTasks } from './tasks.js';
 import { uiRuntime } from './runtime.js';
 import { effectCommand, program } from './program.js';
 import { view } from './dom.js';
+
+const commandSave = commandSlot('save');
+const commandMissing = commandSlot('missing');
 
 class Storage extends Context.Service<
   Storage,
@@ -43,7 +47,11 @@ defineTasks({ init: () => ({ text: '' }) }).tasks({
   // @ts-expect-error JSX cannot erase this requirement: rejected before a view exists
   save: { policy: 'drop', run: () => Storage },
 });
-const command = effectCommand('save', () => Storage, { onSuccess: () => 1, onFailure: () => 0 });
+const command = effectCommand(commandSave, () => Storage, {
+  policy: 'replace',
+  onSuccess: () => 1,
+  onFailure: () => 0,
+});
 program({
   initial: 0,
   update: () => ({
@@ -106,13 +114,14 @@ import { query } from './query.js';
 import { observeQuery } from './session.js';
 const ownedModel = modelOwner({ count: 0 }, { runtime });
 ownedModel.run(
-  'save',
+  commandSave,
   Effect.flatMap(Storage, (storage) => storage.save('text')),
+  'replace',
 );
 // @ts-expect-error Required services must be provided by the owner's runtime.
-modelOwner({ count: 0 }).run('save', Storage);
+modelOwner({ count: 0 }).run(commandSave, Storage, 'replace');
 // @ts-expect-error An unrelated service cannot run in this owner.
-ownedModel.run('missing', Missing);
+ownedModel.run(commandMissing, Missing, 'replace');
 const ownedCache = ownedModel.own(makeQueryCache(runtime));
 const ownedQuery = query({
   name: 'save-result',
@@ -137,6 +146,7 @@ controllerTasks.save('text', '?');
 // @ts-expect-error Bound controller task arguments remain inferred.
 controllerTasks.save(1);
 // @ts-expect-error Bound controller task names remain inferred.
+// oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
 controllerTasks.missing();
 defineTasks(modelOwner({}), {
   // @ts-expect-error Controller tasks cannot erase missing services.
@@ -148,8 +158,8 @@ defineTasks(ownedModel, {
 });
 
 const closedOwner = modelOwner({});
-const genericRun = <A, E>(slot: string, effect: Effect.Effect<A, E>) =>
-  closedOwner.run(slot, effect);
+const genericRun = <A, E>(slot: CommandSlot, effect: Effect.Effect<A, E>, policy: TaskPolicy) =>
+  closedOwner.run(slot, effect, policy);
 const genericBound = defineTasks(
   { run: genericRun },
   { save: { policy: 'drop', run: (text: string) => Effect.succeed(text) } },

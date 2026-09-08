@@ -6,7 +6,9 @@ test('early returns and grouped switch cases preserve state and close branch lif
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/controlFlowFixture.tsx';
-    const { mountControlFlow } = await import(path);
+    const { mountControlFlow } = (await import(
+      path
+    )) as typeof import('../fixtures/controlFlowFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountControlFlow(host);
@@ -58,7 +60,9 @@ test('grouped default labels keep source-order precedence and preserve fallback 
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/controlFlowFixture.tsx';
-    const { mountDefaultGroup } = await import(path);
+    const { mountDefaultGroup } = (await import(
+      path
+    )) as typeof import('../fixtures/controlFlowFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountDefaultGroup(host);

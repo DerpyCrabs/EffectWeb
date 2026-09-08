@@ -7,11 +7,13 @@ export { defineActions, type ActionMessage } from './actions.js';
 export { taskComponent, taskControls, type TaskModel, type TaskMessage } from './task.js';
 export { effectEvent } from './effectEvent.js';
 export { mountView, view, ViewBinding, type View } from './dom.js';
+export { lazyView, type LazyViewOptions } from './lazy.js';
 export type { JSX } from './jsx.js';
-export { Portal, domBinding, domMount, type DomMount } from './mount.js';
+export { Portal, domBinding, domMount, type DomMount, type PortalProps } from './mount.js';
 export {
   pages,
   type PagesMessage,
+  type PagesRequest,
   type PagesModel,
   type PagesProgram,
   type Pagination,
@@ -20,6 +22,8 @@ export {
   program,
   actionCommand,
   effectCommand,
+  commandSlot,
+  type CommandSlot,
   type Command,
   type Program,
   type Send,
@@ -79,3 +83,5 @@ export {
   type SessionContext,
   type Read,
 } from './session.js';
+
+export { httpJson } from './http.js';

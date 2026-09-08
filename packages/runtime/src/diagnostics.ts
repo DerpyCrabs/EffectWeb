@@ -38,7 +38,7 @@ export function traceBinding(
     ),
   };
   // Observers registered during dispatch start with the next update.
-  // oxlint-disable-next-line unicorn/no-useless-spread
+  // oxlint-disable-next-line unicorn/no-useless-spread -- Iterate a snapshot because listeners can add or remove subscriptions.
   for (const [token, observer] of [...observers]) {
     if (!observers.has(token)) continue;
     try {
@@ -109,7 +109,7 @@ export function inspectBindings(options: { readonly limit?: number } = {}): Bind
   let disposed = false;
   const notify = () => {
     // New subscribers start with the next event.
-    // oxlint-disable-next-line unicorn/no-useless-spread
+    // oxlint-disable-next-line unicorn/no-useless-spread -- Iterate a snapshot because listeners can add or remove subscriptions.
     for (const listener of [...listeners]) {
       if (!listeners.has(listener)) continue;
       try {

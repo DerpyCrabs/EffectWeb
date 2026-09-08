@@ -1,13 +1,14 @@
+import attributeData from './dom-attributes.json' with { type: 'json' };
 import type { Snapshot } from './snapshot.js';
 
 import { validateIdentities } from './collection.js';
 import { runAll, reportError, reportSafely, type ReportError } from './errors.js';
 import { eventEffects } from './effectEvent.js';
 import { traceBinding, type BindingSource } from './diagnostics.js';
-import { shareValue } from './share.js';
+import { shareData } from './sharing.js';
 import type { Rows } from './index.js';
 import type { Identity } from './collection.js';
-import type { JSX } from './jsx.js';
+import { jsxComponent, type JSX } from './jsx.js';
 import type { DomMount } from './mount.js';
 import { startMount } from './mount.js';
 import type { Program, Send } from './program.js';
@@ -16,6 +17,28 @@ type Cleanup = () => void;
 type Build<M, E> = (scope: Scope<M, E>, parent: Node, before: Node | null) => void;
 const equal = (a: readonly unknown[], b: readonly unknown[]) =>
   a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
+
+// A model publication reconciles DOM first and controlled dependent properties second.
+// Nested child scopes join the same synchronous commit; there is no reactive graph.
+let commitDepth = 0;
+const controlCommits = new Set<() => void>();
+function commitDom<A>(work: () => A): A {
+  commitDepth++;
+  try {
+    return work();
+  } finally {
+    if (--commitDepth === 0) {
+      for (const apply of controlCommits) {
+        controlCommits.delete(apply);
+        apply();
+      }
+    }
+  }
+}
+function afterDom(apply: () => void) {
+  if (commitDepth) controlCommits.add(apply);
+  else apply();
+}
 
 /** Compiler implementation. No implicit tracking, proxies, or per-binding subscriptions. */
 export class Scope<M, E> {
@@ -36,7 +59,7 @@ export class Scope<M, E> {
       if (revision === this.revision) return value;
       const next = dependencies();
       if (!previous || !equal(previous, next)) {
-        value = previous ? shareValue(value, compute()) : compute();
+        value = previous ? shareData(value, compute()) : compute();
         traceBinding(source, previous, next, 'derive');
         previous = next;
       }
@@ -61,16 +84,18 @@ export class Scope<M, E> {
   }
   set(value: M) {
     if (this.disposed) return;
-    this.value = value;
-    this.revision++;
-    for (const job of this.jobs) {
-      if (this.disposed) break;
-      try {
-        job();
-      } catch (error) {
-        reportSafely(this.report, error);
+    commitDom(() => {
+      this.value = value;
+      this.revision++;
+      for (const job of this.jobs) {
+        if (this.disposed) break;
+        try {
+          job();
+        } catch (error) {
+          reportSafely(this.report, error);
+        }
       }
-    }
+    });
   }
   dispose() {
     if (this.disposed) return;
@@ -79,18 +104,27 @@ export class Scope<M, E> {
     runAll(this.cleanups.splice(0).reverse(), this.report);
   }
 }
-export interface View<M, E> {
-  (props: M | Snapshot<M>): JSX.Element;
+export interface View<M, E> extends JSX.ComponentType {
+  (this: never, props: [E] extends [never] ? M | Snapshot<M> : never): JSX.Element;
   readonly build: Build<M, E>;
 }
 
 /** Compiler marker for mounting a view with an explicit model and message dispatcher. */
-export function ViewBinding<M, E>(_props: {
-  view: View<M, E>;
-  model: M | Snapshot<M>;
-  send: Send<E>;
-}): JSX.Element {
-  throw new Error('ViewBinding reached runtime without the EffectWeb JSX compiler');
+export const ViewBinding = /* @__PURE__ */ Object.assign(
+  function ViewBinding<M, E>(
+    this: never,
+    _props: { view: View<M, E>; model: NoInfer<M> | Snapshot<NoInfer<M>>; send: Send<NoInfer<E>> },
+  ): JSX.Element {
+    throw new Error('ViewBinding reached runtime without the EffectWeb JSX compiler');
+  },
+  { [jsxComponent]: true as const },
+);
+
+/** Untyped callers get an actionable failure instead of silently losing child messages. */
+export function unboundSend(_message: never): never {
+  throw new Error(
+    'This view needs a dispatcher. Mount it through ViewBinding with model and send.',
+  );
 }
 
 const contentBrand: unique symbol = Symbol('compiled content');
@@ -108,7 +142,12 @@ export function slot<A = void>(_render: (value: Snapshot<A>) => JSX.Element): Sl
   throw new Error('EffectWeb slot reached runtime without the EffectWeb JSX compiler');
 }
 type ContentDefinition = {
-  mount(parent: Node, before: Node, value: unknown): { set(value: unknown): void; dispose(): void };
+  mount(
+    parent: Node,
+    before: Node,
+    value: unknown,
+    report: ReportError,
+  ): { set(value: unknown): void; dispose(): void };
 };
 type ContentValue = CompiledContent & { definition: ContentDefinition; value?: unknown };
 // Placement values are opaque to structural sharing, which only traverses plain data.
@@ -179,9 +218,30 @@ export function compiled<M, E>(build: Build<M, E>): View<M, E> {
     () => {
       throw new Error('Mount compiled views with mountView or inside another compiled view');
     },
-    { build },
+    { build, [jsxComponent]: true as const },
   );
 }
+export interface PortalProps {
+  readonly children?: JSX.Element;
+  readonly mount?: Element | undefined;
+}
+/** Owned content in an element target, defaulting to the document body. */
+export const Portal: View<PortalProps, never> = /* @__PURE__ */ compiled((scope) => {
+  portal(
+    scope,
+    (child, parent, before) => {
+      text(
+        child,
+        parent,
+        before,
+        () => [child.value.children],
+        () => child.value.children,
+      );
+    },
+    () => scope.value.mount,
+  );
+});
+
 function markers(parent: Node, before: Node | null) {
   const start = document.createComment('');
   const end = document.createComment('');
@@ -247,23 +307,25 @@ export function mountView<M, E>(
   source: Program<M, E>,
   options: { onError?: ReportError } = {},
 ) {
-  const { start, end } = markers(parent, null);
-  const scope = new Scope(source.model(), source.send, options.onError);
-  let unsubscribe = () => {};
-  try {
-    const fragment = buildFragment(parent);
-    definition.build(scope as unknown as Scope<M, E>, fragment, null);
-    parent.insertBefore(fragment, end);
-    unsubscribe = source.subscribe((model) => scope.set(model));
-  } catch (error) {
-    scope.dispose();
-    remove(start, end);
-    throw error;
-  }
-  return () => {
-    if (scope.disposed) return;
-    runAll([unsubscribe, () => scope.dispose(), () => remove(start, end)], scope.report);
-  };
+  return commitDom(() => {
+    const { start, end } = markers(parent, null);
+    const scope = new Scope(source.model(), source.send, options.onError);
+    let unsubscribe = () => {};
+    try {
+      const fragment = buildFragment(parent);
+      definition.build(scope as unknown as Scope<M, E>, fragment, null);
+      parent.insertBefore(fragment, end);
+      unsubscribe = source.subscribe((model) => scope.set(model));
+    } catch (error) {
+      scope.dispose();
+      remove(start, end);
+      throw error;
+    }
+    return () => {
+      if (scope.disposed) return;
+      runAll([unsubscribe, () => scope.dispose(), () => remove(start, end)], scope.report);
+    };
+  });
 }
 export function element(parent: Node, before: Node | null, tag: string): Element {
   const doc = parent.ownerDocument ?? document;
@@ -275,6 +337,7 @@ export function element(parent: Node, before: Node | null, tag: string): Element
   return node;
 }
 const classTokens = new WeakMap<Element, Set<string>>();
+let booleanAttributes: Set<string> | undefined;
 const styleProperties = new WeakMap<Element, Set<string>>();
 function scalar(value: unknown): string {
   if (value == null) return '';
@@ -290,14 +353,11 @@ function scalar(value: unknown): string {
   );
 }
 export function attribute(element: Element, name: string, value: unknown) {
-  const key =
-    name === 'className'
-      ? 'class'
-      : name === 'tabIndex'
-        ? 'tabindex'
-        : name === 'htmlFor'
-          ? 'for'
-          : name;
+  const aliases: Readonly<Record<string, string>> = attributeData.aliases;
+  const key = aliases[name] ?? name;
+  const booleanValues: Readonly<Record<string, Readonly<Record<string, string>>>> =
+    attributeData.booleanValues;
+  if (typeof value === 'boolean') value = booleanValues[key]?.[String(value)] ?? value;
   if (name === 'classList') {
     const tokens = (value ?? {}) as Record<string, boolean>;
     const next = new Set<string>();
@@ -327,31 +387,20 @@ export function attribute(element: Element, name: string, value: unknown) {
     const next = scalar(value);
     if (element.value !== next) element.value = next;
   } else if (
-    [
-      'checked',
-      'selected',
-      'disabled',
-      'multiple',
-      'hidden',
-      'autofocus',
-      'controls',
-      'autoplay',
-      'loop',
-      'muted',
-      'playsinline',
-      'readonly',
-      'required',
-      'open',
-      'inert',
-      'download',
-    ].includes(name) &&
-    (typeof value === 'boolean' || (value == null && (name === 'checked' || name === 'selected')))
+    (typeof value === 'boolean' || value == null) &&
+    (booleanAttributes ??= new Set(attributeData.boolean)).has(key)
   ) {
-    element.toggleAttribute(name, Boolean(value));
-    if (name in element) Reflect.set(element, name, Boolean(value));
+    element.toggleAttribute(key, Boolean(value));
+    const properties: Readonly<Record<string, string>> = attributeData.properties;
+    const property = properties[key] ?? key;
+    if (typeof Reflect.get(element, property) === 'boolean')
+      Reflect.set(element, property, Boolean(value));
   } else if (
     value == null ||
-    (value === false && !name.startsWith('aria-') && !name.startsWith('data-'))
+    (value === false &&
+      !attributeData.booleanish.includes(key) &&
+      !name.startsWith('aria-') &&
+      !name.startsWith('data-'))
   ) {
     element.removeAttribute(key);
   } else {
@@ -360,8 +409,11 @@ export function attribute(element: Element, name: string, value: unknown) {
   }
   if (key === 'class')
     for (const token of classTokens.get(element) ?? []) element.classList.add(token);
-  if (name === 'style' && (value == null || typeof value !== 'object'))
-    styleProperties.delete(element);
+  if (name === 'style' && (value == null || typeof value !== 'object')) {
+    if (value == null) styleProperties.delete(element);
+    else if ('style' in element)
+      styleProperties.set(element, new Set(Array.from(element.style as CSSStyleDeclaration)));
+  }
 }
 
 /** Compiler output for attributes whose unchanged value needs no DOM refresh. */
@@ -407,11 +459,54 @@ export function bindControl<M, E>(
   let composing = false;
   let deferred = false;
   let pending: ReturnType<typeof setTimeout> | undefined;
-  const apply = () => {
-    if (composing) deferred = true;
-    else attribute(element, name, read());
+  const select = element.tagName === 'SELECT' && name === 'value';
+  const write = () => {
+    if (scope.disposed) return;
+    try {
+      if (composing) deferred = true;
+      else attribute(element, name, read());
+    } catch (error) {
+      reportSafely(scope.report, error);
+    }
   };
-  scope.watch(dependencies, apply, source);
+  const apply = () => {
+    if (select) afterDom(write);
+    else write();
+  };
+  let initialized = false;
+  let published: unknown;
+  scope.watch(
+    dependencies,
+    () => {
+      const next = read();
+      // A coarse dependency can change while this field's published value stays equal.
+      // Preserve unfinished blur drafts; handled edits still restore through apply below.
+      if (!initialized || !Object.is(published, next)) {
+        initialized = true;
+        published = next;
+        apply();
+      }
+    },
+    source,
+  );
+  if (select) {
+    // The selected value may stay equal while its options change on this publication.
+    scope.jobs.push(apply);
+    // Options may also belong to a separately updating component or a DOM host.
+    // Observe only option-affecting mutations; setting selectedness does not mutate attributes.
+    const observer = new MutationObserver(apply);
+    observer.observe(element, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['value', 'selected', 'disabled'],
+    });
+    scope.cleanups.push(() => {
+      observer.disconnect();
+      controlCommits.delete(write);
+    });
+  }
   const restore = () => {
     if (composing) {
       deferred = true;
@@ -476,7 +571,11 @@ export function text<M, E>(
   scope.watch(
     dependencies,
     () => {
-      const value = read();
+      let value = read();
+      if (Array.isArray(value)) {
+        validateContent(value);
+        value = { [contentBrand]: true, definition: arrayContent, value };
+      }
       if (isContent(value)) {
         node.data = '';
         if (content?.definition === value.definition) {
@@ -493,25 +592,95 @@ export function text<M, E>(
         }
         content = {
           definition: value.definition,
-          mounted: value.definition.mount(node.parentNode!, node, value.value),
+          mounted: value.definition.mount(node.parentNode!, node, value.value, scope.report),
         };
         return;
       }
+      if (value != null && typeof value === 'object')
+        throw new Error(
+          'Unsupported JSX content. Use compiled views or slots for markup, collections for entities, and an owned DOM host for native nodes.',
+        );
+      const next = value == null || typeof value === 'boolean' ? '' : scalar(value);
       if (content) {
         content.mounted.dispose();
         content = undefined;
         clear(start!, node);
       }
-      if (value != null && typeof value === 'object')
-        throw new Error(
-          'Object rendered as text. Use collection(...).from(items).map(...) for entity lists.',
-        );
-      const next = value == null || typeof value === 'boolean' ? '' : scalar(value);
       if (node.data !== next) node.data = next;
     },
     source,
   );
 }
+function validateContent(value: unknown, active = new Set<readonly unknown[]>()) {
+  if (Array.isArray(value)) {
+    if (active.has(value)) throw new TypeError('JSX content arrays cannot contain cycles.');
+    active.add(value);
+    for (const child of value) validateContent(child, active);
+    active.delete(value);
+  } else if (
+    !isContent(value) &&
+    value != null &&
+    !['string', 'number', 'boolean'].includes(typeof value)
+  ) {
+    throw new TypeError(
+      'Unsupported JSX content. Use an owned DOM host for native nodes and compiled views for objects.',
+    );
+  }
+}
+
+const arrayContent: ContentDefinition = {
+  mount: (_parent, before, value, report) =>
+    mountArray(report, before, value as readonly unknown[]),
+};
+
+/** Runtime content arrays are positional; domain lists retain the explicit collection contract. */
+function mountArray(report: ReportError, before: Node, initial: readonly unknown[]) {
+  const cells: Array<{ scope: Scope<unknown, never>; start: Comment; end: Comment }> = [];
+  const disposeCell = (cell: (typeof cells)[number]) => {
+    cell.scope.dispose();
+    remove(cell.start, cell.end);
+  };
+  const set = (input: unknown) => {
+    const values = input as readonly unknown[];
+    validateContent(values);
+    while (cells.length > values.length) disposeCell(cells.pop()!);
+    for (let index = 0; index < values.length; index++) {
+      const cell = cells[index];
+      if (cell) {
+        if (!Object.is(cell.scope.value, values[index])) cell.scope.set(values[index]);
+        continue;
+      }
+      const scope = new Scope(values[index], unboundSend, report);
+      const fragment = buildFragment(before.parentNode!);
+      const range = markers(fragment, null);
+      try {
+        text(
+          scope,
+          fragment,
+          range.end,
+          () => [scope.value],
+          () => scope.value,
+        );
+        before.parentNode!.insertBefore(fragment, before);
+        cells.push({ scope, ...range });
+      } catch (error) {
+        scope.dispose();
+        throw error;
+      }
+    }
+  };
+  const dispose = () => {
+    for (const cell of cells.splice(0)) disposeCell(cell);
+  };
+  try {
+    set(initial);
+  } catch (error) {
+    dispose();
+    throw error;
+  }
+  return { set, dispose };
+}
+
 export function event<M, E>(
   scope: Scope<M, E>,
   element: Element,
@@ -519,8 +688,13 @@ export function event<M, E>(
   handler: (event: Event) => unknown,
 ) {
   let effects: ReturnType<typeof eventEffects> | undefined;
-  const capture = name.endsWith('Capture');
-  const type = name.slice(2, capture ? -7 : undefined).toLowerCase();
+  const capture =
+    name.endsWith('Capture') && name !== 'onGotPointerCapture' && name !== 'onLostPointerCapture';
+  const nativeName = name.slice(2, capture ? -7 : undefined);
+  const type =
+    nativeName === 'Begin' || nativeName === 'End' || nativeName === 'Repeat'
+      ? `${nativeName.toLowerCase()}Event`
+      : nativeName.toLowerCase();
   const listener = (event: Event) => {
     if (!scope.disposed) {
       try {
@@ -543,6 +717,33 @@ export function event<M, E>(
   scope.cleanups.push(() => {
     element.removeEventListener(type, listener, capture);
     effects?.dispose();
+  });
+}
+
+/** One handler identity owns its requests, regardless of the JSX attribute spelling. */
+export function bindEvent<M, E>(
+  scope: Scope<M, E>,
+  element: Element,
+  name: string,
+  dependencies: Dependencies,
+  read: () => unknown,
+) {
+  let current: unknown;
+  let owned: Scope<unknown, E> | undefined;
+  scope.cleanups.push(() => owned?.dispose());
+  scope.watch(dependencies, () => {
+    const next = read();
+    if (next != null && typeof next !== 'function')
+      throw new TypeError(`Event ${name} must be a synchronous handler.`);
+    if (Object.is(current, next)) return;
+    owned?.dispose();
+    owned = undefined;
+    current = next;
+    if (typeof next === 'function') {
+      const handler: (input: Event) => unknown = next as (input: Event) => unknown;
+      owned = new Scope(next, scope.send, scope.report);
+      event(owned, element, name, handler);
+    }
   });
 }
 
@@ -589,12 +790,6 @@ export function bindAttributes<M, E>(
       }
       let binding = bindings.get(name);
       if (binding && Object.is(binding.value, value)) continue;
-      // A replacement event also cancels requests owned by its previous handler.
-      if (binding && isEvent(name)) {
-        binding.dispose();
-        bindings.delete(name);
-        binding = undefined;
-      }
       if (binding) {
         binding.set(value);
         continue;
@@ -616,11 +811,22 @@ export function bindAttributes<M, E>(
           () => [owned.value],
           () => owned.value,
         );
-      else if (value != null)
-        event(owned, element, name, (input) => (owned.value as (input: Event) => unknown)(input));
+      else
+        bindEvent(
+          owned,
+          element,
+          name,
+          () => [owned.value],
+          () => owned.value,
+        );
     }
     previous = next;
   });
+  if (element.tagName === 'SELECT')
+    scope.jobs.push(() => {
+      const binding = bindings.get('value');
+      if (binding) binding.set(binding.value);
+    });
 }
 export function branch<M, E>(
   scope: Scope<M, E>,
@@ -718,7 +924,7 @@ export function each<M, E, A>(
     for (let index = 0; index < items.length; index++) {
       const key = identities[index]!;
       const row = rows.get(key);
-      const item = row ? shareValue(row.scope.value[0], items[index]!) : items[index]!;
+      const item = row ? shareData(row.scope.value[0], items[index]!) : items[index]!;
       if (!row) {
         const fragment = buildFragment(target);
         const range = markers(fragment, null);
@@ -828,14 +1034,58 @@ export function child<M, E, C, F>(
     if (!Object.is(child.value, next)) child.set(next);
   });
 }
-export function attach<M, E>(
+
+/** A late-bound compiled definition owns one replaceable DOM region. */
+export function viewRegion<M, E>(scope: Scope<M, E>, parent: Node, before: Node | null) {
+  const { start, end } = markers(parent, before);
+  let active: Scope<M, E> | undefined;
+  let definition: View<M, E> | undefined;
+  scope.jobs.push(() => active?.set(scope.value));
+  scope.cleanups.push(() => {
+    active?.dispose();
+    remove(start, end);
+  });
+  return (next: View<M, E> | undefined) =>
+    commitDom(() => {
+      if (scope.disposed) return;
+      if (definition === next) {
+        active?.set(scope.value);
+        return;
+      }
+      const previous = active;
+      active = undefined;
+      definition = undefined;
+      previous?.dispose();
+      if (scope.disposed) return;
+      clear(start, end);
+      if (!next) return;
+      const child = new Scope(scope.value, scope.send, scope.report);
+      const fragment = buildFragment(end.parentNode!);
+      active = child;
+      definition = next;
+      try {
+        next.build(child, fragment, null);
+        if (scope.disposed || active !== child) child.dispose();
+        else end.parentNode!.insertBefore(fragment, end);
+      } catch (error) {
+        child.dispose();
+        if (active === child) {
+          active = undefined;
+          definition = undefined;
+        }
+        throw error;
+      }
+    });
+}
+
+export function attach<M, E, T extends Element>(
   scope: Scope<M, E>,
-  element: Element,
+  element: T,
   dependencies: Dependencies,
-  read: () => DomMount | undefined,
+  read: () => DomMount<NoInfer<T>> | undefined,
 ) {
   let generation = 0;
-  let active: ReturnType<typeof startMount> | undefined;
+  let active: ReturnType<typeof startMount<T>> | undefined;
   scope.cleanups.push(() => {
     generation++;
     active?.dispose();
@@ -851,7 +1101,9 @@ export function attach<M, E>(
     queueMicrotask(() => {
       if (!scope.disposed && token === generation) {
         try {
-          active = startMount(element, mount, scope.report);
+          const acquired = startMount(element, mount, scope.report);
+          if (scope.disposed || token !== generation) acquired.dispose();
+          else active = acquired;
         } catch (error) {
           reportSafely(scope.report, error);
         }
@@ -859,17 +1111,55 @@ export function attach<M, E>(
     });
   });
 }
-export function portal<M, E>(scope: Scope<M, E>, build: Build<M, E>) {
-  const host = document.createElement('div');
-  host.style.display = 'contents';
-  document.body.appendChild(host);
-  const child = new Scope(scope.value, scope.send, scope.report);
+export function portal<M, E>(
+  scope: Scope<M, E>,
+  build: Build<M, E>,
+  mount: () => Element | undefined = () => undefined,
+) {
+  let host: HTMLElement | SVGElement | undefined;
+  let child: Scope<M, E> | undefined;
   scope.cleanups.push(() => {
-    child.dispose();
-    host.remove();
+    child?.dispose();
+    host?.remove();
   });
-  build(child, host, null);
-  scope.jobs.push(() => child.set(scope.value));
+  const update = () => {
+    const target = mount() ?? document.body;
+    const svg = svgChildren(target);
+    if (!host || (host.namespaceURI === svgNamespace) !== svg) {
+      child?.dispose();
+      host?.remove();
+      if (scope.disposed) return;
+      host = svg
+        ? target.ownerDocument.createElementNS(svgNamespace, 'g')
+        : target.ownerDocument.createElement('div');
+      host.style.display = 'contents';
+      child = new Scope(scope.value, scope.send, scope.report);
+      target.appendChild(host);
+      build(child, host, null);
+      return;
+    }
+    if (host.parentNode !== target) {
+      const focused = host.ownerDocument.activeElement;
+      const move = Reflect.get(target, 'moveBefore');
+      if (
+        typeof move === 'function' &&
+        target.isConnected &&
+        host.isConnected &&
+        target.ownerDocument === host.ownerDocument
+      )
+        move.call(target, host, null);
+      else target.appendChild(host);
+      if (
+        focused instanceof HTMLElement &&
+        focused.isConnected &&
+        focused.ownerDocument.activeElement !== focused
+      )
+        focused.focus({ preventScroll: true });
+    }
+    child!.set(scope.value);
+  };
+  scope.jobs.push(update);
+  update();
 }
 
 // HTML parsing supplies the initial nodes. Unusual placements, such as mounting

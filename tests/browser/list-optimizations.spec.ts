@@ -14,10 +14,11 @@ test('selection skips unchanged list identities and unchanged class values while
     const fixture = mountListOptimization(host);
     const buttons = [...host.querySelectorAll('button')];
     const get = Object.getOwnPropertyDescriptor(Element.prototype, 'getAttribute')!;
+    const originalGet = get.value as typeof Element.prototype.getAttribute;
     let classReads = 0;
     Element.prototype.getAttribute = function (name) {
       if (name === 'class' && this.tagName === 'BUTTON') classReads++;
-      return Reflect.apply(get.value, this, [name]) as string | null;
+      return originalGet.call(this, name);
     };
     try {
       const identities = fixture.counters.identities;

@@ -1,14 +1,9 @@
 import { Effect } from 'effect';
-import { expect, it, vi } from 'vitest';
+import { expect, it } from 'vitest';
 import { makeQueryCache } from './cache.js';
 import { query } from './query.js';
 import { available } from './resource.js';
 import { queryResource } from './session.js';
-
-vi.mock('./snapshot.js', async (original) => ({
-  ...(await original<typeof import('./snapshot.js')>()),
-  checkSnapshotsByDefault: true,
-}));
 
 it('protects cached data before an observer or retained loader reference can mutate it', async () => {
   const loaded = { names: ['Ada'] };
@@ -20,7 +15,8 @@ it('protects cached data before an observer or retained loader reference can mut
     const value = available(result);
     if (value) {
       expect(() => {
-        // @ts-expect-error Development checks also guard untyped consumer code.
+        // @ts-expect-error Snapshot protection also guards untyped consumer code.
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
         value.names.push('observer mutation');
       }).toThrow(TypeError);
       seen.push(value.names[0]!);

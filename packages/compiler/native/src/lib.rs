@@ -10,7 +10,7 @@ use oxc::{
     ast_visit::Visit,
     parser::Parser,
     semantic::SemanticBuilder,
-    span::{SourceType, Span},
+    span::{GetSpan, SourceType, Span},
 };
 use serde::Serialize;
 use std::collections::HashSet;
@@ -53,71 +53,105 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                 .join("\n")
         ));
     }
+    let mut exported_markers = vec![];
+    let mut namespaces = HashSet::new();
     let mut markers = HashSet::new();
     let mut slot_markers = HashSet::new();
     let mut binding_markers = HashSet::new();
     let mut query_markers = HashSet::new();
     let mut host_callbacks = std::collections::HashMap::new();
+    let mut event_callbacks = std::collections::HashMap::new();
     let mut runtime = options.runtime_module.clone();
     for statement in &program.body {
-        if let Statement::ImportDeclaration(import) = statement
+        if let Statement::ExportFromDeclaration(export) = statement
             && options.import_source.as_deref().is_some_and(|source| {
-                import.source.value == source
-                    || import.source.value == format!("{source}/query")
-                    || import.source.value == format!("{source}/mount")
+                export.source.value == source || export.source.value == format!("{source}/dom")
+            })
+            && !export.export_kind.is_type()
+            && export.specifiers.iter().any(|item| {
+                !item.export_kind.is_type()
+                    && matches!(item.local.name().as_str(), "view" | "slot" | "ViewBinding")
             })
         {
-            for specifier in import.specifiers.iter().flatten() {
-                if let ImportDeclarationSpecifier::ImportSpecifier(s) = specifier {
-                    if options.import_source.as_deref().is_some_and(|source| {
-                        import.source.value == source
-                            || import.source.value == format!("{source}/mount")
-                    }) {
-                        let name = s.imported.name();
-                        let argument = match name.as_str() {
-                            "domMount" => Some(0),
-                            "domBinding" => Some(1),
-                            _ => None,
-                        };
-                        if let Some(argument) = argument {
-                            host_callbacks.insert(s.local.symbol_id.get().unwrap(), argument);
-                        }
-                    }
-                    let view = match &s.imported {
-                        ModuleExportName::IdentifierName(n) => n.name == "view",
-                        ModuleExportName::StringLiteral(n) => n.value == "view",
-                        _ => false,
-                    };
-                    let slot = match &s.imported {
-                        ModuleExportName::IdentifierName(n) => n.name == "slot",
-                        ModuleExportName::StringLiteral(n) => n.value == "slot",
-                        _ => false,
-                    };
-                    if matches!(&s.imported, ModuleExportName::IdentifierName(n) if n.name == "query")
-                    {
-                        query_markers.insert(s.local.symbol_id.get().unwrap());
-                    }
-                    if slot
-                        && options.import_source.as_deref() == Some(import.source.value.as_str())
-                    {
-                        slot_markers.insert(s.local.symbol_id.get().unwrap());
-                    }
-                    if s.imported.name() == "ViewBinding"
-                        && options.import_source.as_deref() == Some(import.source.value.as_str())
-                    {
-                        binding_markers.insert(s.local.symbol_id.get().unwrap());
-                    }
-                    if view
-                        && options.import_source.as_deref() == Some(import.source.value.as_str())
-                    {
-                        markers.insert(s.local.symbol_id.get().unwrap());
-                        runtime.get_or_insert_with(|| format!("{}/dom", import.source.value));
-                    }
+            exported_markers.push(export.span);
+        }
+        if let Statement::ExportAllDeclaration(export) = statement
+            && !export.export_kind.is_type()
+            && options.import_source.as_deref().is_some_and(|source| {
+                export.source.value == source || export.source.value == format!("{source}/dom")
+            })
+        {
+            exported_markers.push(export.span);
+        }
+        let Statement::ImportDeclaration(import) = statement else {
+            continue;
+        };
+        let Some(source) = options.import_source.as_deref() else {
+            continue;
+        };
+        let root = import.source.value == source;
+        let dom = root || import.source.value == format!("{source}/dom");
+        let mount = root || import.source.value == format!("{source}/mount");
+        let event = root || import.source.value == format!("{source}/effectEvent");
+        let query = root || import.source.value == format!("{source}/query");
+        for specifier in import.specifiers.iter().flatten() {
+            let ImportDeclarationSpecifier::ImportSpecifier(specifier) = specifier else {
+                if dom
+                    && let ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) =
+                        specifier
+                {
+                    namespaces.insert(specifier.local.symbol_id.get().unwrap());
                 }
+                continue;
+            };
+            let id = specifier.local.symbol_id.get().unwrap();
+            match specifier.imported.name().as_str() {
+                "view" if dom => {
+                    markers.insert(id);
+                    runtime.get_or_insert_with(|| format!("{source}/dom"));
+                }
+                "slot" if dom => {
+                    slot_markers.insert(id);
+                }
+                "ViewBinding" if dom => {
+                    binding_markers.insert(id);
+                }
+                "query" if query => {
+                    query_markers.insert(id);
+                }
+                "effectEvent" if event => {
+                    event_callbacks.insert(id, 1);
+                    host_callbacks.insert(id, 1);
+                }
+                "domMount" if mount => {
+                    host_callbacks.insert(id, 0);
+                }
+                "domBinding" if mount => {
+                    host_callbacks.insert(id, 1);
+                }
+                _ => {}
             }
         }
     }
-    if markers.is_empty() && query_markers.is_empty() {
+    // Named imports and immutable local aliases retain the same compiler identity.
+    for markers in [
+        &mut namespaces,
+        &mut markers,
+        &mut slot_markers,
+        &mut binding_markers,
+        &mut query_markers,
+    ] {
+        let mut aliases = markers.iter().map(|id| (*id, 0)).collect();
+        analysis::resolve_host_aliases(&program, semantic.semantic.scoping(), &mut aliases);
+        markers.extend(aliases.into_keys());
+    }
+    if exported_markers.is_empty()
+        && markers.is_empty()
+        && query_markers.is_empty()
+        && slot_markers.is_empty()
+        && binding_markers.is_empty()
+        && namespaces.is_empty()
+    {
         return serde_json::to_string(&Output {
             code: source.into(),
             map: None,
@@ -127,6 +161,8 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
     }
     let mut index = analysis::Index::new(semantic.semantic.scoping());
     analysis::resolve_host_aliases(&program, semantic.semantic.scoping(), &mut host_callbacks);
+    analysis::resolve_host_aliases(&program, semantic.semantic.scoping(), &mut event_callbacks);
+    index.event_callbacks = event_callbacks.into_keys().collect();
     index.host_callbacks = host_callbacks;
     index.visit_program(&program);
     index.refs.sort_by_key(|r| r.span.start);
@@ -150,34 +186,126 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
         }
     }
     let mut compiler = lower::Lower::new(source, filename, &index, &options);
-    compiler.slot_markers = slot_markers;
+    compiler.slot_markers = slot_markers.clone();
     compiler.binding_markers = binding_markers;
     for call in &index.calls {
         if let Expression::Identifier(id) = &call.callee
             && index
                 .symbol(id)
                 .is_some_and(|id| query_markers.contains(&id))
-            && let Some(fields) = query_diagnostics::omitted_fields(&index, call)
+            && query_diagnostics::custom_key(call)
         {
-            let remedy = format!(
-                "Include {} in the query key. Return a tuple or object containing every load-relevant argument field.",
-                fields.join(", ")
-            );
-            let mut diagnostic = compiler
-                .fail::<()>(
-                    call.span,
-                    &format!(
-                        "Query load reads argument fields absent from key: {}. {}",
-                        fields.join(", "),
-                        remedy
-                    ),
-                )
-                .unwrap_err();
+            let remedy = "Remove key. Query identity includes every request argument; provide services through the Effect environment.".to_string();
+            let mut diagnostic = compiler.fail::<()>(call.span, &remedy).unwrap_err();
             diagnostic.code = "EW2002".into();
             diagnostic.category = "unprovable-dependency".into();
-            diagnostic.severity = "warning".into();
+            diagnostic.severity = "error".into();
             diagnostic.remedy = remedy;
+            if !options.diagnostics_only {
+                return Err(format!(
+                    "{}:{}:{}: EffectWeb JSX [{}]: {}",
+                    diagnostic.file,
+                    diagnostic.line,
+                    diagnostic.column,
+                    diagnostic.code,
+                    diagnostic.message
+                ));
+            }
             compiler.diagnostics.push(*diagnostic);
+        }
+    }
+    // Compiler markers cannot escape into ordinary runtime calls. Immutable local
+    // aliases are supported, while namespaces and higher-order use need diagnostics.
+    let view_calls: Vec<_> = index.calls.iter().filter(|call| {
+        matches!(&call.callee, Expression::Identifier(id) if index.symbol(id).is_some_and(|id| markers.contains(&id)))
+    }).collect();
+    let mut marker_errors: Vec<_> = exported_markers.into_iter().map(|span| (span, "Import compiler markers directly from effectweb or effectweb/dom; re-export compiled view definitions instead.")).collect();
+    for reference in &index.refs {
+        let Some(symbol) = reference.symbol else {
+            continue;
+        };
+        if namespaces.contains(&symbol)
+            && (reference
+                .path
+                .first()
+                .is_some_and(|part| matches!(part.as_str(), "?.view" | "?.slot" | "?.ViewBinding"))
+                || index.calls.iter().any(|call| match &call.callee {
+                    Expression::StaticMemberExpression(member) => {
+                        member.object.span() == reference.span
+                            && matches!(
+                                member.property.name.as_str(),
+                                "view" | "slot" | "ViewBinding"
+                            )
+                    }
+                    Expression::ComputedMemberExpression(member) => {
+                        member.object.span() == reference.span
+                            && member.static_property_name().is_some_and(|name| {
+                                matches!(name.as_str(), "view" | "slot" | "ViewBinding")
+                            })
+                    }
+                    _ => false,
+                }))
+        {
+            marker_errors.push((reference.span, "Import compiler markers by name; namespace access cannot preserve compiler identity."));
+        }
+        if namespaces.contains(&symbol) && reference.path.is_empty() {
+            let local_alias = index.initializers.iter().any(|(id, expression)| {
+                namespaces.contains(id) && expression.span().contains_inclusive(reference.span)
+            });
+            let member_call = index.calls.iter().any(|call| match &call.callee {
+                Expression::StaticMemberExpression(member) => {
+                    member.object.span() == reference.span
+                }
+                Expression::ComputedMemberExpression(member) => {
+                    member.object.span() == reference.span
+                        && member.static_property_name().is_some()
+                }
+                _ => false,
+            });
+            let exported_alias = local_alias && program.body.iter().any(|statement| matches!(statement, Statement::ExportDeclaration(export) if export.span.contains_inclusive(reference.span)));
+            if exported_alias || (!local_alias && !member_call) {
+                marker_errors.push((reference.span, "Use named imports instead of destructuring or passing a framework namespace; compiler markers cannot escape into runtime values."));
+            }
+        }
+        if !markers.contains(&symbol) && !slot_markers.contains(&symbol) {
+            continue;
+        }
+        let alias = index.initializers.iter().any(|(id, expression)| {
+            (markers.contains(id) || slot_markers.contains(id))
+                && expression.span().contains_inclusive(reference.span)
+        });
+        if alias {
+            if program.body.iter().any(|statement| matches!(statement, Statement::ExportDeclaration(export) if export.span.contains_inclusive(reference.span))) {
+                marker_errors.push((reference.span, "Keep marker aliases local; export compiled view definitions instead."));
+            }
+            continue;
+        }
+        let call = index
+            .calls
+            .iter()
+            .find(|call| call.callee.span() == reference.span);
+        if let Some(call) = call {
+            let enclosing = view_calls
+                .iter()
+                .any(|outer| outer.span != call.span && outer.span.contains_inclusive(call.span));
+            if markers.contains(&symbol) && enclosing {
+                marker_errors.push((call.span, "Declare view definitions outside other views; use slot for locally captured markup."));
+            } else if slot_markers.contains(&symbol) && !enclosing {
+                marker_errors.push((call.span, "Declare slot inside a compiled view so its captures and lifetime have an owner."));
+            }
+        } else {
+            marker_errors.push((reference.span, "Compiler markers must be called directly or through an immutable local alias; export compiled views instead of marker functions."));
+        }
+    }
+    for (span, message) in marker_errors {
+        let error = compiler.fail::<()>(span, message).unwrap_err();
+        if options.diagnostics_only {
+            compiler.diagnostics.push(*error);
+        } else {
+            return Err(format!(
+                "{}:{}:{}: EffectWeb JSX [{}]: {}",
+                error.file, error.line, error.column, error.code, error.message
+            ));
         }
     }
     let mut edits = vec![];

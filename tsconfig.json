@@ -6,13 +6,31 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noEmit": true,
     "jsx": "preserve",
     "jsxImportSource": "effectweb",
-    "types": ["node"],
-    "paths": { "effectweb/jsx-runtime": ["./packages/runtime/src/jsx-runtime.ts"] }
+    "types": ["node", "vite/client"],
+    "paths": {
+      "effectweb": ["./packages/runtime/src/index.ts"],
+      "effectweb/*": ["./packages/runtime/src/*.ts"]
+    },
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false
   },
-  "include": ["packages/*/src", "vite.config.ts"]
+  "include": [
+    "packages/*/src",
+    "vite.config.ts",
+    "tests",
+    "examples/reading-list",
+    "examples/profile-form",
+    "playwright.config.ts"
+  ]
 }

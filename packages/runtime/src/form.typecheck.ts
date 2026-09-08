@@ -18,6 +18,7 @@ export function fieldTypes() {
     }),
     validate: (value) => {
       // @ts-expect-error Validators cannot mutate published parsed data.
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
       value.tags.push({ name: 'bad' });
       // @ts-expect-error Nested parsed values are readonly.
       value.tags[0]!.name = 'bad';
@@ -30,6 +31,7 @@ export function fieldTypes() {
   const published = source.model();
   if (published.parsed.ok) {
     // @ts-expect-error Published field data remains readonly.
+    // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
     published.parsed.value.tags.pop();
   }
   const changed = field.update(published, { type: 'Change', draft: 'second' });

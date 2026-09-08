@@ -5,6 +5,7 @@ import type { DisposableOwner } from './owner.js';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import * as Atom from 'effect/unstable/reactivity/Atom';
 import type { QueryCache } from './cache.js';
+import { cacheInternals } from './cache-internals.js';
 
 export function lifetime() {
   const cleanups: Array<() => void> = [];
@@ -32,7 +33,7 @@ export interface SessionContext<R = never> {
 
 /** One owned selection and immutable observation of a shared query resource. */
 export interface QueryResource<Args, A, E = never> {
-  select(this: void, args: Args | undefined): void;
+  select(this: void, args: Args | Snapshot<Args> | undefined): void;
   read(this: void): AsyncResult.AsyncResult<Snapshot<A>, E>;
   subscribe(
     this: void,
@@ -50,6 +51,7 @@ export function queryResource<Args, A, E, R>(
   context: { cache: QueryCache<R>; changed?: () => void },
   definition: Query<Args, A, E, NoInfer<R>>,
 ): QueryResource<Args, A, E> {
+  const internal = cacheInternals(context.cache);
   let key: string | undefined;
   let generation = -1;
   let atom: Atom.Atom<AsyncResult.AsyncResult<Snapshot<A>, E>> | undefined;
@@ -59,8 +61,8 @@ export function queryResource<Args, A, E, R>(
   const initial = AsyncResult.initial<Snapshot<A>, E>();
   const listeners = new Set<(result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void>();
   const read = () =>
-    atom && !disposed && generation === context.cache.registry.get(context.cache.generation)
-      ? context.cache.registry.get(atom)
+    atom && !disposed && generation === internal.registry.get(internal.generation)
+      ? internal.registry.get(atom)
       : initial;
   let published: AsyncResult.AsyncResult<Snapshot<A>, E> | undefined;
   let notifying = false;
@@ -87,7 +89,7 @@ export function queryResource<Args, A, E, R>(
         published = result;
         const selected = revision;
         // A callback may select, reset, refresh or dispose. Finish only the current publication.
-        // oxlint-disable-next-line unicorn/no-useless-spread
+        // oxlint-disable-next-line unicorn/no-useless-spread -- Iterate a snapshot because listeners can add or remove subscriptions.
         for (const listener of [...listeners]) {
           if (disposed || selected !== revision || result !== read()) break;
           if (listeners.has(listener)) call(() => listener(result));
@@ -103,8 +105,8 @@ export function queryResource<Args, A, E, R>(
     release?.();
   };
   // Initialize before subscribing; construction must not invoke application callbacks.
-  context.cache.registry.get(context.cache.generation);
-  const stopGeneration = context.cache.registry.subscribe(context.cache.generation, () => {
+  internal.registry.get(internal.generation);
+  const stopGeneration = internal.registry.subscribe(internal.generation, () => {
     revision++;
     disconnect();
     atom = undefined;
@@ -113,21 +115,22 @@ export function queryResource<Args, A, E, R>(
     notify();
   });
   return {
-    select(args: Args | undefined) {
+    select(args: Args | Snapshot<Args> | undefined) {
       if (disposed) return;
-      const nextGeneration = context.cache.registry.get(context.cache.generation);
-      const nextKey = args === undefined ? undefined : encodeQueryKey(definition.key(args));
+      const nextGeneration = internal.registry.get(internal.generation);
+      const nextKey =
+        args === undefined ? undefined : encodeQueryKey(args as import('./query.js').QueryKey);
       if (nextKey === key && nextGeneration === generation) return;
       const selected = ++revision;
       disconnect();
       key = nextKey;
       generation = nextGeneration;
-      const nextAtom = args === undefined ? undefined : context.cache.query(definition, args);
+      const nextAtom = args === undefined ? undefined : internal.query(definition, args);
       if (disposed || selected !== revision) return;
       atom = nextAtom;
       if (nextAtom) {
         // Subscription setup itself can execute a synchronous Effect and reenter selection.
-        const release = context.cache.registry.subscribe(nextAtom, notify);
+        const release = internal.registry.subscribe(nextAtom, notify);
         if (disposed || selected !== revision) {
           release();
           return;
@@ -148,10 +151,10 @@ export function queryResource<Args, A, E, R>(
       if (
         atom &&
         !disposed &&
-        generation === context.cache.registry.get(context.cache.generation) &&
-        !context.cache.registry.get(atom).waiting
+        generation === internal.registry.get(internal.generation) &&
+        !internal.registry.get(atom).waiting
       )
-        context.cache.registry.refresh(atom);
+        internal.registry.refresh(atom);
     },
     dispose: () => {
       if (disposed) return;
