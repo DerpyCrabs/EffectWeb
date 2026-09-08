@@ -32,6 +32,52 @@ fn method<'a>(expression: &'a Expression<'a>) -> Option<(&'a Expression<'a>, &'a
     }
 }
 
+// Collect only immutable direct aliases. Resolve before reference classification so
+// factory declarations may follow helpers without making source order significant.
+pub fn resolve_host_aliases<'a>(
+    program: &'a Program<'a>,
+    scoping: &Scoping,
+    hosts: &mut HashMap<SymbolId, usize>,
+) {
+    struct Aliases<'s> {
+        scoping: &'s Scoping,
+        bindings: Vec<(SymbolId, SymbolId)>,
+    }
+    impl<'a> Visit<'a> for Aliases<'_> {
+        fn visit_variable_declarator(&mut self, node: &VariableDeclarator<'a>) {
+            if let BindingPattern::BindingIdentifier(binding) = &node.id
+                && let Some(Expression::Identifier(input)) = node.init.as_ref().map(unwrapped)
+                && let Some(id) = binding.symbol_id.get()
+                && self.scoping.symbol_flags(id).is_const_variable()
+                && !self.scoping.symbol_is_mutated(id)
+                && let Some(input) = input
+                    .reference_id
+                    .get()
+                    .and_then(|id| self.scoping.get_reference(id).symbol_id())
+            {
+                self.bindings.push((id, input));
+            }
+            oxc::ast_visit::walk::walk_variable_declarator(self, node);
+        }
+    }
+    let mut aliases = Aliases {
+        scoping,
+        bindings: vec![],
+    };
+    aliases.visit_program(program);
+    loop {
+        let before = hosts.len();
+        for (id, input) in &aliases.bindings {
+            if let Some(argument) = hosts.get(input).copied() {
+                hosts.insert(*id, argument);
+            }
+        }
+        if hosts.len() == before {
+            break;
+        }
+    }
+}
+
 const ARRAY_MUTATORS: &[&str] = &[
     "push",
     "pop",
@@ -60,6 +106,7 @@ pub struct Reference {
 pub struct Index<'a, 's> {
     pub scoping: &'s Scoping,
     pub host_callbacks: HashMap<SymbolId, usize>,
+    host_acquisitions: HashSet<Span>,
     pub refs: Vec<Reference>,
     pub calls: Vec<&'a CallExpression<'a>>,
     pub bindings: Vec<(Span, SymbolId, String)>,
@@ -79,6 +126,7 @@ impl<'a, 's> Index<'a, 's> {
         Self {
             scoping,
             host_callbacks: HashMap::new(),
+            host_acquisitions: HashSet::new(),
             refs: vec![],
             calls: vec![],
             bindings: vec![],
@@ -149,6 +197,79 @@ impl<'a, 's> Index<'a, 's> {
                         Some(Expression::ArrowFunctionExpression(function)) if !contains_jsx_body(&function.body))))
         }).unwrap_or(false)
     }
+    fn host_argument(&self, call: &CallExpression<'a>) -> Option<usize> {
+        let Expression::Identifier(callee) = unwrapped(&call.callee) else {
+            return None;
+        };
+        self.symbol(callee)
+            .and_then(|id| self.host_callbacks.get(&id).copied())
+    }
+    fn callback_body(&self, mut id: SymbolId) -> Option<Span> {
+        let mut seen = HashSet::new();
+        loop {
+            let flags = self.scoping.symbol_flags(id);
+            if !seen.insert(id)
+                || self.scoping.symbol_is_mutated(id)
+                || !(flags.is_const_variable() || flags.is_function())
+            {
+                return None;
+            }
+            if let Some(body) = self.helpers.get(&id) {
+                return Some(*body);
+            }
+            let Expression::Identifier(input) = unwrapped(self.initializers.get(&id)?) else {
+                return None;
+            };
+            id = self.symbol(input)?;
+        }
+    }
+    pub fn collect_host_acquisitions(&mut self) {
+        for call in &self.calls {
+            if let Some(argument) = self.host_argument(call)
+                && let Some(expression) = call
+                    .arguments
+                    .get(argument)
+                    .and_then(Argument::as_expression)
+                && let Expression::Identifier(id) = unwrapped(expression)
+                && let Some(body) = self.symbol(id).and_then(|id| self.callback_body(id))
+            {
+                self.host_acquisitions.insert(body);
+            }
+        }
+    }
+    // A declaration nested in a render helper only creates the callback. When
+    // that callback is itself invoked, its own body is checked without exemption.
+    pub fn deferred_host_body(&self, span: Span, enclosing: Span) -> bool {
+        self.host_acquisitions.iter().any(|body| {
+            body.start > enclosing.start
+                && body.end <= enclosing.end
+                && span.start >= body.start
+                && span.end <= body.end
+        })
+    }
+    pub fn acquisition_called(&self, reference: &Reference) -> bool {
+        reference
+            .symbol
+            .and_then(|id| self.callback_body(id))
+            .is_some_and(|body| self.host_acquisitions.contains(&body))
+            && self.render_called(reference)
+    }
+    pub fn render_called(&self, reference: &Reference) -> bool {
+        self.calls.iter().any(|call| {
+            (call.callee.span().start <= reference.span.start
+                && call.callee.span().end >= reference.span.end)
+                || (self.host_argument(call).is_none()
+                    && reference
+                        .symbol
+                        .and_then(|id| self.callback_body(id))
+                        .is_some_and(|body| self.host_acquisitions.contains(&body))
+                    && call
+                        .arguments
+                        .iter()
+                        .filter_map(Argument::as_expression)
+                        .any(|arg| unwrapped(arg).span() == reference.span))
+        })
+    }
     // Only the literal acquisition callback is deferred. Factories producing it,
     // domBinding data, and runtime arguments are evaluated during rendering.
     fn host_callback(&self) -> bool {
@@ -156,18 +277,12 @@ impl<'a, 's> Index<'a, 's> {
             let AstKind::CallExpression(call) = node else {
                 return false;
             };
-            let Expression::Identifier(callee) = unwrapped(&call.callee) else {
-                return false;
-            };
-            let Some(argument) = self
-                .symbol(callee)
-                .and_then(|id| self.host_callbacks.get(&id))
-            else {
+            let Some(argument) = self.host_argument(call) else {
                 return false;
             };
             let Some(callback) = call
                 .arguments
-                .get(*argument)
+                .get(argument)
                 .and_then(|argument| argument.as_expression())
             else {
                 return false;

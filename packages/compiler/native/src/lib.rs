@@ -120,10 +120,12 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
         .map_err(|e| e.to_string());
     }
     let mut index = analysis::Index::new(semantic.semantic.scoping());
+    analysis::resolve_host_aliases(&program, semantic.semantic.scoping(), &mut host_callbacks);
     index.host_callbacks = host_callbacks;
     index.visit_program(&program);
     index.refs.sort_by_key(|r| r.span.start);
     index.calls.sort_by_key(|c| c.span.start);
+    index.collect_host_acquisitions();
     // Explicit view<Model> supplies a useful same-file annotation without a TS host.
     for call in &index.calls {
         if let Expression::Identifier(id) = &call.callee

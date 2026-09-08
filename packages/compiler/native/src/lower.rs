@@ -500,7 +500,7 @@ impl<'a, 's> Lower<'a, 's> {
         reference: &Reference,
         safe_date: bool,
         invoked: bool,
-        seen: &mut HashSet<SymbolId>,
+        seen: &mut HashSet<(SymbolId, bool)>,
     ) -> Result<()> {
         if reference.in_action {
             return Ok(());
@@ -534,14 +534,10 @@ impl<'a, 's> Lower<'a, 's> {
         {
             return self.unprovable(reference.span, &format!("Mutable capture {} is not a model dependency. Pass immutable data through the model.", reference.name));
         }
-        if !seen.insert(id) {
+        let called = invoked || self.index.render_called(reference);
+        if !seen.insert((id, called)) {
             return Ok(());
         }
-        let called = invoked
-            || self.index.calls.iter().any(|call| {
-                call.callee.span().start <= reference.span.start
-                    && call.callee.span().end >= reference.span.end
-            });
         if let Some(init) = self.index.initializers.get(&id)
             && matches!(
                 unwrapped(init),
@@ -558,16 +554,22 @@ impl<'a, 's> Lower<'a, 's> {
         // during rendering, so event handlers and command factories remain deferred.
         if called && let Some(body) = self.index.helpers.get(&id) {
             for (span, message) in &self.index.global_calls {
-                if span.start >= body.start && span.end <= body.end {
+                if span.start >= body.start
+                    && span.end <= body.end
+                    && !self.index.deferred_host_body(*span, *body)
+                {
                     return self.fail(*span, message);
                 }
             }
             for input in self.index.references(*body) {
+                if self.index.deferred_host_body(input.span, *body) {
+                    continue;
+                }
                 let local = input.symbol.is_some_and(|id| {
                     let declaration = self.index.scoping.symbol_span(id);
                     declaration.start >= body.start && declaration.end <= body.end
                 });
-                if !local {
+                if !local || self.index.acquisition_called(input) {
                     self.external_capture(input, false, false, seen)?;
                 }
             }
@@ -595,7 +597,15 @@ impl<'a, 's> Lower<'a, 's> {
             return self.fail(call.span,"view((model, send) => JSX) requires a model parameter, an optional named dispatch parameter, and a synchronous pure body.");
         }
         for (span, message) in &self.index.violations {
-            if span.start >= f.span.start && span.end <= f.span.end {
+            if span.start >= f.span.start
+                && span.end <= f.span.end
+                && !(self.index.deferred_host_body(*span, f.span)
+                    && self
+                        .index
+                        .global_calls
+                        .iter()
+                        .any(|(global, _)| global == span))
+            {
                 return self.fail(*span, message);
             }
         }
@@ -619,7 +629,7 @@ impl<'a, 's> Lower<'a, 's> {
             }
         }
         for r in self.index.references(f.span) {
-            if r.in_host {
+            if r.in_host || self.index.deferred_host_body(r.span, f.span) {
                 continue;
             }
             if let Some(id) = r.symbol {

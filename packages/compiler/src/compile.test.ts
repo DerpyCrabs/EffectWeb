@@ -27,6 +27,42 @@ it.each([
   );
 });
 
+it.each([
+  `const acquire=()=>window.innerWidth; const host=()=>domMount(acquire); view(model=><div use={host()}/>);`,
+  `view(model=>{const acquire=()=>Math.random();return <div use={domMount(acquire)}/>;});`,
+  `const host=()=>{const acquire=()=>window.innerWidth;return domMount(acquire);}; view(model=><div use={host()}/>);`,
+  `const host=()=>{const acquire=()=>Math.random();const alias=acquire;return domBinding('data',alias);}; view(model=><div use={host()}/>);`,
+  `const mount=domMount; const host=()=>mount(()=>window.innerWidth); view(model=><div use={host()}/>);`,
+  `const host=()=>mount(()=>document.title); const first=domMount; const mount=first; view(model=><div use={host()}/>);`,
+  `const bind=domBinding; const host=()=>bind('data',()=>document.title); view(model=><div use={host()}/>);`,
+  `const host=()=>{function acquire(){return document.title;}return domMount(acquire);}; view(model=><div use={host()}/>);`,
+])(
+  'preserves deferred acquisition through immutable callback and factory bindings: %s',
+  (source) => {
+    expect(compile(`import { domMount, domBinding } from 'effectweb'; ${source}`)).toContain(
+      '.compiled(',
+    );
+  },
+);
+
+it.each([
+  `const host=()=>{const acquire=()=>window.innerWidth;domMount(acquire);return acquire();}; view(model=><div use={host()}/>);`,
+  `view(model=>{const acquire=()=>Math.random();const host=domMount(acquire);return <div use={host}>{acquire()}</div>;});`,
+  `const acquire=()=>window.innerWidth;const host=()=>{domMount(acquire);return acquire();}; view(model=><div use={host()}/>);`,
+  `const host=()=>{const acquire=()=>Math.random();domMount(acquire);return [1].map(acquire);}; view(model=><div use={host()}/>);`,
+  `const host=()=>{const acquire=()=>document.title;const alias=acquire;domMount(alias);return alias();}; view(model=><div use={host()}/>);`,
+  `let acquire=()=>window.innerWidth;const host=()=>domMount(acquire);view(model=><div use={host()}/>);`,
+  `let mount=domMount;mount=other;const host=()=>mount(()=>window.innerWidth);view(model=><div use={host()}/>);`,
+  `let mount=domMount;const host=()=>mount(()=>window.innerWidth);view(model=><div use={host()}/>);`,
+  `const mount=domMount;const acquire=()=>window.innerWidth;const host=()=>mount(acquire());view(model=><div use={host()}/>);`,
+  `const mount=domMount;const host=()=>mount(make(window.innerWidth));view(model=><div use={host()}/>);`,
+  `const bind=domBinding;const host=()=>bind(document.title,()=>{});view(model=><div use={host()}/>);`,
+])('checks eager or mutable uses of host callback and factory bindings: %s', (source) => {
+  expect(() => compile(`import { domMount, domBinding } from 'effectweb'; ${source}`)).toThrow(
+    /Read window|Read document|randomness|Mutable capture/u,
+  );
+});
+
 it('recognizes aliased host imports and the mount subpath', () => {
   expect(
     compile(
