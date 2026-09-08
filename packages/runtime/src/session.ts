@@ -32,11 +32,14 @@ export interface SessionContext<R = never> {
 
 /** One owned selection and immutable observation of a shared query resource. */
 export interface QueryResource<Args, A, E = never> {
-  select(args: Args | undefined): void;
-  read(): AsyncResult.AsyncResult<Snapshot<A>, E>;
-  subscribe(listener: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void): () => void;
-  refresh(): void;
-  dispose(): void;
+  select(this: void, args: Args | undefined): void;
+  read(this: void): AsyncResult.AsyncResult<Snapshot<A>, E>;
+  subscribe(
+    this: void,
+    listener: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void,
+  ): () => void;
+  refresh(this: void): void;
+  dispose(this: void): void;
 }
 
 /**

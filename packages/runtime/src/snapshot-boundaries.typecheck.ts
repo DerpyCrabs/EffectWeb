@@ -1,5 +1,8 @@
 import { Effect } from 'effect';
 import {
+  collection,
+  entities,
+  sequence,
   component,
   defineTasks,
   localComponent,
@@ -151,4 +154,34 @@ export function symbolIndexIsNotAnOpaqueBrand(
 ) {
   // @ts-expect-error A broad symbol index signature does not opt out of snapshot protection.
   model.items.push('bad');
+}
+
+export function collectionSnapshotBoundaries(
+  model: Snapshot<{ items: (Item & { id: string })[] }>,
+) {
+  const rows = collection<Item & { id: string }>((item) => {
+    // @ts-expect-error Identity selection borrows immutable items.
+    item.tags.push('bad');
+    return item.id;
+  });
+  rows
+    .from(model.items)
+    .filter((item) => item.tags.length > 0)
+    .map((item) => {
+      // @ts-expect-error Collection rendering cannot mutate nested snapshot data.
+      item.tags.push('bad');
+      return item.name;
+    });
+  rows.from([{ id: 'new', name: 'New', tags: [] }]);
+  rows.share(model.items, model.items);
+  entities(model.items).map((item) => {
+    // @ts-expect-error Entity helpers preserve readonly access.
+    item.tags.sort();
+    return item.id;
+  });
+  sequence([{ tags: ['a'] }]).map((item) => {
+    // @ts-expect-error Positional helpers borrow immutable values too.
+    item.tags.pop();
+    return item.tags.length;
+  });
 }

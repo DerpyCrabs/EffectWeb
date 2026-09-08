@@ -1,4 +1,5 @@
 import { shareValue } from './share.js';
+import type { Snapshot } from './snapshot.js';
 export type Identity = string | number;
 
 export interface Rows<A> {
@@ -32,7 +33,7 @@ export function validateIdentities<A>(
   });
 }
 
-export function collection<A>(identity: (item: A, index: number) => Identity) {
+function makeCollection<A>(identity: (item: A, index: number) => Identity) {
   const cache = new WeakMap<readonly A[], Rows<A>>();
   const validated = new WeakSet<readonly A[]>();
   const validate = (items: readonly A[]) => {
@@ -56,9 +57,13 @@ export function collection<A>(identity: (item: A, index: number) => Identity) {
     cache.set(items, rows);
     return rows;
   };
-  function share<B extends A>(previous: readonly B[], next: B[]): B[];
-  function share<B extends A>(previous: readonly B[], next: readonly B[]): readonly B[];
-  function share<B extends A>(previous: readonly B[], next: readonly B[]): readonly B[] {
+  function share<B extends A>(this: void, previous: readonly B[], next: B[]): B[];
+  function share<B extends A>(this: void, previous: readonly B[], next: readonly B[]): readonly B[];
+  function share<B extends A>(
+    this: void,
+    previous: readonly B[],
+    next: readonly B[],
+  ): readonly B[] {
     validate(previous);
     validate(next);
     if (previous === next) return previous;
@@ -95,10 +100,28 @@ export function collection<A>(identity: (item: A, index: number) => Identity) {
   return { from, share };
 }
 
+export interface Collection<A> {
+  from(this: void, items: readonly (A | Snapshot<A>)[]): Rows<Snapshot<A>>;
+  share<B extends A | Snapshot<A>>(this: void, previous: readonly B[], next: B[]): B[];
+  share<B extends A | Snapshot<A>>(
+    this: void,
+    previous: readonly B[],
+    next: readonly B[],
+  ): readonly B[];
+}
+
+export function collection<A>(
+  identity: (item: Snapshot<A>, index: number) => Identity,
+): Collection<A> {
+  // Snapshot changes access permissions, not runtime representation. The implementation
+  // only borrows supplied items, and never inserts values of a wider type.
+  return makeCollection(identity) as unknown as Collection<A>;
+}
+
 const positions = collection<unknown>((_item, index) => index);
 /** Use positional identity for ordered values without stable entity IDs. */
-export function sequence<A>(items: readonly A[]): Rows<A> {
-  return positions.from(items) as Rows<A>;
+export function sequence<A>(items: readonly A[]): Rows<Snapshot<A>> {
+  return positions.from(items) as Rows<Snapshot<A>>;
 }
 
 const empty: readonly never[] = [];
@@ -106,7 +129,7 @@ const identified = collection<{ readonly id: Identity }>((item) => item.id);
 /** Rows keyed by their domain IDs. Reuses the wrapper for the same immutable array. */
 export function entities<A extends { readonly id: Identity }>(
   items: readonly A[] | undefined,
-): Rows<A> {
+): Rows<Snapshot<A>> {
   // The collection retains, filters and slices supplied items; it never inserts wider values.
-  return identified.from(items ?? empty) as unknown as Rows<A>;
+  return identified.from(items ?? empty) as unknown as Rows<Snapshot<A>>;
 }
