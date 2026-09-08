@@ -177,3 +177,32 @@ it('diagnoses an unowned Promise and observes its rejection', async () => {
   await expect.poll(() => mounted.errors[1]).toBe(problem);
   mounted.scope.dispose();
 });
+
+it('spread handlers retain active work on unrelated updates and interrupt it on replacement or removal', async () => {
+  const { bindAttributes } = await import('./dom.js');
+  const first = pending();
+  const second = pending();
+  const handler = effectEvent('replace', () => first.effect);
+  const nextHandler = effectEvent('replace', () => second.effect);
+  const scope = new Scope<{ onClick?: typeof handler }, never>({ onClick: handler }, () => {});
+  const target = new EventTarget();
+  bindAttributes(
+    scope,
+    target as Element,
+    () => [scope.value],
+    () => scope.value,
+  );
+  const click = () => target.dispatchEvent(new Event('click'));
+  click();
+  await expect.poll(first.started).toBe(true);
+  scope.set({ onClick: handler });
+  expect(first.canceled()).toBe(false);
+  scope.set({ onClick: nextHandler });
+  await expect.poll(first.canceled).toBe(true);
+  click();
+  await expect.poll(second.started).toBe(true);
+  scope.set({});
+  await expect.poll(second.canceled).toBe(true);
+  click();
+  scope.dispose();
+});

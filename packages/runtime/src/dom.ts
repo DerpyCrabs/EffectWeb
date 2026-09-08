@@ -81,8 +81,16 @@ export class Scope<M, E> {
 }
 export interface View<M, E> {
   (props: M | Snapshot<M>): JSX.Element;
-  (props: { model: M | Snapshot<M>; send: Send<E> }): JSX.Element;
   readonly build: Build<M, E>;
+}
+
+/** Compiler marker for mounting a view with an explicit model and message dispatcher. */
+export function ViewBinding<M, E>(_props: {
+  view: View<M, E>;
+  model: M | Snapshot<M>;
+  send: Send<E>;
+}): JSX.Element {
+  throw new Error('ViewBinding reached runtime without the EffectWeb JSX compiler');
 }
 
 const contentBrand: unique symbol = Symbol('compiled content');
@@ -535,6 +543,83 @@ export function event<M, E>(
   scope.cleanups.push(() => {
     element.removeEventListener(type, listener, capture);
     effects?.dispose();
+  });
+}
+
+/** Reconcile merged JSX attributes. Each host, event and control owns its cleanup. */
+export function bindAttributes<M, E>(
+  scope: Scope<M, E>,
+  element: Element,
+  dependencies: Dependencies,
+  read: () => Readonly<Record<string, unknown>>,
+) {
+  const bindings = new Map<string, Scope<unknown, E>>();
+  let previous: Readonly<Record<string, unknown>> = {};
+  const isEvent = (name: string) => /^on[A-Z]/u.test(name);
+  const isControl = (name: string) =>
+    (name === 'value' && ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName)) ||
+    (name === 'checked' && element.tagName === 'INPUT');
+  scope.cleanups.push(() => {
+    runAll(
+      [...bindings.values()].reverse().map((binding) => () => binding.dispose()),
+      scope.report,
+    );
+    bindings.clear();
+  });
+  scope.watch(dependencies, () => {
+    const next = read();
+    for (const name of Object.keys(next)) {
+      if (['key', 'ref', 'innerHTML', 'children'].includes(name))
+        throw new Error(
+          `Spread attribute ${name} is unsupported. Use collections, DOM hosts, or JSX children.`,
+        );
+      if (isEvent(name) && next[name] != null && typeof next[name] !== 'function')
+        throw new Error(`Spread event ${name} must be a synchronous handler.`);
+    }
+    for (const name of Object.keys(previous)) {
+      if (Object.hasOwn(next, name)) continue;
+      bindings.get(name)?.dispose();
+      bindings.delete(name);
+      if (name !== 'use' && !isEvent(name)) attribute(element, name, undefined);
+    }
+    for (const [name, value] of Object.entries(next)) {
+      if (name !== 'use' && !isEvent(name) && !isControl(name)) {
+        attribute(element, name, value);
+        continue;
+      }
+      let binding = bindings.get(name);
+      if (binding && Object.is(binding.value, value)) continue;
+      // A replacement event also cancels requests owned by its previous handler.
+      if (binding && isEvent(name)) {
+        binding.dispose();
+        bindings.delete(name);
+        binding = undefined;
+      }
+      if (binding) {
+        binding.set(value);
+        continue;
+      }
+      const owned = new Scope<unknown, E>(value, scope.send, scope.report);
+      bindings.set(name, owned);
+      if (name === 'use')
+        attach(
+          owned,
+          element,
+          () => [owned.value],
+          () => owned.value as DomMount | undefined,
+        );
+      else if (isControl(name))
+        bindControl(
+          owned,
+          element,
+          name,
+          () => [owned.value],
+          () => owned.value,
+        );
+      else if (value != null)
+        event(owned, element, name, (input) => (owned.value as (input: Event) => unknown)(input));
+    }
+    previous = next;
   });
 }
 export function branch<M, E>(

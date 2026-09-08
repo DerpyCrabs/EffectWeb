@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { collection, mountView, program, view } from 'effectweb';
+import { collection, mountView, program, view, ViewBinding } from 'effectweb';
 
 export interface Item {
   readonly id: number;
@@ -47,7 +47,7 @@ const FixtureView = view<Model, Message>((model, send) => {
       {visible ? (
         <section>
           {rows.map((item) => (
-            <ItemView model={item} send={send} />
+            <ViewBinding view={ItemView} model={item} send={send} />
           ))}
         </section>
       ) : (

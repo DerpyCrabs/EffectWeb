@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { platforms, hostPlatform } from './platforms.mjs';
 const local = process.argv.includes('--local');
+// Local packing must use the compiler that was just built, not an older staged release.
+if (local) await import('./stage-native.mjs');
 const targets = local ? [hostPlatform()] : platforms;
 const compiler = JSON.parse(readFileSync('packages/compiler/package.json', 'utf8'));
 const runtime = JSON.parse(readFileSync('packages/runtime/package.json', 'utf8'));

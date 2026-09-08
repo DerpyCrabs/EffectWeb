@@ -90,6 +90,7 @@ pub struct Lower<'a, 's> {
     pub hoisted: Vec<String>,
     pub runtime: String,
     pub slot_markers: HashSet<SymbolId>,
+    pub binding_markers: HashSet<SymbolId>,
     prefix: String,
     map_prefix: String,
     counter: usize,
@@ -116,6 +117,7 @@ impl<'a, 's> Lower<'a, 's> {
             hoisted: vec![],
             runtime,
             slot_markers: HashSet::new(),
+            binding_markers: HashSet::new(),
             prefix,
             map_prefix: crate::sourcemap::marker_prefix(source),
             counter: 0,
@@ -1464,11 +1466,32 @@ impl<'a, 's> Lower<'a, 's> {
             }
             let has_children = e.children.iter().any(|c| !matches!(c,JSXChild::Text(t) if t.value.trim().is_empty()) && !matches!(c, JSXChild::ExpressionContainer(c) if c.expression.as_expression().is_none()));
             let attrs = self.attrs(e, true)?;
-            if !has_children
-                && attrs.len() == 2
-                && attrs.iter().any(|(k, _)| k == "model")
-                && attrs.iter().any(|(k, _)| k == "send")
-            {
+            let binding = matches!(&e.opening_element.name, JSXElementName::IdentifierReference(n)
+                if self.index.symbol(n).is_some_and(|id| self.binding_markers.contains(&id)));
+            if binding {
+                if has_children
+                    || attrs.len() != 3
+                    || !["view", "model", "send"]
+                        .iter()
+                        .all(|name| attrs.iter().any(|(k, _)| k == name))
+                {
+                    return self.fail(
+                        e.span,
+                        "ViewBinding requires explicit view, model and send props and no children.",
+                    );
+                }
+                let target = &attrs.iter().find(|(k, _)| k == "view").unwrap().1;
+                let Some(Expression::Identifier(target_id)) = target.expr().map(unwrapped) else {
+                    return self.fail(e.span, "ViewBinding view must be a named compiled view. Use conditional JSX to choose views.");
+                };
+                if self
+                    .index
+                    .symbol(target_id)
+                    .is_some_and(|id| env.contains_key(&id))
+                {
+                    return self.fail(e.span, "ViewBinding view must be a named compiled view. Use conditional JSX to choose views.");
+                }
+                let tag = target.rewrite(self, env);
                 let model = &attrs.iter().find(|(k, _)| k == "model").unwrap().1;
                 let send = &attrs.iter().find(|(k, _)| k == "send").unwrap().1;
                 let deps = model
@@ -1494,6 +1517,7 @@ impl<'a, 's> Lower<'a, 's> {
             let mut reads = vec![];
             let mut props = vec![];
             let mut grouped = false;
+            let mut children_prop = None;
             let mut group_env = env.clone();
             let mut group_ids = HashSet::new();
             let mut group_captures = String::new();
@@ -1507,10 +1531,12 @@ impl<'a, 's> Lower<'a, 's> {
                     "const {content}={}.compiledSlot({scope},({slot_scope},{p},{b})=>{{{body}}});",
                     self.runtime
                 ));
-                props.push(format!("children:{content}"));
+                children_prop = Some(format!("children:{content}"));
             }
             for (name, value) in attrs {
-                if let Some(expr) = value.expr()
+                let spread = matches!(value, Attr::Spread(_));
+                if !spread
+                    && let Some(expr) = value.expr()
                     && (self.slot_function(expr)?.is_some() || self.is_template(expr, env, 0))
                 {
                     let content = self.uid("content");
@@ -1531,10 +1557,17 @@ impl<'a, 's> Lower<'a, 's> {
                 };
                 if deps.is_empty() {
                     out.push_str(&format!("const {cached}=({read});"));
-                    props.push(format!("{}:{cached}", quote(&name)));
+                    props.push(if spread {
+                        format!("...({cached})")
+                    } else {
+                        format!("{}:{cached}", quote(&name))
+                    });
                     continue;
                 }
-                if !self.options.development && value.expr().is_some_and(Self::direct_read) {
+                if !spread
+                    && !self.options.development
+                    && value.expr().is_some_and(Self::direct_read)
+                {
                     reads.extend(value.expr().map(|e| self.deps(e, env)).unwrap_or_default());
                     let expr = value.expr().unwrap();
                     for id in self.captures(expr, env) {
@@ -1566,7 +1599,14 @@ impl<'a, 's> Lower<'a, 's> {
                     "const {cached}={scope}.derive(()=>[{deps}],{compute}{diag});"
                 ));
                 reads.push(format!("{cached}()"));
-                props.push(format!("{}:{cached}()", quote(&name)));
+                props.push(if spread {
+                    format!("...({cached}())")
+                } else {
+                    format!("{}:{cached}()", quote(&name))
+                });
+            }
+            if let Some(children) = children_prop {
+                props.push(children);
             }
             if grouped {
                 let model = self.uid("props");
@@ -1603,6 +1643,51 @@ impl<'a, 's> Lower<'a, 's> {
         attrs: Vec<(String, Attr<'a>)>,
     ) -> Result<String> {
         let mut out = String::new();
+        if attrs
+            .iter()
+            .any(|(_, value)| matches!(value, Attr::Spread(_)))
+        {
+            let mut deps = vec![];
+            let mut props = vec![];
+            for (name, value) in attrs {
+                if ["key", "ref", "innerHTML"].contains(&name.as_str()) {
+                    return self.fail(e.span, "Use collections for identity and DOM hosts for lifecycles; key, ref and innerHTML are unsupported.");
+                }
+                if let Some(expr) = value.expr() {
+                    deps.extend(self.deps(expr, env));
+                }
+                let read = if name.starts_with("on")
+                    && name.chars().nth(2).is_some_and(|c| c.is_ascii_uppercase())
+                {
+                    if matches!(value.expr(),Some(Expression::ArrowFunctionExpression(f)) if f.r#async)
+                    {
+                        return self.fail(e.span, "Async work belongs in commands. Event handlers dispatch messages synchronously.");
+                    }
+                    value
+                        .expr()
+                        .map(|expr| self.event_handler(expr, env))
+                        .unwrap_or_else(|| value.rewrite(self, env))
+                } else {
+                    value
+                        .expr()
+                        .map(|expr| self.snapshot(expr, env))
+                        .unwrap_or_else(|| value.rewrite(self, env))
+                };
+                props.push(if matches!(value, Attr::Spread(_)) {
+                    format!("...({read})")
+                } else {
+                    format!("{}:({read})", quote(&name))
+                });
+            }
+            let mut seen = HashSet::new();
+            deps.retain(|dep| seen.insert(dep.clone()));
+            return Ok(format!(
+                "{}.bindAttributes({scope},{element},()=>[{}],()=>({{{}}}));",
+                self.runtime,
+                deps.join(","),
+                props.join(",")
+            ));
+        }
         for (name, value) in attrs {
             if ["key", "ref", "innerHTML"].contains(&name.as_str()) {
                 return self.fail(e.span,&format!("{name} is not an EffectWeb view attribute. Identity belongs to collections; DOM lifecycles belong to the host."));
@@ -1685,18 +1770,15 @@ impl<'a, 's> Lower<'a, 's> {
         }
         Ok(out)
     }
-    fn attrs(&self, e: &'a JSXElement<'a>, component: bool) -> Result<Vec<(String, Attr<'a>)>> {
+    fn attrs(&self, e: &'a JSXElement<'a>, _component: bool) -> Result<Vec<(String, Attr<'a>)>> {
         let mut out = vec![];
         for a in &e.opening_element.attributes {
-            let JSXAttributeItem::Attribute(a) = a else {
-                return self.fail(
-                    e.span,
-                    if component {
-                        "Spread component inputs must be made explicit."
-                    } else {
-                        "Attribute spreads are unsupported; declare the attributes explicitly."
-                    },
-                );
+            let a = match a {
+                JSXAttributeItem::Attribute(a) => a,
+                JSXAttributeItem::SpreadAttribute(a) => {
+                    out.push((String::new(), Attr::Spread(&a.argument)));
+                    continue;
+                }
             };
             let JSXAttributeName::Identifier(n) = &a.name else {
                 return self.fail(
@@ -1726,18 +1808,19 @@ impl<'a, 's> Lower<'a, 's> {
 }
 enum Attr<'a> {
     Expr(&'a Expression<'a>),
+    Spread(&'a Expression<'a>),
     Static(String),
 }
 impl<'a> Attr<'a> {
     fn expr(&self) -> Option<&'a Expression<'a>> {
         match self {
-            Self::Expr(e) => Some(e),
+            Self::Expr(e) | Self::Spread(e) => Some(e),
             _ => None,
         }
     }
     fn rewrite(&self, c: &Lower<'a, '_>, env: &Env<'a>) -> String {
         match self {
-            Self::Expr(e) => c.rewrite(e, env),
+            Self::Expr(e) | Self::Spread(e) => c.rewrite(e, env),
             Self::Static(s) => s.clone(),
         }
     }

@@ -153,9 +153,28 @@ impl<'a, 's> Index<'a, 's> {
             .get()
             .and_then(|id| self.scoping.get_reference(id).symbol_id())
     }
+    // Direct callback properties in JSX spread literals have the same boundary as
+    // explicit attributes. Nested objects and eagerly invoked factories do not.
+    fn spread_callback(&self, event_only: bool) -> Option<&'a ArrowFunctionExpression<'a>> {
+        self.parents.iter().enumerate().rev().find_map(|(position, node)| {
+            let AstKind::ObjectProperty(property) = node else { return None; };
+            let Expression::ArrowFunctionExpression(function) = unwrapped(&property.value) else { return None; };
+            if contains_jsx_body(&function.body) { return None; }
+            if event_only && !property.key.static_name().is_some_and(|name| name.starts_with("on") && name.chars().nth(2).is_some_and(|c| c.is_ascii_uppercase())) {
+                return None;
+            }
+            let object = self.parents[..position].iter().rev().find_map(|node| {
+                if let AstKind::ObjectExpression(object) = node { Some(object.span) } else { None }
+            })?;
+            self.parents[..position].iter().any(|node| matches!(node, AstKind::JSXSpreadAttribute(spread) if unwrapped(&spread.argument).span() == object)).then_some(&**function)
+        })
+    }
     // Only callbacks inside onX attributes execute as events. Attribute factories and
     // ordinary render callbacks still obey render-purity rules.
     fn event_handler(&self) -> Option<&'a ArrowFunctionExpression<'a>> {
+        if let Some(function) = self.spread_callback(true) {
+            return Some(function);
+        }
         let (position, attribute) =
             self.parents
                 .iter()
@@ -189,6 +208,9 @@ impl<'a, 's> Index<'a, 's> {
         })
     }
     fn callback_prop(&self) -> bool {
+        if self.spread_callback(false).is_some() {
+            return true;
+        }
         self.parents.iter().rev().find_map(|node| {
             let AstKind::JSXAttribute(attribute) = node else { return None; };
             Some(matches!(&attribute.value,

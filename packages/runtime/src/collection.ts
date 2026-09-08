@@ -102,7 +102,7 @@ function makeCollection<A>(identity: (item: A, index: number) => Identity) {
 
 export interface Collection<A> {
   from(this: void, items: readonly (A | Snapshot<A>)[]): Rows<Snapshot<A>>;
-  share<B extends A | Snapshot<A>>(this: void, previous: readonly B[], next: B[]): B[];
+  share<B extends A | Snapshot<A>>(this: void, previous: B[], next: B[]): B[];
   share<B extends A | Snapshot<A>>(
     this: void,
     previous: readonly B[],

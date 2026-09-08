@@ -19,6 +19,37 @@ Declare list identity once with `collection`/`entities`, or explicitly choose po
 
 Keep unchanged branches by reference. Construct a new array for an insertion and a new object for an edited row; return the existing model for a no-op. `Snapshot<Model>` makes published nested data readonly. Development snapshot checks also catch mutation through retained references and untyped code.
 
+## Compose views with explicit ownership
+
+Ordinary component attributes are always ordinary props, including fields named `model` and `send`. To bind a reducer view to a model and dispatcher, import `ViewBinding`:
+
+```tsx
+import { view, ViewBinding } from 'effectweb';
+const Counter = view<number, 'Increment'>((count, send) => (
+  <button onClick={() => send('Increment')}>{count}</button>
+));
+const Panel = view<{ count: number }, 'Increment'>((model, send) => (
+  <ViewBinding view={Counter} model={model.count} send={send} />
+));
+```
+
+Migration: replace `<Counter model={count} send={send} />` with `<ViewBinding view={Counter} model={count} send={send} />` when you intend reducer dispatch. `ViewBinding` resolves by import identity, so aliases work. Its `view` must be a named compiled view; use conditional JSX to choose between definitions.
+
+Readonly prop and attribute objects can be forwarded with JSX spreads. Later values overwrite earlier values with the same name; explicit JSX children override a spread's `children` prop on a component.
+
+```tsx
+const Label = view<{ text: string; title?: string }>((props) => (
+  <b title={props.title}>{props.text}</b>
+));
+const Wrapper = view<{ label: { text: string; title?: string } }>((model) => (
+  <Label {...model.label} title="Details" />
+));
+```
+
+Intrinsic spreads reconcile removed attributes, event handlers, controlled inputs, and `use` hosts. Supply immutable records; replace a record to change its contents. Hosts and event requests are disposed when removed or replaced, and all bindings are disposed on unmount. Keep intrinsic children in JSX. `key`, `ref`, and `innerHTML` remain unsupported inside spreads as they are outside spreads; use collections for row identity and DOM hosts for integrations.
+
+Use `const` for render locals, and declare values before helpers that capture them. The compiler currently rejects `let` and forward local captures even when a particular program is pure. Model destructuring and ordinary discriminated-union narrowing are supported; accessor aliases and casts are unnecessary for those cases. Use a named compiled child view for recursive markup instead of a recursively expanded local JSX helper.
+
 ## Grow local fields into domain actions
 
 A filter toggle or temporary panel can use `localComponent`: `init` returns its fields, and the view sends patches. Its `props` field is owned by the parent.
@@ -55,7 +86,7 @@ const Editor = defineTasks({ init: (props: Props) => ({ draft: props.text }) })
 
 `saveText` returns an Effect. Render the task's `AsyncResult` through `AsyncContent` or an explicit result branch. Use the task's entity identity to reset work when a different document becomes the component input. The older single-task `taskComponent` remains a compatibility API; start new multi-operation editors with the builder.
 
-Choose concurrency from the operation's meaning: replace obsolete reads, drop repeated submissions while busy, queue every accepted write, or finish the active write and retain only the newest pending save with `latest-queued`. A request captures its arguments when accepted; use an Effect to defer execution, not to accidentally reread a mutable UI variable later. Cancellation cannot undo a write already accepted by a server.
+Choose concurrency from the operation's meaning: replace obsolete reads, drop repeated submissions while busy, queue every accepted write, or finish the active write and retain only the newest pending save with `latest-queued`. A request captures argument values when accepted using ordinary JavaScript reference semantics: object arguments are not cloned. Submit an immutable snapshot or create owned request data at the event boundary, for example `save({ text: draft.text, tags: [...draft.tags] })`. Later draft edits then cannot alter that queued request. Use an Effect to defer execution, not to reread mutable UI variables later. Service instances remain references and are never automatically deep-cloned. Cancellation cannot undo a write already accepted by a server.
 
 When completion must update several domain facts—for example, close a dialog, add an item, and select it—move that operation into a `component`/`program` transition. Keep the view and service Effect, and represent completion as a domain message.
 
@@ -122,3 +153,11 @@ Return request outcomes through the current owner's reducer. Give each load an i
 If a loader and a live stream both update the same collection, cancellation alone is insufficient. Keep the intervening domain changes for the lifetime of the load, then apply them to its result using the same reducer that handles live updates. Replay deletions as well as upserts so a late result cannot resurrect a deleted item. Release those changes on completion, cancellation, owner disposal, or selection change. This reconciliation belongs to the collection's owner, not to each view or caller.
 
 EffectWeb's command slots prevent canceled or superseded commands from publishing stale completions. They do not infer the meaning of an application's independently produced snapshots. The dependency inspector can show whether the view updated correctly; a stale data overwrite must be fixed at the publishing owner.
+
+## Sharing and composing independent sessions
+
+`collection.share(previous, next)` may return `previous` or reuse its elements. A readonly previous array therefore produces a readonly result even when `next` is mutable. Mutable overloads require both input arrays to be mutable. Borrow that result as readonly; construct a new array for edits, and copy nested values only where you own a mutation. LocalChat's reconciliation helper follows this contract.
+
+Structural sharing operates on immutable plain data. Accessors, class instances, hidden fields, and cycles retain the next value's identity. Sharing never invokes getters; do not use mutable getters as reactive dependencies. Identity-pair caches assume their inputs remain immutable.
+
+When an application combines several independently owned sessions, give one local boundary responsibility for subscription, invalidation, batching, projection, and disposal. TeleVecha's `projectionPublication` helper is an example: changes during refresh or listener notification schedule another publication, and disposal cancels pending work. Domain reconciliation stays in the controller. Keep this composition local until another application demonstrates the same lifecycle and ordering needs; `sessionGroup` alone does not publish a combined model.

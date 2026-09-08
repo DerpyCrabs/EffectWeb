@@ -23,7 +23,7 @@ function cyclic(value: object, active: Set<object>): boolean {
 /** Override sharing for selected fields, for example a collection keyed by domain identity. */
 export type ShareFields<T> = { readonly [K in keyof T]?: (previous: T[K], next: T[K]) => T[K] };
 
-/** Share plain data; opaque objects, hidden fields and cyclic graphs retain next's identity. */
+/** Share immutable plain data; opaque objects, accessors, hidden fields and cycles retain next. */
 export function shareValue<T>(previous: T, next: T, fields?: ShareFields<T>): T {
   if (Object.is(previous, next)) return previous;
   // Check the entire next graph, including new branches with no previous counterpart.
@@ -54,7 +54,9 @@ function share<T>(previous: T, next: T, fields: ShareFields<T> | undefined): T {
   const extra = array ? 1 : 0; // Array length is nonenumerable.
   if (
     Reflect.ownKeys(next).length !== keys.length + extra ||
-    Reflect.ownKeys(previous).length !== oldKeys.length + extra
+    Reflect.ownKeys(previous).length !== oldKeys.length + extra ||
+    keys.some((key) => !Object.hasOwn(Object.getOwnPropertyDescriptor(next, key)!, 'value')) ||
+    oldKeys.some((key) => !Object.hasOwn(Object.getOwnPropertyDescriptor(previous, key)!, 'value'))
   )
     return next;
   let equal = keys.length === oldKeys.length && (!array || value.length === old.length);

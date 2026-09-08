@@ -27,7 +27,6 @@ function run(command, args, cwd = root) {
   if (result.status !== 0)
     throw new Error(`${command} failed with ${result.status}`, { cause: result.error });
 }
-run(process.execPath, ['scripts/stage-native.mjs']);
 run(process.execPath, ['scripts/pack-release.mjs', '--local']);
 const temp = mkdtempSync(join(tmpdir(), 'effectweb-consumer-'));
 const version = JSON.parse(readFileSync('packages/runtime/package.json', 'utf8')).version;
@@ -65,6 +64,28 @@ run(
 assert.equal(
   realpathSync(join(temp, 'node_modules/effectweb')),
   join(temp, 'node_modules/effectweb'),
+);
+assert.deepEqual(
+  readFileSync(join(temp, 'node_modules', native, 'compiler.node')),
+  readFileSync('packages/compiler/native/effectweb-compiler.node'),
+  'Local packages must contain the compiler built from this checkout',
+);
+const { compile } = await import(
+  pathToFileURL(join(temp, 'node_modules/@effectweb/compiler/dist/index.js')).href
+);
+const bindingProbe = compile(
+  `import {view, ViewBinding} from 'effectweb'; const Child=view(p=><b>{p}</b>); const Parent=view((p,send)=><ViewBinding view={Child} model={p} send={send}/>);`,
+  'binding.tsx',
+).code;
+assert.ok(
+  !bindingProbe.includes(', ViewBinding,'),
+  'The packaged compiler must lower explicit view bindings',
+);
+assert.ok(
+  compile(
+    `import {view} from 'effectweb'; const V=view(p=><button {...p}/>);`,
+    'spread.tsx',
+  ).code.includes('.bindAttributes('),
 );
 for (const name of ['effectweb', '@effectweb/compiler', '@effectweb/lucide']) {
   const directory = join(temp, 'node_modules', name);
@@ -127,6 +148,8 @@ import { available, defineTasks, mountView, program, uiRuntime, view, type JSX }
 import { Camera } from '@effectweb/lucide';
 import AlarmCheck from '@effectweb/lucide/icons/alarm-check';
 import type { IconName } from '@effectweb/lucide/dynamic';
+import { mountAuthoring } from './authoringFixture';
+Object.assign(window, { mountAuthoring });
 const name: IconName = 'camera';
 // @ts-expect-error Unknown icon names must fail at compile time.
 const badName: IconName = 'not-a-lucide-icon';
@@ -145,6 +168,10 @@ const source = program<{}, never>({ initial: {}, update: model => ({ model }) })
 document.documentElement.dataset.snapshotFrozen = String(Object.isFrozen(source.model()));
 mountView(document.getElementById('app')!, Counter, source);
 `,
+);
+writeFileSync(
+  join(temp, 'authoringFixture.tsx'),
+  readFileSync('tests/fixtures/authoringFixture.tsx'),
 );
 writeFileSync(
   join(temp, '.oxlintrc.json'),
@@ -253,6 +280,40 @@ try {
     await page.evaluate(() => window.originalCamera === document.querySelector('.lucide-camera')),
     true,
   );
+  const authoring = await page.evaluate(async () => {
+    const host = document.createElement('section');
+    document.body.append(host);
+    const fixture = window.mountAuthoring(host);
+    await new Promise((done) => setTimeout(done, 0));
+    const button = host.querySelector('[data-spread]');
+    const before = [...host.querySelectorAll('[data-ordinary]')].map((node) => node.textContent);
+    button.click();
+    fixture.replace();
+    await new Promise((done) => setTimeout(done, 0));
+    button.click();
+    host.querySelector('[data-dispatched]').click();
+    host.querySelector('[data-inline]').click();
+    const result = {
+      before,
+      after: [...host.querySelectorAll('[data-ordinary]')].map((node) => node.textContent),
+      selected: fixture.source.model().selected,
+      inline: host.querySelector('[data-inline]').getAttribute('data-clicked'),
+      sameNode: button === host.querySelector('[data-spread]'),
+    };
+    fixture.dispose();
+    button.click();
+    host.remove();
+    return { ...result, clicks: fixture.clicks, hosts: fixture.hosts };
+  });
+  assert.deepEqual(authoring, {
+    before: ['first:', 'child:explicit'],
+    after: ['second:', 'changed child:explicit'],
+    selected: 'second',
+    inline: 'second',
+    sameNode: true,
+    clicks: ['old', 'new'],
+    hosts: ['start:old', 'stop:old', 'start:new', 'stop:new'],
+  });
   assert.deepEqual(errors, []);
 } finally {
   await browser?.close();

@@ -414,3 +414,27 @@ it('latest-queued replaces pending work submitted by a synchronous completion su
   expect(source.model()).toBe('newest');
   source.dispose();
 });
+
+it('captures queued argument references and lets callers submit an owned immutable value', async () => {
+  const owner = modelOwner({});
+  const gate = controlledEffect<void>();
+  const seen: string[] = [];
+  const tasks = defineTasks(owner, {
+    save: {
+      policy: 'queue',
+      run: (input: { text: string }) =>
+        Effect.sync(() => {
+          seen.push(input.text);
+        }),
+    },
+  });
+  owner.run('save', gate.effect, 'queue');
+  const draft = { text: 'accepted' };
+  tasks.save({ ...draft });
+  tasks.save(draft);
+  draft.text = 'edited later';
+  gate.succeed(undefined);
+  await owner.awaitIdle();
+  expect(seen).toEqual(['accepted', 'edited later']);
+  owner.dispose();
+});

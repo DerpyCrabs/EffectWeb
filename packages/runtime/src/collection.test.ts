@@ -1,5 +1,32 @@
 import { expect, it } from 'vitest';
 import { entities } from './collection.js';
+import { collection } from './collection.js';
+import { program } from './program.js';
+
+it.each([false, true])(
+  'shares published arrays without changing ownership (checks=%s)',
+  (checkSnapshots) => {
+    const source = program({
+      initial: { items: [{ id: 1, tags: ['x'] }] },
+      checkSnapshots,
+      update: (model) => ({ model }),
+    });
+    try {
+      const rows = collection<{ id: number; tags: string[] }>((item) => item.id);
+      let notifications = 0;
+      source.subscribe(() => notifications++);
+      const result = rows.share(source.model().items, [{ id: 1, tags: ['x'] }]);
+      expect(result).toBe(source.model().items);
+      const inserted = rows.share(result, [...result, { id: 2, tags: [] }]);
+      expect(inserted).toHaveLength(2);
+      expect(inserted[0]).toBe(result[0]);
+      expect(source.model().items).toHaveLength(1);
+      expect(notifications).toBe(0);
+    } finally {
+      source.dispose();
+    }
+  },
+);
 
 it('keeps entity identity through reorder, filtering and immutable revisions', () => {
   const a = { id: 'a', title: 'A' },

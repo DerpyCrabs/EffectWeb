@@ -55,6 +55,7 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
     }
     let mut markers = HashSet::new();
     let mut slot_markers = HashSet::new();
+    let mut binding_markers = HashSet::new();
     let mut query_markers = HashSet::new();
     let mut host_callbacks = std::collections::HashMap::new();
     let mut runtime = options.runtime_module.clone();
@@ -101,6 +102,11 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                     {
                         slot_markers.insert(s.local.symbol_id.get().unwrap());
                     }
+                    if s.imported.name() == "ViewBinding"
+                        && options.import_source.as_deref() == Some(import.source.value.as_str())
+                    {
+                        binding_markers.insert(s.local.symbol_id.get().unwrap());
+                    }
                     if view
                         && options.import_source.as_deref() == Some(import.source.value.as_str())
                     {
@@ -145,6 +151,7 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
     }
     let mut compiler = lower::Lower::new(source, filename, &index, &options);
     compiler.slot_markers = slot_markers;
+    compiler.binding_markers = binding_markers;
     for call in &index.calls {
         if let Expression::Identifier(id) = &call.callee
             && index

@@ -1,6 +1,32 @@
 import { expect, it } from 'vitest';
 import { shareValue } from './share.js';
 
+it('treats accessors as opaque without executing getters or replacing descriptors', () => {
+  let reads = 0;
+  const accessor = () =>
+    Object.defineProperty({}, 'value', {
+      enumerable: true,
+      get() {
+        reads++;
+        throw new Error('must not read');
+      },
+    });
+  const old = accessor();
+  const next = accessor();
+  expect(shareValue(old, next)).toBe(next);
+  expect(shareValue(old, { value: 1 })).toEqual({ value: 1 });
+  expect(shareValue({ value: 1 }, next)).toBe(next);
+  expect(shareValue({ child: old }, { child: next }).child).toBe(next);
+  const array = Object.defineProperty([1], '0', {
+    get() {
+      reads++;
+      return 1;
+    },
+  });
+  expect(shareValue([1], array)).toBe(array);
+  expect(reads).toBe(0);
+});
+
 it('preserves own __proto__ data while reusing unchanged nested values', () => {
   const previous = JSON.parse('{"data":{"x":1},"__proto__":{"admin":false}}');
   const next = JSON.parse('{"data":{"x":1},"__proto__":{"admin":true}}');

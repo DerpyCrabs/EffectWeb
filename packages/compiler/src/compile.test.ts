@@ -177,7 +177,6 @@ describe('snapshot JSX compiler contract', () => {
 
   it.each([
     [`view((model, send) => { let x = model.x; return <p>{x}</p>; })`, 'Mutable capture'],
-    [`view((model, send) => <p {...model} />)`, 'spreads'],
     [`view((model, send) => <p key={model.id} />)`, 'Identity belongs'],
     [`view((model, send) => <button onClick={async () => send(await load())} />)`, 'commands'],
     [`view((model, send) => { const x = model.count++; return <p>{x}</p>; })`, 'mutate'],
@@ -511,4 +510,58 @@ it('serializes static label associations as native for attributes', () => {
   );
   expect(code).toContain('for=\\"name\\"');
   expect(code).not.toContain('htmlFor=');
+});
+
+it('keeps model and send as ordinary props unless ViewBinding is explicitly imported', () => {
+  const ordinary = compile(
+    `const Child=view(p=><b>{p.model}</b>); view(p=><Child model={p.name} send={p.submit}/>);`,
+  );
+  expect(ordinary).toContain('"model":');
+  expect(ordinary).toContain('"send":');
+  const explicit = compile(
+    `import {ViewBinding as Bind} from 'effectweb'; const Child=view((p,send)=><button onClick={()=>send(p)}>Go</button>); view((p,send)=><Bind view={Child} model={p} send={send}/>);`,
+  );
+  expect(explicit).toContain('.child(');
+  expect(explicit).not.toContain('"view":');
+  expect(
+    compile(
+      `const ViewBinding=view(p=><b>{p.model}</b>); view(p=><ViewBinding model={p.name} send={p.submit}/>);`,
+    ),
+  ).toContain('"model":');
+});
+
+it.each([
+  `view(p=><Bind model={p} send={()=>{}}/>);`,
+  `view(p=><Bind view={p.child} model={p} send={()=>{}}/>);`,
+  `view(p=><Bind view={Child} model={p} send={()=>{}}>text</Bind>);`,
+  `view(p=><Bind {...p}/>);`,
+])('rejects ambiguous or dynamic explicit bindings: %s', (source) => {
+  expect(() =>
+    compile(`import {ViewBinding as Bind} from 'effectweb'; const Child=view(p=><b/>); ${source}`),
+  ).toThrow(/ViewBinding/u);
+});
+
+it('lowers ordered component and intrinsic spreads with snapshot dependencies', () => {
+  const code = compile(
+    `const Child=view(p=><b>{p.text}</b>); view(p=><div><Child text="before" {...p.child} text="after"/><button {...p.attrs} title={p.title}>Click</button></div>);`,
+  );
+  expect(code).toContain('.bindAttributes(');
+  expect(code).toContain('...(');
+  expect(code).toContain('?.attrs');
+  expect(code).toContain('?.child');
+});
+
+it('keeps direct spread event callbacks deferred and checks eager spread expressions', () => {
+  expect(compile(`view(p=><button {...{onClick:()=>window.alert(p.label)}}/>);`)).toContain(
+    '.bindAttributes(',
+  );
+  expect(
+    compile(`view(p=><input {...{onInput:(event)=>{event.currentTarget.value='';}}}/>);`),
+  ).toContain('.bindAttributes(');
+  for (const expression of [
+    `{onClick:(()=>window.alert('eager'))()}`,
+    `{onClick:make(window.innerWidth)}`,
+    `{style:{onClick:()=>window.alert('nested')}}`,
+  ])
+    expect(() => compile(`view(p=><button {...${expression}}/>);`)).toThrow(/Read window/u);
 });

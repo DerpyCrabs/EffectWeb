@@ -14,6 +14,7 @@ import {
   taskComponent,
   taskControls,
   view,
+  ViewBinding,
   type Snapshot,
 } from './index.js';
 
@@ -26,7 +27,9 @@ export function snapshotComposition(props: Snapshot<Props>) {
   const Child = view<Props>((model) => model.items[0]?.name);
   view<Props>((model) => {
     Child({ items: model.items });
-    Child({ model, send: () => {} });
+    ViewBinding({ view: Child, model, send: () => {} });
+    // @ts-expect-error An explicit binding must supply the child model's shape.
+    ViewBinding({ view: Child, model: { title: 'wrong model' }, send: () => {} });
     const content = slot<Props>((value) => {
       // @ts-expect-error Slot placement data is a snapshot too.
       value.items[0]!.tags.push('bad');
@@ -75,6 +78,15 @@ export function snapshotComposition(props: Snapshot<Props>) {
   });
   const source = program<Props, never>({ initial: props, update: (model) => ({ model }) });
   source.dispose();
+}
+
+export function explicitViewBindings() {
+  const Child = view<number, 'Increment'>((count) => count);
+  ViewBinding({ view: Child, model: 1, send: (_message: 'Increment') => {} });
+  // @ts-expect-error Dispatchers must accept the child's messages.
+  ViewBinding({ view: Child, model: 1, send: (_message: 'Other') => {} });
+  const Ordinary = view<{ model: string; send: () => void }>((props) => props.model);
+  Ordinary({ model: 'ordinary prop', send: () => {} });
 }
 
 export function taskSnapshotBoundaries(props: Snapshot<Props>) {
@@ -174,6 +186,13 @@ export function collectionSnapshotBoundaries(
     });
   rows.from([{ id: 'new', name: 'New', tags: [] }]);
   rows.share(model.items, model.items);
+  const shared = rows.share(model.items, [{ id: 'new', name: 'New', tags: [] }]);
+  // @ts-expect-error Sharing may return the published readonly array.
+  shared.push({ id: 'bad', name: 'Bad', tags: [] });
+  // @ts-expect-error Sharing may reuse a published item's nested array.
+  shared[0]!.tags.push('bad');
+  const owned = rows.share([{ id: 'a', name: 'A', tags: ['a'] }], []);
+  owned.push({ id: 'b', name: 'B', tags: [] });
   entities(model.items).map((item) => {
     // @ts-expect-error Entity helpers preserve readonly access.
     item.tags.sort();
