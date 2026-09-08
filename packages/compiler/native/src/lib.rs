@@ -56,15 +56,32 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
     let mut markers = HashSet::new();
     let mut slot_markers = HashSet::new();
     let mut query_markers = HashSet::new();
+    let mut host_callbacks = std::collections::HashMap::new();
     let mut runtime = options.runtime_module.clone();
     for statement in &program.body {
         if let Statement::ImportDeclaration(import) = statement
             && options.import_source.as_deref().is_some_and(|source| {
-                import.source.value == source || import.source.value == format!("{source}/query")
+                import.source.value == source
+                    || import.source.value == format!("{source}/query")
+                    || import.source.value == format!("{source}/mount")
             })
         {
             for specifier in import.specifiers.iter().flatten() {
                 if let ImportDeclarationSpecifier::ImportSpecifier(s) = specifier {
+                    if options.import_source.as_deref().is_some_and(|source| {
+                        import.source.value == source
+                            || import.source.value == format!("{source}/mount")
+                    }) {
+                        let name = s.imported.name();
+                        let argument = match name.as_str() {
+                            "domMount" => Some(0),
+                            "domBinding" => Some(1),
+                            _ => None,
+                        };
+                        if let Some(argument) = argument {
+                            host_callbacks.insert(s.local.symbol_id.get().unwrap(), argument);
+                        }
+                    }
                     let view = match &s.imported {
                         ModuleExportName::IdentifierName(n) => n.name == "view",
                         ModuleExportName::StringLiteral(n) => n.value == "view",
@@ -103,6 +120,7 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
         .map_err(|e| e.to_string());
     }
     let mut index = analysis::Index::new(semantic.semantic.scoping());
+    index.host_callbacks = host_callbacks;
     index.visit_program(&program);
     index.refs.sort_by_key(|r| r.span.start);
     index.calls.sort_by_key(|c| c.span.start);

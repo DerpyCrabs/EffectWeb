@@ -55,9 +55,11 @@ pub struct Reference {
     pub safe_date: bool,
     pub in_event: bool,
     pub in_action: bool,
+    pub in_host: bool,
 }
 pub struct Index<'a, 's> {
     pub scoping: &'s Scoping,
+    pub host_callbacks: HashMap<SymbolId, usize>,
     pub refs: Vec<Reference>,
     pub calls: Vec<&'a CallExpression<'a>>,
     pub bindings: Vec<(Span, SymbolId, String)>,
@@ -76,6 +78,7 @@ impl<'a, 's> Index<'a, 's> {
     pub fn new(scoping: &'s Scoping) -> Self {
         Self {
             scoping,
+            host_callbacks: HashMap::new(),
             refs: vec![],
             calls: vec![],
             bindings: vec![],
@@ -145,6 +148,39 @@ impl<'a, 's> Index<'a, 's> {
                     if matches!(container.expression.as_expression(),
                         Some(Expression::ArrowFunctionExpression(function)) if !contains_jsx_body(&function.body))))
         }).unwrap_or(false)
+    }
+    // Only the literal acquisition callback is deferred. Factories producing it,
+    // domBinding data, and runtime arguments are evaluated during rendering.
+    fn host_callback(&self) -> bool {
+        self.parents.iter().any(|node| {
+            let AstKind::CallExpression(call) = node else {
+                return false;
+            };
+            let Expression::Identifier(callee) = unwrapped(&call.callee) else {
+                return false;
+            };
+            let Some(argument) = self
+                .symbol(callee)
+                .and_then(|id| self.host_callbacks.get(&id))
+            else {
+                return false;
+            };
+            let Some(callback) = call
+                .arguments
+                .get(*argument)
+                .and_then(|argument| argument.as_expression())
+            else {
+                return false;
+            };
+            let callback = unwrapped(callback);
+            matches!(
+                callback,
+                Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+            ) && self
+                .parents
+                .iter()
+                .any(|parent| parent.span() == callback.span())
+        })
     }
     fn event_dom_node(&self, expression: &Expression<'a>) -> bool {
         let Some(handler) = self.event_handler() else {
@@ -326,7 +362,10 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                     label,
                     safe_date,
                     in_event: self.event_handler().is_some(),
-                    in_action: self.event_handler().is_some() || self.callback_prop(),
+                    in_action: self.event_handler().is_some()
+                        || self.callback_prop()
+                        || self.host_callback(),
+                    in_host: self.host_callback(),
                 });
             }
             AstKind::BindingIdentifier(id) => {
@@ -337,7 +376,9 @@ impl<'a> Visit<'a> for Index<'a, '_> {
             AstKind::CallExpression(call) => {
                 self.calls.push(call);
                 if let Some((receiver, method)) = method(&call.callee) {
-                    let action = self.event_handler().is_some() || self.callback_prop();
+                    let action = self.event_handler().is_some()
+                        || self.callback_prop()
+                        || self.host_callback();
                     // Mutating a freshly allocated array cannot change a borrowed snapshot.
                     // Named locals and method results need alias analysis; keep those checked.
                     let fresh_array = ARRAY_MUTATORS.contains(&method)

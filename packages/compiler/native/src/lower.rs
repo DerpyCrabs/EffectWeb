@@ -619,6 +619,9 @@ impl<'a, 's> Lower<'a, 's> {
             }
         }
         for r in self.index.references(f.span) {
+            if r.in_host {
+                continue;
+            }
             if let Some(id) = r.symbol {
                 let flags = self.index.scoping.symbol_flags(id);
                 let declaration = self.index.scoping.symbol_span(id);

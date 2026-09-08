@@ -16,6 +16,48 @@ it.each([
 });
 
 it.each([
+  `let observer; const observe=()=>{observer=window.innerWidth;return ()=>{};}; const mount=()=>domMount(()=>observe()); view(model=><div use={mount()}/>);`,
+  `const mount=()=>domMount(element=>{const width=document.documentElement.clientWidth;element.style.width=width+'px';return ()=>{};}); view(model=><div use={mount()}/>);`,
+  `const mount=()=>domMount(element=>Effect.gen(function*(){let visible=true;const motion=window.matchMedia('screen');visible=false;yield* Effect.never;})); view(model=><div use={mount()}/>);`,
+  `const mount=()=>domBinding('input',()=>{consume(Math.random(),localStorage.getItem('key'));return ()=>{};}); view(model=><div use={mount()}/>);`,
+  `view(model=><div use={domMount(()=>consume(window.innerWidth))}/>);`,
+])('keeps DOM host callback work deferred through render helpers: %s', (source) => {
+  expect(compile(`import { domMount, domBinding } from 'effectweb'; ${source}`)).toContain(
+    '.compiled(',
+  );
+});
+
+it('recognizes aliased host imports and the mount subpath', () => {
+  expect(
+    compile(
+      `import { domMount as mount } from 'effectweb/mount'; const host=()=>mount(function(){consume(document.title);return ()=>{};}); view(model=><div use={host()}/>);`,
+    ),
+  ).toContain('.compiled(');
+});
+
+it.each([
+  `const mount=()=>domMount(make(window.innerWidth)); view(model=><div use={mount()}/>);`,
+  `const mount=()=>domBinding(document.title,()=>{}); view(model=><div use={mount()}/>);`,
+  `const mount=()=>domMount(()=>{},window.runtime); view(model=><div use={mount()}/>);`,
+  `const mount=()=>domMount((()=>{consume(document.title);return ()=>{};})()); view(model=><div use={mount()}/>);`,
+  `function mount(domMount){return domMount(()=>document.title);} view(model=><div use={mount(model.factory)}/>);`,
+  `const mount=()=>{const title=document.title;return domMount(()=>consume(title));}; view(model=><div use={mount()}/>);`,
+  `const mount=()=>{consume(Math.random());return domMount(()=>{});}; view(model=><div use={mount()}/>);`,
+])('still checks work executed while creating a DOM host: %s', (source) => {
+  expect(() => compile(`import { domMount, domBinding } from 'effectweb'; ${source}`)).toThrow(
+    /Read window|Read document|randomness/u,
+  );
+});
+
+it('keeps borrowed model mutations rejected inside DOM host callbacks', () => {
+  expect(() =>
+    compile(
+      `import { domMount } from 'effectweb'; view(model=><div use={domMount(()=>{model.items.push(1);})}/>);`,
+    ),
+  ).toThrow(/mutating method/u);
+});
+
+it.each([
   `view(model=><button onClick={()=>{model.items.push(1);}}/>);`,
   `view(model=>{const items=model.items;return <button onClick={()=>{items.reverse();}}/>;});`,
   `view(({items})=><button onClick={()=>{items.splice(0,1);}}/>);`,
