@@ -11,7 +11,7 @@ type Model = { items: { text: string; tags: string[] }[]; selected: number };
 
 export function publishedSnapshotTypes() {
   const actions = defineActions<Model>()({
-    Rename: (model, text: string): Transition<Model, unknown> => ({
+    Rename: (model, text: string): Transition<Model, never> => ({
       model: { ...model, items: model.items.map((item) => ({ ...item, text })) },
     }),
     Keep: (model) => ({ model }),
@@ -79,4 +79,19 @@ export function opaqueAndResultTypes(
   model.map.get('x')!.count++;
   // @ts-expect-error Tuple elements retain recursive protection.
   model.tuple[1].values.push(1);
+}
+
+export function rootAndOptionalResourceTypes(
+  callback: Snapshot<(value: string) => number>,
+  effect: Snapshot<Effect.Effect<number>>,
+  map: Snapshot<Map<string, { count: number }>>,
+  model: Snapshot<{ service?: Service; callback?: (value: string) => number }>,
+) {
+  callback('callable root');
+  Effect.runSync(effect);
+  const service: Service | undefined = model.service;
+  service?.increment();
+  model.callback?.('callable optional field');
+  // @ts-expect-error Root containers have the same readonly contract as nested ones.
+  map.set('x', { count: 1 });
 }

@@ -15,7 +15,10 @@ export interface TaskDefinition<Model, Input, A, E, R = never> {
   readonly identity?: (model: Snapshot<Model>) => unknown;
 }
 type Definitions<Model, R> = Record<string, TaskDefinition<Model, never, unknown, unknown, R>>;
-type AnyDefinitions = Definitions<never, unknown>;
+type AnyDefinitions = Record<
+  string,
+  { readonly run: (...args: never[]) => Effect.Effect<unknown, unknown, unknown> }
+>;
 type Input<T extends AnyDefinitions[string]> =
   Parameters<T['run']> extends [unknown, infer I, ...unknown[]] ? I : void;
 export type TaskResults<T extends AnyDefinitions> = {
@@ -121,7 +124,13 @@ function taskBuilder<Props, State extends object, R>(
         const cancel: string[] = [];
         for (const name of names) {
           const identity = definitions[name]!.identity;
-          if (identity && !Object.is(identity(before), identity(model))) {
+          if (
+            identity &&
+            !Object.is(
+              identity(before as unknown as Snapshot<Base>),
+              identity(model as unknown as Snapshot<Base>),
+            )
+          ) {
             model = withResult(model, name, AsyncResult.initial());
             cancel.push(slot(name));
           }
@@ -133,7 +142,9 @@ function taskBuilder<Props, State extends object, R>(
         const source: RunningProgram<Model, Internal> = program<Model, Internal>({
           initial: init(props),
           ...(definition.name ? { name: definition.name } : {}),
-          update: (model, message) => {
+          update: (snapshot, message) => {
+            // Internal immutable reconstruction retains the declared domain types.
+            const model = snapshot as Model;
             switch (message.type) {
               case 'Input':
                 if (
@@ -159,7 +170,10 @@ function taskBuilder<Props, State extends object, R>(
                     {
                       ...effectCommand(
                         slot(message.task),
-                        () => runtime.provide(task.run(model, message.input as never)),
+                        () =>
+                          runtime.provide(
+                            task.run(snapshot as unknown as Snapshot<Base>, message.input as never),
+                          ),
                         {
                           onSuccess: (value): Internal => ({
                             type: 'Settled',

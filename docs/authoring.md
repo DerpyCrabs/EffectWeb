@@ -72,3 +72,34 @@ Use `modelOwner` for imperative callbacks from a transport, browser API, or appl
 Server reads belong in a `query` whose key includes every request input that changes the response: tenant, account, entity ID, filters, locale, and page cursor as appropriate. Structured keys avoid manual delimiter construction. Share a cache within its intended application/session scope; dispose or replace that scope when the signed-in identity changes. A cache is not an authorization boundary, persistent database, or multi-tab coordinator.
 
 If a field is missing a refresh, inspect the binding's source, dependency labels, and last invalidation reason. Fix the missing input or mutation at its owner. An unconditional repaint can conceal the dependency error while leaving other consumers stale.
+
+## Readonly data and external resources
+
+`Snapshot<T>` protects records, nested arrays and tuples, and map/set views recursively. It also preserves readonly success data when extracting an `AsyncResult`. Reducers, view callbacks, program subscribers, owner reads, and task callbacks receive snapshots. Transitions and owner patches accept unchanged snapshot branches, so neither a no-op nor an immutable spread update needs a cast.
+
+```ts
+const actions = defineActions<{ rows: { title: string }[] }>()({
+  Rename: (model, title: string) => ({
+    model: { ...model, rows: model.rows.map((row) => ({ ...row, title })) },
+  }),
+  Keep: (model) => ({ model }),
+});
+```
+
+A helper consuming published data should accept `Snapshot<Domain>` or an already readonly domain type. A helper that really needs to mutate data must create its own copy first. Avoid casting a snapshot back to a mutable type. Development checks freeze published plain objects and arrays, including retained initial values and successful async data; production correctness still depends on immutable updates. Readonly map/set types prevent mutations through the snapshot API, but development checks do not freeze their internal storage.
+
+Functions, Effects, DOM nodes, and standard external resources keep their own API and lifecycle. TypeScript cannot infer whether an arbitrary application type is a plain record or a class instance. Mark a service class explicitly when its complete instance type must survive snapshot publication:
+
+```ts
+import type { SnapshotOpaque, snapshotOpaque } from 'effectweb';
+
+class Transport implements SnapshotOpaque {
+  declare readonly [snapshotOpaque]?: true;
+  private connected = false;
+  connect() {
+    this.connected = true;
+  }
+}
+```
+
+This is a type-only declaration; it emits no marker or wrapper. Use it for resources whose state is owned outside the model. It neither makes mutable service internals reactive nor disables runtime protection of plain objects. Publish service observations as model data when they affect the UI.

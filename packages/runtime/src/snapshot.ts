@@ -9,10 +9,11 @@ export interface SnapshotOpaque {
 }
 
 /** Recursively immutable published data. Effects, functions and external resources retain their API. */
-export type Snapshot<T> = { readonly [K in keyof T]: ImmutableValue<T[K]> };
-type ImmutableValue<T> = typeof snapshotOpaque extends keyof T
+export type Snapshot<T> = ImmutableValue<T>;
+type SnapshotRecord<T> = { readonly [K in keyof T]: ImmutableValue<T[K]> };
+type ImmutableValue<T> = T extends (...args: never[]) => unknown
   ? T
-  : T extends (...args: never[]) => unknown
+  : typeof snapshotOpaque extends keyof T
     ? T
     : T extends AsyncResult.AsyncResult<infer A, infer E>
       ? AsyncResult.With<T, ImmutableValue<A>, E>
@@ -33,7 +34,7 @@ type ImmutableValue<T> = typeof snapshotOpaque extends keyof T
           : T extends ReadonlySet<infer A>
             ? ReadonlySet<ImmutableValue<A>>
             : T extends object
-              ? Snapshot<T>
+              ? SnapshotRecord<T>
               : T;
 
 declare const __EFFECTWEB_DEV__: boolean;

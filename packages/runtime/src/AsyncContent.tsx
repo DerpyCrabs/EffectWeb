@@ -1,4 +1,3 @@
-import type { SnapshotOpaque } from './snapshot.js';
 import { Cause, Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { component } from './component.js';
@@ -15,8 +14,7 @@ export interface AsyncContentProps<A, E> {
   refreshing?: JSX.Element;
   pendingDelay?: number;
 }
-// Compiled presentation inputs contain recursive JSX and owned slots, not model data.
-type Props = AsyncContentProps<unknown, unknown> & SnapshotOpaque;
+type Props = AsyncContentProps<unknown, unknown>;
 type Model = { props: Props; pending: boolean; visible: boolean };
 type Message = { type: 'ShowPending' };
 const implementation = component<Props, Model, Message>({

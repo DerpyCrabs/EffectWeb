@@ -58,7 +58,9 @@ export function taskComponent<Props, State extends object, Input, A, E = unknown
     create(props) {
       const source: RunningProgram<Model, Message> = runtime.program<Model, Message>({
         initial: init(props),
-        update: (model, message) => {
+        update: (snapshot, message) => {
+          // The public task receives the immutable snapshot; reconstruction stays internal.
+          const model = snapshot as Model;
           switch (message.type) {
             case 'Input':
               return definition.identity &&
@@ -81,16 +83,24 @@ export function taskComponent<Props, State extends object, Input, A, E = unknown
                 model: { ...model, task: AsyncResult.waiting(model.task) },
                 commands: [
                   {
-                    ...effectCommand('task', () => definition.task.run(model, message.input), {
-                      onSuccess: (value): Message => ({ type: 'Succeeded', value }),
-                      onFailure: (cause): Message => ({ type: 'Failed', cause }),
-                    }),
+                    ...effectCommand(
+                      'task',
+                      () =>
+                        definition.task.run(
+                          snapshot as unknown as Snapshot<State & { readonly props: Props }>,
+                          message.input,
+                        ),
+                      {
+                        onSuccess: (value): Message => ({ type: 'Succeeded', value }),
+                        onFailure: (cause): Message => ({ type: 'Failed', cause }),
+                      },
+                    ),
                     policy: definition.task.policy,
                   },
                 ],
               };
             case 'Cancel':
-              return { model: { ...model, task: AsyncResult.initial() }, cancel: ['task'] };
+              return { model: { ...model, task: AsyncResult.initial<A, E>() }, cancel: ['task'] };
             case 'Succeeded':
               return {
                 model: {

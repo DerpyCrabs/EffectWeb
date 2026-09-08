@@ -13,10 +13,10 @@ export interface DisposableOwner {
 export interface ModelOwner<Model extends object, R = never> extends DisposableOwner {
   readonly source: Program<Model, never>;
   readonly read: () => Snapshot<Model>;
-  readonly patch: (changes: Partial<Model>) => void;
+  readonly patch: (changes: Partial<Model> | Partial<Snapshot<Model>>) => void;
   readonly edit: <K extends keyof Model>(
     key: K,
-    change: (value: Snapshot<Model[K]>) => Snapshot<Model[K]>,
+    change: (value: Snapshot<Model[K]>) => Model[K] | Snapshot<Model[K]>,
   ) => void;
   /** Synchronous transaction. Reads see staged changes; a throw discards changes and work. */
   readonly transaction: <A>(
@@ -47,7 +47,7 @@ export function modelOwner<Model extends object, R>(
   options: Options & { runtime?: UiRuntime<R> } = {},
 ): ModelOwner<Model, R> {
   type Operation =
-    | { type: 'Patch'; changes: Partial<Model> }
+    | { type: 'Patch'; changes: Partial<Model> | Partial<Snapshot<Model>> }
     | { type: 'Run'; slot: string; effect: Effect.Effect<unknown, unknown, R>; policy: TaskPolicy }
     | { type: 'Cancel'; slot: string };
   type Batch = readonly Operation[];
@@ -57,13 +57,16 @@ export function modelOwner<Model extends object, R>(
   const source = program<Model, Batch>({
     initial,
     ...options,
-    update(model, operations) {
+    update(snapshot, operations) {
+      let model = snapshot as Model;
       const single = operations.length === 1 ? operations[0] : undefined;
-      if (single?.type === 'Patch') return { model: patchModel(model, single.changes) };
+      if (single?.type === 'Patch')
+        return { model: patchModel(model, single.changes as Partial<Model>) };
       const commands: Command<Batch, R>[] = [];
       const cancel = new Set<string>();
       for (const operation of operations) {
-        if (operation.type === 'Patch') model = patchModel(model, operation.changes);
+        if (operation.type === 'Patch')
+          model = patchModel(model, operation.changes as Partial<Model>);
         else if (operation.type === 'Cancel') {
           cancel.add(operation.slot);
           for (let index = commands.length - 1; index >= 0; index--)
@@ -82,19 +85,21 @@ export function modelOwner<Model extends object, R>(
       };
     },
   });
-  const read = () =>
+  const read = (): Snapshot<Model> =>
     protectSnapshot(
       staged?.model ?? source.model(),
       options.checkSnapshots ?? checkSnapshotsByDefault,
-    );
+    ) as Snapshot<Model>;
   const submit = (operation: Operation) => {
     if (disposed) return;
     if (staged) {
       staged.operations.push(operation);
-      if (operation.type === 'Patch') staged.model = patchModel(staged.model, operation.changes);
+      if (operation.type === 'Patch')
+        staged.model = patchModel(staged.model, operation.changes as Partial<Model>);
     } else source.send([operation]);
   };
-  const patch = (changes: Partial<Model>) => submit({ type: 'Patch', changes });
+  const patch = (changes: Partial<Model> | Partial<Snapshot<Model>>) =>
+    submit({ type: 'Patch', changes });
   const dispose = () => {
     if (disposed) return;
     disposed = true;
@@ -108,14 +113,16 @@ export function modelOwner<Model extends object, R>(
     edit: (key, change) => {
       if (!disposed) {
         const changes: Partial<Model> = {};
-        changes[key] = change(read()[key]) as Model[typeof key];
+        changes[key] = change(
+          (read() as Model)[key] as Snapshot<Model[typeof key]>,
+        ) as Model[typeof key];
         patch(changes);
       }
     },
     transaction(work) {
       if (disposed) throw new Error('Cannot start a transaction on a disposed model owner.');
       const parent = staged;
-      const batch = { model: read(), operations: [] as Operation[] };
+      const batch = { model: read() as Model, operations: [] as Operation[] };
       staged = batch;
       try {
         const result = work();

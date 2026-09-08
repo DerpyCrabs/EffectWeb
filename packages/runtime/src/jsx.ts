@@ -1,8 +1,11 @@
+import type { SnapshotOpaque } from './snapshot.js';
 import type { EffectEventRequest } from './effectEvent.js';
 import type { CompiledContent } from './dom.js';
 import type { DomMount } from './mount.js';
 /** JSX is a compiler input. No renderer library owns its types. */
 export namespace JSX {
+  /** Immutable compiler input; preserve this recursive presentation type through snapshots. */
+  export interface ElementArray extends ReadonlyArray<Element>, SnapshotOpaque {}
   export type Element =
     | Node
     | string
@@ -11,7 +14,7 @@ export namespace JSX {
     | null
     | undefined
     | CompiledContent
-    | readonly Element[];
+    | ElementArray;
   export type EventHandler<T, E extends Event> = (
     event: E & { currentTarget: T; target: EventTarget & globalThis.Element },
   ) => void | boolean | EffectEventRequest;
