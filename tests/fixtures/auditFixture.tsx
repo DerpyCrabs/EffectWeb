@@ -11,6 +11,25 @@ export function mountControls(parent: HTMLElement) {
         onInput={(event) => send({ text: event.currentTarget.value.trim() })}
       />
       <input aria-label="Rejected" value={model.text} onInput={() => send({ text: model.text })} />
+      <textarea
+        aria-label="Blur accepted"
+        value={model.text}
+        onBlur={(event) => send({ text: event.currentTarget.value.trim() })}
+      />
+      <textarea aria-label="Blur rejected" value={model.text} onBlur={() => {}} />
+      <div onInput={() => {}}>
+        <input aria-label="Delegated rejected" value={model.text} />
+      </div>
+      <select aria-label="Select rejected" value={model.text} onChange={() => {}}>
+        <option value="x">Original</option>
+        <option value="y">Edited</option>
+      </select>
+      <input
+        aria-label="Click rejected"
+        type="checkbox"
+        checked={model.checked}
+        onClick={() => {}}
+      />
       <input
         aria-label="Checked"
         type="checkbox"

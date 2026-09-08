@@ -385,7 +385,9 @@ export function bindAttribute<M, E>(
   });
 }
 
-/** Native edits can change a control even when dispatch publishes no new model. */
+const controlRestorations = new WeakMap<EventTarget, Set<(type: string) => void>>();
+
+/** Handled edits can change a control even when dispatch publishes no new model. */
 export function bindControl<M, E>(
   scope: Scope<M, E>,
   element: Element,
@@ -395,12 +397,18 @@ export function bindControl<M, E>(
   source?: BindingSource,
 ) {
   let composing = false;
+  let deferred = false;
   let pending: ReturnType<typeof setTimeout> | undefined;
   const apply = () => {
-    if (!composing) attribute(element, name, read());
+    if (composing) deferred = true;
+    else attribute(element, name, read());
   };
   scope.watch(dependencies, apply, source);
   const restore = () => {
+    if (composing) {
+      deferred = true;
+      return;
+    }
     if (pending !== undefined || scope.disposed) return;
     // Native dispatch may run microtasks between listeners. A task waits for all
     // handlers (including ancestors) before restoring the latest model value.
@@ -420,16 +428,24 @@ export function bindControl<M, E>(
   };
   const end = () => {
     composing = false;
-    restore();
+    if (deferred) {
+      deferred = false;
+      restore();
+    }
   };
-  element.addEventListener('input', restore);
-  element.addEventListener('change', restore);
+  const handled = (type: string) => {
+    // Clicking a text control must not commit its unfinished blur draft.
+    if (type !== 'click' || name === 'checked') restore();
+  };
+  let restorations = controlRestorations.get(element);
+  if (!restorations) controlRestorations.set(element, (restorations = new Set()));
+  restorations.add(handled);
   element.addEventListener('compositionstart', start);
   element.addEventListener('compositionend', end);
   scope.cleanups.push(() => {
     clearTimeout(pending);
-    element.removeEventListener('input', restore);
-    element.removeEventListener('change', restore);
+    restorations.delete(handled);
+    if (!restorations.size) controlRestorations.delete(element);
     element.removeEventListener('compositionstart', start);
     element.removeEventListener('compositionend', end);
   });
@@ -507,6 +523,11 @@ export function event<M, E>(
         }
       } catch (error) {
         reportSafely(scope.report, error);
+      } finally {
+        // Restore only after an application handler commits or rejects an edit.
+        // The target also covers handlers delegated to an ancestor.
+        if (event.target && ['input', 'change', 'blur', 'focusout', 'click'].includes(type))
+          for (const restore of controlRestorations.get(event.target) ?? []) restore(type);
       }
     }
   };
