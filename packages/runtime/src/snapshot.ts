@@ -14,7 +14,9 @@ type SnapshotRecord<T> = { readonly [K in keyof T]: ImmutableValue<T[K]> };
 type ImmutableValue<T> = T extends (...args: never[]) => unknown
   ? T
   : typeof snapshotOpaque extends keyof T
-    ? T
+    ? symbol extends keyof T
+      ? SnapshotRecord<T>
+      : T
     : T extends AsyncResult.AsyncResult<infer A, infer E>
       ? AsyncResult.With<T, ImmutableValue<A>, E>
       : T extends

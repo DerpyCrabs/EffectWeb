@@ -80,8 +80,8 @@ export class Scope<M, E> {
   }
 }
 export interface View<M, E> {
-  (props: M): JSX.Element;
-  (props: { model: M; send: Send<E> }): JSX.Element;
+  (props: M | Snapshot<M>): JSX.Element;
+  (props: { model: M | Snapshot<M>; send: Send<E> }): JSX.Element;
   readonly build: Build<M, E>;
 }
 
@@ -92,11 +92,11 @@ export interface CompiledContent {
 }
 /** A compiled template with a typed placement value, captured in its declaring view. */
 export interface Slot<A = void> {
-  (value: A): JSX.Element;
+  (value: A | Snapshot<A>): JSX.Element;
   readonly [contentBrand]: [A] extends [void] ? true : false;
 }
 /** Compiler marker: declare inside view(), or directly in a compiled component prop. */
-export function slot<A = void>(_render: (value: A) => JSX.Element): Slot<A> {
+export function slot<A = void>(_render: (value: Snapshot<A>) => JSX.Element): Slot<A> {
   throw new Error('EffectWeb slot reached runtime without the EffectWeb JSX compiler');
 }
 type ContentDefinition = {

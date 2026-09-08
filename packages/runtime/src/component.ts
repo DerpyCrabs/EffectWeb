@@ -8,17 +8,20 @@ import { defaultUiRuntime, type UiRuntime } from './runtime.js';
 
 /** Local fields with no command lifecycle. Sends are shallow patches, never updater callbacks. */
 export function localComponent<Props, State extends object>(definition: {
-  init: (props: Props) => State & { readonly props?: never };
-  view: View<State & { readonly props: Props }, Partial<State> & { readonly props?: never }>;
+  init: (props: Snapshot<Props>) => (State | Snapshot<State>) & { readonly props?: never };
+  view: View<
+    State & { readonly props: Props },
+    (Partial<State> | Partial<Snapshot<State>>) & { readonly props?: never }
+  >;
 }): View<Props, never> {
   return component<
     Props,
     State & { readonly props: Props },
-    Partial<State> & { readonly props?: never }
+    (Partial<State> | Partial<Snapshot<State>>) & { readonly props?: never }
   >({
-    init: (props) => ({ ...definition.init(props), props }),
+    init: (props) => ({ ...definition.init(props), props }) as State & { readonly props: Props },
     update: (model, patch) => {
-      const next = patchModel<State>(model as State, patch);
+      const next = patchModel<State>(model as State, patch as Partial<State>);
       return { model: next === model ? model : { ...next, props: model.props as Props } };
     },
     view: definition.view,
@@ -28,8 +31,8 @@ export function localComponent<Props, State extends object>(definition: {
 /** A child model receives immutable parent inputs and owns its own message/command loop. */
 export function component<Props, Model extends { readonly props: Props }, Message, R = never>(
   definition: {
-    init: (props: Props) => Model;
-    receive?: (model: Snapshot<Model>, props: Props) => Transition<Model, Message, R>;
+    init: (props: Snapshot<Props>) => Model | Snapshot<Model>;
+    receive?: (model: Snapshot<Model>, props: Snapshot<Props>) => Transition<Model, Message, R>;
     update: (model: Snapshot<Model>, message: Message) => Transition<Model, Message, R>;
     view: View<Model, Message>;
   } & ([R] extends [never] ? { runtime?: UiRuntime<R> } : { runtime: UiRuntime<R> }),
@@ -52,12 +55,12 @@ export function component<Props, Model extends { readonly props: Props }, Messag
         : {}),
     });
     const source = program<Model, Envelope>({
-      initial: definition.init(scope.value),
+      initial: definition.init(scope.value as Snapshot<Props>),
       onDefect: scope.report,
       update: (model, envelope) =>
         wrap(
           envelope.type === 'Input'
-            ? (definition.receive?.(model, envelope.props) ?? {
+            ? (definition.receive?.(model, envelope.props as Snapshot<Props>) ?? {
                 model: Object.is(model.props, envelope.props)
                   ? model
                   : { ...model, props: envelope.props },
@@ -84,12 +87,12 @@ export function component<Props, Model extends { readonly props: Props }, Messag
 
 /** Mount an existing program without introducing a second state owner. */
 export function programView<Props, Model, Message>(definition: {
-  create: (props: Props) => import('./program').Program<Model, Message>;
-  receive: (source: import('./program').Program<Model, Message>, props: Props) => void;
+  create: (props: Snapshot<Props>) => import('./program').Program<Model, Message>;
+  receive: (source: import('./program').Program<Model, Message>, props: Snapshot<Props>) => void;
   view: View<Model, Message>;
 }): View<Props, never> {
   return compiled((scope, parent, before) => {
-    const source = definition.create(scope.value);
+    const source = definition.create(scope.value as Snapshot<Props>);
     const child = new Scope(source.model(), source.send, scope.report);
     const unsubscribe = source.subscribe((model) => child.set(model));
     scope.cleanups.push(
@@ -98,6 +101,6 @@ export function programView<Props, Model, Message>(definition: {
       () => unsubscribe(),
     );
     definition.view.build(child as unknown as Scope<Model, Message>, parent, before);
-    scope.jobs.push(() => definition.receive(source, scope.value));
+    scope.jobs.push(() => definition.receive(source, scope.value as Snapshot<Props>));
   });
 }

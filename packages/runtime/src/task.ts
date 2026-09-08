@@ -19,7 +19,10 @@ export type TaskModel<Props, State, A, E = unknown> = State & {
 };
 export type TaskMessage<State, Input> =
   | { type: 'Run'; input: Input }
-  | { type: 'Fields'; fields: Partial<State> & { props?: never; task?: never } }
+  | {
+      type: 'Fields';
+      fields: (Partial<State> | Partial<Snapshot<State>>) & { props?: never; task?: never };
+    }
   | { type: 'Cancel' };
 type Settlement<A, E> = { type: 'Succeeded'; value: A } | { type: 'Failed'; cause: Cause.Cause<E> };
 
@@ -30,8 +33,8 @@ type Settlement<A, E> = { type: 'Succeeded'; value: A } | { type: 'Failed'; caus
  */
 export function taskComponent<Props, State extends object, Input, A, E = unknown, R = never>(
   definition: {
-    init: (props: Props) => State & { props?: never; task?: never };
-    identity?: (props: Props) => unknown;
+    init: (props: Snapshot<Props>) => (State | Snapshot<State>) & { props?: never; task?: never };
+    identity?: (props: Snapshot<Props>) => unknown;
     task: {
       policy: Exclude<TaskPolicy, 'parallel'>;
       run: (
@@ -44,12 +47,12 @@ export function taskComponent<Props, State extends object, Input, A, E = unknown
 ): View<Props, never> {
   type Model = TaskModel<Props, State, A, E>;
   const runtime = definition.runtime ?? (defaultUiRuntime as UiRuntime<R>);
-  type Message = TaskMessage<State, Input> | Settlement<A, E> | { type: 'Input'; props: Props };
-  const init = (props: Props): Model => ({
-    ...definition.init(props),
-    props,
-    task: AsyncResult.initial(),
-  });
+  type Message =
+    | TaskMessage<State, Input>
+    | Settlement<A, E>
+    | { type: 'Input'; props: Snapshot<Props> };
+  const init = (props: Snapshot<Props>): Model =>
+    ({ ...definition.init(props), props, task: AsyncResult.initial() }) as Model;
   const owners = new WeakMap<
     Program<Model, TaskMessage<State, Input>>,
     RunningProgram<Model, Message>
@@ -64,15 +67,18 @@ export function taskComponent<Props, State extends object, Input, A, E = unknown
           switch (message.type) {
             case 'Input':
               return definition.identity &&
-                !Object.is(definition.identity(model.props), definition.identity(message.props))
+                !Object.is(
+                  definition.identity(model.props as Snapshot<Props>),
+                  definition.identity(message.props),
+                )
                 ? { model: init(message.props), cancel: ['task'] }
                 : {
                     model: Object.is(model.props, message.props)
                       ? model
-                      : { ...model, props: message.props },
+                      : { ...model, props: message.props as Props },
                   };
             case 'Fields': {
-              const next = patchModel<State>(model, message.fields);
+              const next = patchModel<State>(model, message.fields as Partial<State>);
               return {
                 model: next === model ? model : { ...next, props: model.props, task: model.task },
               };
@@ -135,8 +141,9 @@ export function taskComponent<Props, State extends object, Input, A, E = unknown
 export function taskControls<State, Input>(send: Send<TaskMessage<State, Input>>) {
   return {
     run: (input: Input) => send({ type: 'Run', input }),
-    patch: (fields: Partial<State> & { props?: never; task?: never }) =>
-      send({ type: 'Fields', fields }),
+    patch: (
+      fields: (Partial<State> | Partial<Snapshot<State>>) & { props?: never; task?: never },
+    ) => send({ type: 'Fields', fields }),
     cancel: () => send({ type: 'Cancel' }),
   };
 }

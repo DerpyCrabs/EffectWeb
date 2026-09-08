@@ -75,7 +75,7 @@ export interface RunningProgram<Model, Message> extends Program<Model, Message> 
 }
 
 export function program<Model, Message>(options: {
-  initial: Model;
+  initial: Model | Snapshot<Model>;
   name?: string;
   checkSnapshots?: boolean;
   update: (model: Snapshot<Model>, message: Message) => Transition<Model, Message>;
@@ -115,7 +115,7 @@ export function program<Model, Message>(options: {
   };
   // A program publishes one immutable value. It needs no reactive dependency graph;
   // Effect still owns all command fibers, streams, and cancellation below.
-  let current = protectSnapshot(options.initial, checkSnapshots);
+  let current = protectSnapshot(options.initial, checkSnapshots) as Model;
   const listeners = new Set<(model: Snapshot<Model>) => void>();
   type Running = { fiber?: Fiber.Fiber<Option.Option<Message>, unknown> };
   type Group = { active: Set<Running>; pending: Command<Message>[] };

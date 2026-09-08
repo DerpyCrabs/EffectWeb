@@ -1,3 +1,4 @@
+import type { Snapshot } from './snapshot.js';
 import { Cause, Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import type { UiLoad } from './load.js';
@@ -27,7 +28,7 @@ export const resourceError = (result: AsyncResult.AsyncResult<unknown, unknown>)
 export function resourceComponent<Props, A, E = unknown, R = never>(
   definition: {
     request: (
-      props: Props,
+      props: Snapshot<Props>,
     ) => { key: string; load: () => UiLoad<A, E, R>; delay?: number } | undefined;
     view: View<ResourceModel<Props, A, E>, ResourceMessage<A, E>>;
   } & ([R] extends [never] ? { runtime?: UiRuntime<R> } : { runtime: UiRuntime<R> }),
@@ -37,7 +38,7 @@ export function resourceComponent<Props, A, E = unknown, R = never>(
     model: ResourceModel<Props, A, E>,
     retry = false,
   ): Transition<ResourceModel<Props, A, E>, ResourceMessage<A, E>> => {
-    const selected = definition.request(model.props);
+    const selected = definition.request(model.props as Snapshot<Props>);
     if (!retry && selected?.key === model.key) return { model };
     if (!selected)
       return {
@@ -70,8 +71,13 @@ export function resourceComponent<Props, A, E = unknown, R = never>(
     };
   };
   return component<Props, ResourceModel<Props, A, E>, ResourceMessage<A, E>>({
-    init: (props) => ({ props, key: undefined, result: AsyncResult.initial<A, E>() }),
-    receive: (model, props) => request({ ...(model as ResourceModel<Props, A, E>), props }),
+    init: (props) => ({
+      props: props as Props,
+      key: undefined,
+      result: AsyncResult.initial<A, E>(),
+    }),
+    receive: (model, props) =>
+      request({ ...(model as ResourceModel<Props, A, E>), props: props as Props }),
     update: (snapshot, message) => {
       // Internal commands preserve domain types; the public reducer boundary is immutable.
       const model = snapshot as ResourceModel<Props, A, E>;

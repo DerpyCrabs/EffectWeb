@@ -8,7 +8,7 @@ export interface UiRuntime<R> {
   readonly provide: <A, E>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E>;
   readonly command: <M>(command: Command<M, R>) => Command<M>;
   readonly program: <M, Msg>(options: {
-    initial: M;
+    initial: M | Snapshot<M>;
     update: (model: Snapshot<M>, message: Msg) => Transition<M, Msg, R>;
     name?: string;
     checkSnapshots?: boolean;

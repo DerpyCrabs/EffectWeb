@@ -34,7 +34,10 @@ export type TasksModel<Props, State, T extends AnyDefinitions> = State & {
 export type TasksMessage<State, T extends AnyDefinitions> =
   | {
       readonly type: 'Fields';
-      readonly fields: Partial<State> & { readonly props?: never; readonly tasks?: never };
+      readonly fields: (Partial<State> | Partial<Snapshot<State>>) & {
+        readonly props?: never;
+        readonly tasks?: never;
+      };
     }
   | { readonly type: 'Cancel' | 'Reset'; readonly task: keyof T }
   | {
@@ -42,9 +45,11 @@ export type TasksMessage<State, T extends AnyDefinitions> =
     }[keyof T];
 
 type Init<Props, State> = {
-  init: (props: Props) => State & { readonly props?: never; readonly tasks?: never };
+  init: (
+    props: Snapshot<Props>,
+  ) => (State | Snapshot<State>) & { readonly props?: never; readonly tasks?: never };
   /** Changing the component entity also resets editable fields and all its tasks. */
-  identity?: (props: Props) => unknown;
+  identity?: (props: Snapshot<Props>) => unknown;
   name?: string;
 };
 interface ControllerTask<R> {
@@ -104,17 +109,14 @@ function taskBuilder<Props, State extends object, R>(
       type Message = TasksMessage<State, T>;
       type Internal =
         | Message
-        | { type: 'Input'; props: Props }
+        | { type: 'Input'; props: Snapshot<Props> }
         | { type: 'Settled'; task: keyof T; result: AsyncResult.AsyncResult<unknown, unknown> };
       const names = Object.keys(definitions) as Array<keyof T & string>;
       const slot = (name: keyof T) => `task:${String(name)}`;
       const initialResults = () =>
         Object.fromEntries(names.map((name) => [name, AsyncResult.initial()])) as TaskResults<T>;
-      const init = (props: Props): Model => ({
-        ...definition.init(props),
-        props,
-        tasks: initialResults(),
-      });
+      const init = (props: Snapshot<Props>): Model =>
+        ({ ...definition.init(props), props, tasks: initialResults() }) as Model;
       const withResult = (
         model: Model,
         task: keyof T,
@@ -138,9 +140,9 @@ function taskBuilder<Props, State extends object, R>(
         return { model, cancel };
       };
       const owners = new WeakMap<RunningProgram<Model, Message>, RunningProgram<Model, Internal>>();
-      const create = (props: Props): RunningProgram<Model, Message> => {
+      const create = (props: Props | Snapshot<Props>): RunningProgram<Model, Message> => {
         const source: RunningProgram<Model, Internal> = program<Model, Internal>({
-          initial: init(props),
+          initial: init(props as Snapshot<Props>),
           ...(definition.name ? { name: definition.name } : {}),
           update: (snapshot, message) => {
             // Internal immutable reconstruction retains the declared domain types.
@@ -149,12 +151,15 @@ function taskBuilder<Props, State extends object, R>(
               case 'Input':
                 if (
                   definition.identity &&
-                  !Object.is(definition.identity(model.props), definition.identity(message.props))
+                  !Object.is(
+                    definition.identity(model.props as Snapshot<Props>),
+                    definition.identity(message.props),
+                  )
                 )
                   return { model: init(message.props), cancel: names.map(slot) };
-                return resetIdentities(model, { ...model, props: message.props });
+                return resetIdentities(model, { ...model, props: message.props as Props });
               case 'Fields': {
-                const next = patchModel<State>(model, message.fields);
+                const next = patchModel<State>(model, message.fields as Partial<State>);
                 return resetIdentities(
                   model,
                   next === model ? model : { ...next, props: model.props, tasks: model.tasks },
@@ -225,18 +230,22 @@ function taskBuilder<Props, State extends object, R>(
         owners.set(exposed, source);
         return exposed;
       };
-      const receive = (source: RunningProgram<Model, Message>, props: Props) => {
+      const receive = (source: RunningProgram<Model, Message>, props: Props | Snapshot<Props>) => {
         const owner = owners.get(source);
         if (!owner) throw new Error('Task source belongs to a different definition');
-        owner.send({ type: 'Input', props });
+        owner.send({ type: 'Input', props: props as Snapshot<Props> });
       };
       const controls = (send: Send<Message>) => ({
         run: <K extends keyof T>(
           task: K,
           ...input: Input<T[K]> extends void ? [input?: Input<T[K]>] : [input: Input<T[K]>]
         ) => send({ type: 'Run', task, input: input[0] } as Message),
-        patch: (fields: Partial<State> & { readonly props?: never; readonly tasks?: never }) =>
-          send({ type: 'Fields', fields }),
+        patch: (
+          fields: (Partial<State> | Partial<Snapshot<State>>) & {
+            readonly props?: never;
+            readonly tasks?: never;
+          },
+        ) => send({ type: 'Fields', fields }),
         cancel: (task: keyof T) => send({ type: 'Cancel', task }),
         reset: (task: keyof T) => send({ type: 'Reset', task }),
       });
@@ -245,7 +254,7 @@ function taskBuilder<Props, State extends object, R>(
         receive,
         controls,
         view: (view: View<Model, Message>): View<Props, never> =>
-          programView({
+          programView<Props, Model, Message>({
             create,
             receive: (source, props) => receive(source as RunningProgram<Model, Message>, props),
             view,

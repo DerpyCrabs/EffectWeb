@@ -1,3 +1,4 @@
+import type { Snapshot } from './snapshot.js';
 import { shareValue } from './share.js';
 import { Cause, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
@@ -22,9 +23,9 @@ export type PagesMessage<A, Cursor> =
  * Feed request inputs through receive; pass { refresh: true } for explicit same-key submissions.
  */
 export function pages<Props, A, Cursor>(definition: {
-  key: (props: Props) => string | undefined;
-  load: (props: Props, cursor: Cursor | undefined) => UiLoad<UiPage<A, Cursor>>;
-  itemKey: (item: A) => string;
+  key: (props: Snapshot<Props>) => string | undefined;
+  load: (props: Snapshot<Props>, cursor: Snapshot<Cursor> | undefined) => UiLoad<UiPage<A, Cursor>>;
+  itemKey: (item: Snapshot<A>) => string;
 }) {
   type Model = PagesModel<Props, A, Cursor>;
   type Message = PagesMessage<A, Cursor>;
@@ -37,26 +38,33 @@ export function pages<Props, A, Cursor>(definition: {
     return {
       model: { ...model, append, result: AsyncResult.waiting(model.result) },
       commands: [
-        effectCommand('page', () => definition.load(model.props, cursor), {
-          onSuccess: (page): Message => ({ type: 'Loaded', page, append }),
-          onFailure: (cause): Message => ({ type: 'Failed', cause }),
-        }),
+        effectCommand(
+          'page',
+          () =>
+            definition.load(model.props as Snapshot<Props>, cursor as Snapshot<Cursor> | undefined),
+          {
+            onSuccess: (page): Message => ({ type: 'Loaded', page, append }),
+            onFailure: (cause): Message => ({ type: 'Failed', cause }),
+          },
+        ),
       ],
     };
   };
   const pagination = {
-    init: (props: Props): Model => ({
-      props,
+    init: (props: Props | Snapshot<Props>): Model | Snapshot<Model> => ({
+      props: props as Props,
       key: undefined,
-      result: AsyncResult.initial(),
+      result: AsyncResult.initial<UiPage<A, Cursor>, unknown>(),
       append: false,
     }),
     receive(
-      model: Model,
-      props: Props,
+      snapshot: Model | Snapshot<Model>,
+      input: Props | Snapshot<Props>,
       options: { refresh?: boolean } = {},
     ): Transition<Model, Message> {
-      const key = definition.key(props);
+      const model = snapshot as Model;
+      const props = input as Props;
+      const key = definition.key(props as Snapshot<Props>);
       if (key === model.key) {
         const shared = shareValue(model.props, props);
         const next = shared === model.props ? model : { ...model, props: shared };
@@ -71,7 +79,8 @@ export function pages<Props, A, Cursor>(definition: {
       };
       return key === undefined ? { model: next, cancel: ['page'] } : request(next, false);
     },
-    update(model: Model, message: Message): Transition<Model, Message> {
+    update(snapshot: Model | Snapshot<Model>, message: Message): Transition<Model, Message> {
+      const model = snapshot as Model;
       switch (message.type) {
         case 'More':
           return request(model, true);
@@ -90,9 +99,11 @@ export function pages<Props, A, Cursor>(definition: {
           };
         case 'Loaded': {
           const previous = message.append ? available(model.result) : undefined;
-          const known = new Set(previous?.items.map(definition.itemKey));
+          const known = new Set(
+            previous?.items.map((item) => definition.itemKey(item as Snapshot<A>)),
+          );
           const incoming = message.page.items.filter((item) => {
-            const key = definition.itemKey(item);
+            const key = definition.itemKey(item as Snapshot<A>);
             if (known.has(key)) return false;
             known.add(key);
             return true;
@@ -108,16 +119,16 @@ export function pages<Props, A, Cursor>(definition: {
   };
   return {
     ...pagination,
-    create(props: Props) {
-      type Internal = Message | { type: 'Input'; props: Props };
+    create(props: Props | Snapshot<Props>) {
+      type Internal = Message | { type: 'Input'; props: Props | Snapshot<Props> };
       const source = program<Model, Internal>({
         initial: pagination.init(props),
         update: (model, message) =>
           message.type === 'Input'
-            ? pagination.receive(model as Model, message.props)
-            : pagination.update(model as Model, message),
+            ? pagination.receive(model, message.props)
+            : pagination.update(model, message),
       });
-      const receive = (props: Props) => source.send({ type: 'Input', props });
+      const receive = (props: Props | Snapshot<Props>) => source.send({ type: 'Input', props });
       receive(props);
       return { ...source, send: source.send as Send<Message>, receive };
     },
