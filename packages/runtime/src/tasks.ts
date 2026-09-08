@@ -116,7 +116,7 @@ function taskBuilder<Props, State extends object, R>(
       const initialResults = () =>
         Object.fromEntries(names.map((name) => [name, AsyncResult.initial()])) as TaskResults<T>;
       const init = (props: Snapshot<Props>): Model =>
-        ({ ...definition.init(props), props, tasks: initialResults() }) as Model;
+        ({ ...(definition.init(props) as State), props, tasks: initialResults() }) as Model;
       const withResult = (
         model: Model,
         task: keyof T,

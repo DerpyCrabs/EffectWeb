@@ -52,7 +52,7 @@ export function taskComponent<Props, State extends object, Input, A, E = unknown
     | Settlement<A, E>
     | { type: 'Input'; props: Snapshot<Props> };
   const init = (props: Snapshot<Props>): Model =>
-    ({ ...definition.init(props), props, task: AsyncResult.initial() }) as Model;
+    ({ ...(definition.init(props) as State), props, task: AsyncResult.initial() }) as Model;
   const owners = new WeakMap<
     Program<Model, TaskMessage<State, Input>>,
     RunningProgram<Model, Message>

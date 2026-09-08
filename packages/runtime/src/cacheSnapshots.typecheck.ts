@@ -20,7 +20,7 @@ export function cachedSnapshotTypes() {
   const cached = available(cache.registry.get(atom));
   // @ts-expect-error Reading a cache atom does not expose mutable success data.
   cached?.names.push('bad');
-  Effect.map(cache.prefetch(people, true), (value) => {
+  const fetched = Effect.map(cache.prefetch(people, true), (value) => {
     // @ts-expect-error Prefetch and normal reads publish the same immutable data.
     value.names.push('bad');
     return value;
@@ -40,4 +40,5 @@ export function cachedSnapshotTypes() {
   owner.dispose();
   resource.dispose();
   cache.dispose();
+  return fetched;
 }

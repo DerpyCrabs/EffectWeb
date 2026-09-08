@@ -19,7 +19,8 @@ export function localComponent<Props, State extends object>(definition: {
     State & { readonly props: Props },
     (Partial<State> | Partial<Snapshot<State>>) & { readonly props?: never }
   >({
-    init: (props) => ({ ...definition.init(props), props }) as State & { readonly props: Props },
+    init: (props) =>
+      ({ ...(definition.init(props) as State), props }) as State & { readonly props: Props },
     update: (model, patch) => {
       const next = patchModel<State>(model as State, patch as Partial<State>);
       return { model: next === model ? model : { ...next, props: model.props as Props } };
