@@ -20,10 +20,10 @@ export function uiRuntime<R>(context: Context.Context<R>): UiRuntime<R> {
     Effect.provideContext(effect, context);
   const command = <M>(value: Command<M, R>): Command<M> =>
     value.stream
-      ? { slot: value.slot, stream: value.stream.pipe(Stream.provideContext(context)) }
+      ? { ...value, stream: value.stream.pipe(Stream.provideContext(context)) }
       : value.action
-        ? { slot: value.slot, action: provide(value.action) }
-        : { slot: value.slot, effect: provide(value.effect) };
+        ? { ...value, action: provide(value.action) }
+        : { ...value, effect: provide(value.effect) };
   return {
     context,
     provide,

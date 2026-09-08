@@ -1,11 +1,11 @@
 import { protectSnapshot, checkSnapshotsByDefault, type Snapshot } from './snapshot.js';
 import { Effect } from 'effect';
-import { program, type Command, type Program } from './program.js';
+import { program, type Command, type Program, type TaskPolicy } from './program.js';
 import { patchModel } from './state.js';
 import { runAll, reportError, type ReportError } from './errors.js';
 import type { UiRuntime } from './runtime.js';
 
-export type TaskPolicy = 'replace' | 'drop' | 'parallel';
+export type { TaskPolicy } from './program.js';
 export interface DisposableOwner {
   readonly disposed: boolean;
   readonly own: <A extends { dispose(): void }>(resource: A) => A;
@@ -51,10 +51,8 @@ export function modelOwner<Model extends object, R>(
     | { type: 'Run'; slot: string; effect: Effect.Effect<unknown, unknown, R>; policy: TaskPolicy }
     | { type: 'Cancel'; slot: string };
   type Batch = readonly Operation[];
-  let disposed = false,
-    nextTask = 0;
+  let disposed = false;
   let staged: { model: Model; operations: Operation[] } | undefined;
-  const groups = new Map<string, Set<string>>();
   const cleanups: Array<() => void> = [];
   const source = program<Model, Batch>({
     initial,
@@ -62,43 +60,23 @@ export function modelOwner<Model extends object, R>(
     update(model, operations) {
       const single = operations.length === 1 ? operations[0] : undefined;
       if (single?.type === 'Patch') return { model: patchModel(model, single.changes) };
-      const commands = new Map<string, Command<Batch, R>>();
+      const commands: Command<Batch, R>[] = [];
       const cancel = new Set<string>();
-      const stop = (slot: string) => {
-        for (const key of groups.get(slot) ?? []) {
-          cancel.add(key);
-          commands.delete(key);
-        }
-        groups.delete(slot);
-      };
       for (const operation of operations) {
         if (operation.type === 'Patch') model = patchModel(model, operation.changes);
-        else if (operation.type === 'Cancel') stop(operation.slot);
-        else {
+        else if (operation.type === 'Cancel') {
+          cancel.add(operation.slot);
+          for (let index = commands.length - 1; index >= 0; index--)
+            if (commands[index]!.slot === operation.slot) commands.splice(index, 1);
+        } else {
           const { slot, effect, policy } = operation;
-          if (policy === 'drop' && groups.has(slot)) continue;
-          if (policy === 'replace') stop(slot);
-          const key = `${slot}:${++nextTask}`;
-          const group = groups.get(slot) ?? new Set<string>();
-          groups.set(slot, group);
-          group.add(key);
-          commands.set(key, {
-            slot: key,
-            action: Effect.asVoid(effect).pipe(
-              Effect.ensuring(
-                Effect.sync(() => {
-                  group.delete(key);
-                  if (!group.size && groups.get(slot) === group) groups.delete(slot);
-                }),
-              ),
-            ),
-          });
+          commands.push({ slot, policy, action: Effect.asVoid(effect) });
         }
       }
       return {
         model,
         cancel: [...cancel],
-        commands: [...commands.values()].map((command) =>
+        commands: commands.map((command) =>
           options.runtime ? options.runtime.command(command) : (command as Command<Batch>),
         ),
       };
@@ -121,7 +99,6 @@ export function modelOwner<Model extends object, R>(
     if (disposed) return;
     disposed = true;
     source.dispose();
-    groups.clear();
     runAll(cleanups.splice(0).reverse(), options.onDefect ?? reportError);
   };
   return {
@@ -165,7 +142,7 @@ export function modelOwner<Model extends object, R>(
     },
     run: (slot, effect, policy = 'replace') => submit({ type: 'Run', slot, effect, policy }),
     cancel: (slot) => submit({ type: 'Cancel', slot }),
-    isRunning: (slot) => groups.has(slot),
+    isRunning: (slot) => source.activeSlots().includes(slot),
     awaitIdle: source.awaitIdle,
     get disposed() {
       return disposed;

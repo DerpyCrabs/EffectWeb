@@ -1,5 +1,5 @@
 import { runAll, reportError, reportSafely } from './errors.js';
-import type { Query } from './query.js';
+import { encodeQueryKey, type Query } from './query.js';
 import type { DisposableOwner } from './owner.js';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import * as Atom from 'effect/unstable/reactivity/Atom';
@@ -103,7 +103,7 @@ export function queryResource<Args, A, E, R>(
     select(args: Args | undefined) {
       if (disposed) return;
       const nextGeneration = context.cache.registry.get(context.cache.generation);
-      const nextKey = args === undefined ? undefined : definition.key(args);
+      const nextKey = args === undefined ? undefined : encodeQueryKey(definition.key(args));
       if (nextKey === key && nextGeneration === generation) return;
       const selected = ++revision;
       disconnect();

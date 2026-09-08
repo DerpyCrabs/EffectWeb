@@ -5,7 +5,7 @@ import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
 
 import { loadEffect, type UiLoad } from './load.js';
 import { shareValue } from './share.js';
-import type { Query } from './query.js';
+import { encodeQueryKey, type Query } from './query.js';
 import type { UiRuntime } from './runtime.js';
 export { loadEffect, type UiLoad } from './load.js';
 export { shareValue } from './share.js';
@@ -63,7 +63,7 @@ function createQueryCache<R>(runtime?: UiRuntime<R>) {
     return { entry, atom: entry.atom as Atom.Atom<AsyncResult.AsyncResult<A, E>> };
   };
   const queryKey = <Args, A, E>(definition: Query<Args, A, E, R>, args: Args) =>
-    `query:${definition.id}:${definition.key(args)}`;
+    `query:${definition.id}:${encodeQueryKey(definition.key(args))}`;
   const selectQuery = <Args, A, E>(definition: Query<Args, A, E, R>, args: Args) => {
     const { entry, atom } = acquire(
       queryKey(definition, args),

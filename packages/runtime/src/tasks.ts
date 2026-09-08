@@ -1,3 +1,4 @@
+import type { Snapshot } from './snapshot.js';
 import type { ModelOwner, TaskPolicy } from './owner.js';
 import { Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
@@ -8,10 +9,10 @@ import { defaultUiRuntime, type UiRuntime } from './runtime.js';
 import { patchModel } from './state.js';
 
 export interface TaskDefinition<Model, Input, A, E, R = never> {
-  readonly policy: 'drop' | 'replace';
-  readonly run: (model: Model, input: Input) => Effect.Effect<A, E, R>;
+  readonly policy: Exclude<TaskPolicy, 'parallel'>;
+  readonly run: (model: Snapshot<Model>, input: Input) => Effect.Effect<A, E, R>;
   /** Domain identity, compared after fields or props change. Resets this slot only. */
-  readonly identity?: (model: Model) => unknown;
+  readonly identity?: (model: Snapshot<Model>) => unknown;
 }
 type Definitions<Model, R> = Record<string, TaskDefinition<Model, never, unknown, unknown, R>>;
 type AnyDefinitions = Definitions<never, unknown>;
@@ -129,7 +130,7 @@ function taskBuilder<Props, State extends object, R>(
       };
       const owners = new WeakMap<RunningProgram<Model, Message>, RunningProgram<Model, Internal>>();
       const create = (props: Props): RunningProgram<Model, Message> => {
-        const source = program<Model, Internal>({
+        const source: RunningProgram<Model, Internal> = program<Model, Internal>({
           initial: init(props),
           ...(definition.name ? { name: definition.name } : {}),
           update: (model, message) => {
@@ -155,24 +156,25 @@ function taskBuilder<Props, State extends object, R>(
                 return {
                   model: withResult(model, message.task, AsyncResult.waiting(previous)),
                   commands: [
-                    effectCommand(
-                      slot(message.task),
-                      () => runtime.provide(task.run(model, message.input as never)),
-                      {
-                        onSuccess: (value): Internal => ({
-                          type: 'Settled',
-                          task: message.task,
-                          result: AsyncResult.success(value),
-                        }),
-                        onFailure: (cause): Internal => ({
-                          type: 'Settled',
-                          task: message.task,
-                          result: AsyncResult.failureWithPrevious(cause, {
-                            previous: Option.some(previous),
+                    {
+                      ...effectCommand(
+                        slot(message.task),
+                        () => runtime.provide(task.run(model, message.input as never)),
+                        {
+                          onSuccess: (value): Internal => ({
+                            type: 'Settled',
+                            task: message.task,
+                            result: AsyncResult.success(value),
                           }),
-                        }),
-                      },
-                    ),
+                          onFailure: (cause): Internal => ({
+                            type: 'Settled',
+                            task: message.task,
+                            result: AsyncResult.failure(cause),
+                          }),
+                        },
+                      ),
+                      policy: task.policy,
+                    },
                   ],
                 };
               }
@@ -186,8 +188,22 @@ function taskBuilder<Props, State extends object, R>(
                   model: withResult(model, message.task, AsyncResult.initial()),
                   cancel: [slot(message.task)],
                 };
-              case 'Settled':
-                return { model: withResult(model, message.task, message.result) };
+              case 'Settled': {
+                const result = AsyncResult.isFailure(message.result)
+                  ? AsyncResult.failureWithPrevious(message.result.cause, {
+                      previous: Option.some(model.tasks[message.task]),
+                    })
+                  : message.result;
+                return {
+                  model: withResult(
+                    model,
+                    message.task,
+                    source.activeSlots().includes(slot(message.task))
+                      ? AsyncResult.waiting(result)
+                      : result,
+                  ),
+                };
+              }
             }
           },
         });

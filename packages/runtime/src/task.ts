@@ -1,8 +1,15 @@
+import type { Snapshot } from './snapshot.js';
 import { Cause, Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
-import { component } from './component.js';
+import { programView } from './component.js';
 import type { View } from './dom.js';
-import { effectCommand, type Send } from './program.js';
+import {
+  effectCommand,
+  type Send,
+  type TaskPolicy,
+  type RunningProgram,
+  type Program,
+} from './program.js';
 import { patchModel } from './state.js';
 import { defaultUiRuntime, type UiRuntime } from './runtime.js';
 
@@ -26,65 +33,90 @@ export function taskComponent<Props, State extends object, Input, A, E = unknown
     init: (props: Props) => State & { props?: never; task?: never };
     identity?: (props: Props) => unknown;
     task: {
-      policy: 'drop' | 'replace';
-      run: (model: State & { readonly props: Props }, input: Input) => Effect.Effect<A, E, R>;
+      policy: Exclude<TaskPolicy, 'parallel'>;
+      run: (
+        model: Snapshot<State & { readonly props: Props }>,
+        input: Input,
+      ) => Effect.Effect<A, E, R>;
     };
     view: View<TaskModel<Props, State, A, E>, TaskMessage<State, Input>>;
   } & ([R] extends [never] ? { runtime?: UiRuntime<R> } : { runtime: UiRuntime<R> }),
 ): View<Props, never> {
   type Model = TaskModel<Props, State, A, E>;
   const runtime = definition.runtime ?? (defaultUiRuntime as UiRuntime<R>);
-  type Message = TaskMessage<State, Input> | Settlement<A, E>;
+  type Message = TaskMessage<State, Input> | Settlement<A, E> | { type: 'Input'; props: Props };
   const init = (props: Props): Model => ({
     ...definition.init(props),
     props,
     task: AsyncResult.initial(),
   });
-  return component<Props, Model, Message>({
-    init,
-    receive: (model, props) =>
-      definition.identity &&
-      !Object.is(definition.identity(model.props), definition.identity(props))
-        ? { model: init(props), cancel: ['task'] }
-        : { model: Object.is(model.props, props) ? model : { ...model, props } },
-    update: (model, message) => {
-      switch (message.type) {
-        case 'Fields': {
-          const next = patchModel<State>(model, message.fields);
-          return {
-            model: next === model ? model : { ...next, props: model.props, task: model.task },
-          };
-        }
-        case 'Run':
-          if (definition.task.policy === 'drop' && model.task.waiting) return { model };
-          return {
-            model: { ...model, task: AsyncResult.waiting(model.task) },
-            commands: [
-              effectCommand(
-                'task',
-                () => runtime.provide(definition.task.run(model, message.input)),
-                {
-                  onSuccess: (value): Message => ({ type: 'Succeeded', value }),
-                  onFailure: (cause): Message => ({ type: 'Failed', cause }),
+  const owners = new WeakMap<
+    Program<Model, TaskMessage<State, Input>>,
+    RunningProgram<Model, Message>
+  >();
+  return programView<Props, Model, TaskMessage<State, Input>>({
+    create(props) {
+      const source: RunningProgram<Model, Message> = runtime.program<Model, Message>({
+        initial: init(props),
+        update: (model, message) => {
+          switch (message.type) {
+            case 'Input':
+              return definition.identity &&
+                !Object.is(definition.identity(model.props), definition.identity(message.props))
+                ? { model: init(message.props), cancel: ['task'] }
+                : {
+                    model: Object.is(model.props, message.props)
+                      ? model
+                      : { ...model, props: message.props },
+                  };
+            case 'Fields': {
+              const next = patchModel<State>(model, message.fields);
+              return {
+                model: next === model ? model : { ...next, props: model.props, task: model.task },
+              };
+            }
+            case 'Run':
+              if (definition.task.policy === 'drop' && model.task.waiting) return { model };
+              return {
+                model: { ...model, task: AsyncResult.waiting(model.task) },
+                commands: [
+                  {
+                    ...effectCommand('task', () => definition.task.run(model, message.input), {
+                      onSuccess: (value): Message => ({ type: 'Succeeded', value }),
+                      onFailure: (cause): Message => ({ type: 'Failed', cause }),
+                    }),
+                    policy: definition.task.policy,
+                  },
+                ],
+              };
+            case 'Cancel':
+              return { model: { ...model, task: AsyncResult.initial() }, cancel: ['task'] };
+            case 'Succeeded':
+              return {
+                model: {
+                  ...model,
+                  task: AsyncResult.success(message.value, {
+                    waiting: source.activeSlots().includes('task'),
+                  }),
                 },
-              ),
-            ],
-          };
-        case 'Cancel':
-          return { model: { ...model, task: AsyncResult.initial() }, cancel: ['task'] };
-        case 'Succeeded':
-          return { model: { ...model, task: AsyncResult.success(message.value) } };
-        case 'Failed':
-          return {
-            model: {
-              ...model,
-              task: AsyncResult.failureWithPrevious(message.cause, {
-                previous: Option.some(model.task),
-              }),
-            },
-          };
-      }
+              };
+            case 'Failed':
+              return {
+                model: {
+                  ...model,
+                  task: AsyncResult.failureWithPrevious(message.cause, {
+                    previous: Option.some(model.task),
+                    waiting: source.activeSlots().includes('task'),
+                  }),
+                },
+              };
+          }
+        },
+      });
+      owners.set(source, source);
+      return source;
     },
+    receive: (source, props) => owners.get(source)!.send({ type: 'Input', props }),
     view: definition.view,
   });
 }

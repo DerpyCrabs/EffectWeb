@@ -46,7 +46,7 @@ export {
   type TaskResults,
 } from './tasks.js';
 export { uiRuntime, type UiRuntime } from './runtime.js';
-export { query, type Query } from './query.js';
+export { query, type Query, type QueryKey } from './query.js';
 
 export { makeQueryCache, type QueryCache } from './cache.js';
 export {

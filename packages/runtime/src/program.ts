@@ -4,8 +4,14 @@ import { traceProgram, nextProgramId, hasProgramObservers } from './diagnostics.
 import { Cause, Effect, Fiber, Option, Stream } from 'effect';
 
 export type Send<Message> = (message: Message) => void;
+/** queue retains FIFO requests; latest-queued retains only the newest pending request. */
+export type TaskPolicy = 'replace' | 'drop' | 'parallel' | 'queue' | 'latest-queued';
+
 /** A slot owns either one completion or a stream of progress/events, canceled together. */
-export type Command<Message, R = never> = { readonly slot: string } & (
+export type Command<Message, R = never> = {
+  readonly slot: string;
+  readonly policy?: TaskPolicy;
+} & (
   | {
       readonly effect: Effect.Effect<Message, never, R>;
       readonly stream?: never;
@@ -47,10 +53,10 @@ export function mapCommand<A, B, R = never>(
   command: Command<A, R>,
   map: (message: A) => B,
 ): Command<B, R> {
-  if (command.action) return { slot: command.slot, action: command.action };
+  if (command.action) return { ...command, action: command.action };
   return command.stream
-    ? { slot: command.slot, stream: command.stream.pipe(Stream.map(map)) }
-    : { slot: command.slot, effect: command.effect.pipe(Effect.map(map)) };
+    ? { ...command, stream: command.stream.pipe(Stream.map(map)) }
+    : { ...command, effect: command.effect.pipe(Effect.map(map)) };
 }
 export interface Transition<Model, Message, R = never> {
   readonly model: Model | Snapshot<Model>;
@@ -111,27 +117,91 @@ export function program<Model, Message>(options: {
   // Effect still owns all command fibers, streams, and cancellation below.
   let current = protectSnapshot(options.initial, checkSnapshots);
   const listeners = new Set<(model: Snapshot<Model>) => void>();
-  const running = new Map<
-    string,
-    { token: object; fiber?: Fiber.Fiber<Option.Option<Message>, unknown> }
-  >();
+  type Running = { fiber?: Fiber.Fiber<Option.Option<Message>, unknown> };
+  type Group = { active: Set<Running>; pending: Command<Message>[] };
+  const running = new Map<string, Group>();
   let disposed = false;
   let draining = false;
-  const queue: Message[] = [];
+  const queue: Array<{ message: Message; slot?: string }> = [];
   const cancel = (slot: string) => {
+    // A synchronous Effect can enqueue completion behind a reset/replacement message.
+    // Its fiber is already done, but cancellation still owns that unpublished completion.
+    for (let index = queue.length - 1; index >= 0; index--)
+      if (queue[index]!.slot === slot) queue.splice(index, 1);
     const previous = running.get(slot);
     running.delete(slot);
-    if (previous) trace('cancel', slot);
-    if (previous?.fiber) Effect.runFork(Fiber.interrupt(previous.fiber));
+    if (previous) {
+      trace('cancel', slot);
+      previous.pending.length = 0;
+      for (const task of previous.active)
+        if (task.fiber) Effect.runFork(Fiber.interrupt(task.fiber));
+      previous.active.clear();
+    }
   };
-  const send: Send<Message> = (message) => {
+  const ready: Array<{ command: Command<Message>; group: Group; task: Running }> = [];
+  let launching = false;
+  const launch = (command: Command<Message>, group: Group, task: Running) => {
+    ready.push({ command, group, task });
+    if (launching) return;
+    launching = true;
+    try {
+      while (ready.length) {
+        const next = ready.shift()!;
+        start(next.command, next.group, next.task);
+      }
+    } finally {
+      launching = false;
+    }
+  };
+  const start = (command: Command<Message>, group: Group, task: Running) => {
+    const valid = () => !disposed && running.get(command.slot) === group && group.active.has(task);
+    if (!valid()) return;
+    trace('start', command.slot);
+    const effect = command.stream
+      ? command.stream.pipe(
+          Stream.runForEach((message) =>
+            Effect.sync(() => {
+              if (valid()) enqueue(message, command.slot);
+            }),
+          ),
+          Effect.as(Option.none<Message>()),
+        )
+      : command.action
+        ? command.action.pipe(Effect.as(Option.none<Message>()))
+        : command.effect.pipe(Effect.map(Option.some));
+    const fiber = Effect.runFork(effect);
+    task.fiber = fiber;
+    if (!valid()) {
+      Effect.runFork(Fiber.interrupt(fiber));
+      return;
+    }
+    fiber.addObserver((exit) => {
+      if (!valid()) return;
+      group.active.delete(task);
+      if (!group.active.size && !group.pending.length) running.delete(command.slot);
+      trace(exit._tag === 'Success' ? 'complete' : 'defect', command.slot);
+      if (exit._tag === 'Success') {
+        if (Option.isSome(exit.value)) enqueue(exit.value.value, command.slot);
+      } else reportSafely(options.onDefect ?? reportError, exit.cause);
+      if (!disposed && running.get(command.slot) === group && !group.active.size) {
+        const next = group.pending.shift();
+        if (next) {
+          const nextTask: Running = {};
+          group.active.add(nextTask);
+          launch(next, group, nextTask);
+        }
+      }
+      notify();
+    });
+  };
+  const enqueue = (message: Message, slot?: string) => {
     if (disposed) return;
-    queue.push(message);
+    queue.push(slot === undefined ? { message } : { message, slot });
     if (draining) return;
     draining = true;
     try {
       while (queue.length && !disposed) {
-        const message = queue.shift()!;
+        const { message } = queue.shift()!;
         const transition = options.update(current as Snapshot<Model>, message);
         trace('update', undefined, message);
         for (const slot of transition.cancel ?? []) cancel(slot);
@@ -140,44 +210,33 @@ export function program<Model, Message>(options: {
           current = next;
           for (const listener of listeners) listener(current as Snapshot<Model>);
         }
+        const starts: Array<() => void> = [];
+        // Admit the entire transition before launching Effects, so a later replacement can
+        // supersede earlier work in the same transaction without executing it.
         for (const command of transition.commands ?? []) {
           if (disposed) break;
-          cancel(command.slot);
-          const token = {};
-          const runningCommand: {
-            token: object;
-            fiber?: Fiber.Fiber<Option.Option<Message>, unknown>;
-          } = { token };
-          running.set(command.slot, runningCommand);
-          trace('start', command.slot);
-          const effect = command.stream
-            ? command.stream.pipe(
-                Stream.runForEach((message) =>
-                  Effect.sync(() => {
-                    if (!disposed && running.get(command.slot)?.token === token) send(message);
-                  }),
-                ),
-                Effect.as(Option.none<Message>()),
-              )
-            : command.action
-              ? command.action.pipe(Effect.as(Option.none<Message>()))
-              : command.effect.pipe(Effect.map(Option.some));
-          const fiber = Effect.runFork(effect);
-          runningCommand.fiber = fiber;
-          if (disposed) {
-            Effect.runFork(Fiber.interrupt(fiber));
-            break;
+          const policy = command.policy ?? 'replace';
+          let group = running.get(command.slot);
+          if (policy === 'drop' && group) continue;
+          if (policy === 'replace') {
+            cancel(command.slot);
+            group = undefined;
           }
-          fiber.addObserver((exit) => {
-            if (disposed || running.get(command.slot)?.token !== token) return;
-            running.delete(command.slot);
-            trace(exit._tag === 'Success' ? 'complete' : 'defect', command.slot);
-            if (exit._tag === 'Success') {
-              if (Option.isSome(exit.value)) send(exit.value.value);
-            } else reportSafely(options.onDefect ?? reportError, exit.cause);
-            notify();
-          });
+          if (group && (policy === 'queue' || policy === 'latest-queued')) {
+            if (policy === 'latest-queued') group.pending.length = 0;
+            group.pending.push(command);
+            continue;
+          }
+          if (!group) {
+            group = { active: new Set(), pending: [] };
+            running.set(command.slot, group);
+          }
+          const task: Running = {};
+          group.active.add(task);
+          const admitted = group;
+          starts.push(() => launch(command, admitted, task));
         }
+        for (const launch of starts) launch();
       }
     } catch (error) {
       queue.length = 0;
@@ -187,6 +246,7 @@ export function program<Model, Message>(options: {
       notify();
     }
   };
+  const send: Send<Message> = (message) => enqueue(message);
   return {
     model: () => current as Snapshot<Model>,
     activeSlots: () => [...running.keys()],

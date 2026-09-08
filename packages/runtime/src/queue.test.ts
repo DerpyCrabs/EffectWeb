@@ -1,0 +1,295 @@
+import { Effect } from 'effect';
+import { expect, it, vi } from 'vitest';
+import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import { modelOwner } from './owner.js';
+import { defineTasks } from './tasks.js';
+import { controlledEffect } from './testing.js';
+
+it.each(['queue', 'latest-queued'] as const)(
+  '%s owns ordered writes and keeps awaitIdle pending through the last write',
+  async (policy) => {
+    const app = modelOwner({});
+    const pending = controlledEffect<void>();
+    const calls: string[] = [];
+    const actions = defineTasks(app, {
+      save: {
+        policy,
+        run: (text: string) => {
+          calls.push(text);
+          return pending.effect;
+        },
+      },
+    });
+    actions.save('first');
+    actions.save('second');
+    actions.save('third');
+    let idle = false;
+    const wait = app.awaitIdle().then(() => {
+      idle = true;
+    });
+    expect(calls).toEqual(['first']);
+    pending.succeed(undefined);
+    await vi.waitFor(() =>
+      expect(calls).toEqual(policy === 'queue' ? ['first', 'second'] : ['first', 'third']),
+    );
+    expect(idle).toBe(false);
+    expect(app.isRunning('save')).toBe(true);
+    pending.succeed(undefined);
+    if (policy === 'queue') {
+      await vi.waitFor(() => expect(calls).toEqual(['first', 'second', 'third']));
+      expect(idle).toBe(false);
+      pending.succeed(undefined);
+    }
+    await wait;
+    expect(app.isRunning('save')).toBe(false);
+    app.dispose();
+  },
+);
+
+it.each(['failure', 'defect'] as const)('advances queued writes after a %s', async (kind) => {
+  const report = vi.fn();
+  const app = modelOwner({}, { onDefect: report });
+  const pending = controlledEffect<void, string>();
+  const completed = vi.fn();
+  app.run('save', pending.effect, 'queue');
+  app.run('save', Effect.sync(completed), 'queue');
+  if (kind === 'failure') pending.fail('offline');
+  else pending.die('broken');
+  await app.awaitIdle();
+  expect(report).toHaveBeenCalledOnce();
+  expect(completed).toHaveBeenCalledOnce();
+  app.dispose();
+});
+
+it.each(['cancel', 'dispose', 'replace'] as const)(
+  '%s discards queued writes and ignores stale completions',
+  async (action) => {
+    const app = modelOwner({ value: '' });
+    let resume!: (effect: Effect.Effect<void>) => void;
+    const pending = Effect.callback<void>((callback) => {
+      resume = callback;
+    });
+    const queued = vi.fn();
+    app.run('save', pending, 'queue');
+    app.run('save', Effect.sync(queued), 'queue');
+    if (action === 'dispose') app.dispose();
+    else if (action === 'cancel') app.cancel('save');
+    else
+      app.run(
+        'save',
+        Effect.sync(() => app.patch({ value: 'new' })),
+        'replace',
+      );
+    resume(Effect.void);
+    await app.awaitIdle();
+    expect(queued).not.toHaveBeenCalled();
+    expect(app.read().value).toBe(action === 'replace' ? 'new' : '');
+    app.dispose();
+  },
+);
+
+it.each(['queue', 'latest-queued'] as const)(
+  'component %s captures fields and inputs when submitted and publishes waiting through failures',
+  async (policy) => {
+    const pending = controlledEffect<string, string>();
+    const calls: string[] = [];
+    const definition = defineTasks({ init: () => ({ text: 'one' }) }).tasks({
+      save: {
+        policy,
+        run: (model, suffix: string) => {
+          calls.push(model.text + suffix);
+          return pending.effect;
+        },
+      },
+    });
+    const source = definition.create(undefined);
+    const actions = definition.controls(source.send);
+    actions.run('save', '!');
+    actions.patch({ text: 'two' });
+    actions.run('save', '?');
+    actions.patch({ text: 'three' });
+    actions.run('save', '.');
+    actions.patch({ text: 'four' });
+    expect(calls).toEqual(['one!']);
+    pending.fail('offline');
+    await vi.waitFor(() => expect(calls.length).toBe(2));
+    expect(source.model().tasks.save.waiting).toBe(true);
+    expect(AsyncResult.isFailure(source.model().tasks.save)).toBe(true);
+    expect(calls[1]).toBe(policy === 'queue' ? 'two?' : 'three.');
+    pending.succeed('saved');
+    if (policy === 'queue') {
+      await vi.waitFor(() => expect(calls[2]).toBe('three.'));
+      expect(source.model().tasks.save.waiting).toBe(true);
+      pending.succeed('latest');
+    }
+    await source.awaitIdle();
+    expect(source.model().tasks.save.waiting).toBe(false);
+    expect(source.model().text).toBe('four');
+    source.dispose();
+  },
+);
+
+it.each(['reset', 'identity', 'dispose'] as const)(
+  'component %s clears both active and queued work',
+  async (action) => {
+    const pending = controlledEffect<void>();
+    const calls = vi.fn(() => pending.effect);
+    const definition = defineTasks({
+      init: (props: { id: string }) => ({ text: props.id }),
+      identity: (props) => props.id,
+    }).tasks({ save: { policy: 'queue', run: calls } });
+    const source = definition.create({ id: 'one' });
+    const actions = definition.controls(source.send);
+    actions.run('save');
+    actions.run('save');
+    if (action === 'reset') actions.reset('save');
+    else if (action === 'identity') definition.receive(source, { id: 'two' });
+    else source.dispose();
+    await source.awaitIdle();
+    expect(calls).toHaveBeenCalledOnce();
+    if (action !== 'dispose') expect(AsyncResult.isInitial(source.model().tasks.save)).toBe(true);
+    source.dispose();
+  },
+);
+
+it('retains the preceding successful write when a queued write fails', async () => {
+  const pending = controlledEffect<string, string>();
+  const definition = defineTasks({ init: () => ({}) }).tasks({
+    save: { policy: 'queue', run: () => pending.effect },
+  });
+  const source = definition.create(undefined);
+  const actions = definition.controls(source.send);
+  actions.run('save');
+  actions.run('save');
+  pending.succeed('first saved');
+  await vi.waitFor(() => expect(pending.pending()).toBe(1));
+  pending.fail('offline');
+  await source.awaitIdle();
+  const result = source.model().tasks.save;
+  expect(AsyncResult.isFailure(result)).toBe(true);
+  expect(AsyncResult.value(result)).toMatchObject({ _tag: 'Some', value: 'first saved' });
+  source.dispose();
+});
+
+it('admits batch queue policies before starting work and drains large synchronous queues', async () => {
+  const app = modelOwner({});
+  let count = 0;
+  app.transaction(() => {
+    for (let i = 0; i < 2000; i++)
+      app.run(
+        'save',
+        Effect.sync(() => {
+          count++;
+        }),
+        'queue',
+      );
+  });
+  await app.awaitIdle();
+  expect(count).toBe(2000);
+  const calls: number[] = [];
+  app.transaction(() => {
+    for (let i = 0; i < 10; i++)
+      app.run(
+        'save',
+        Effect.sync(() => {
+          calls.push(i);
+        }),
+        'latest-queued',
+      );
+  });
+  await app.awaitIdle();
+  expect(calls).toEqual([0, 9]);
+  app.dispose();
+});
+
+it('preserves queue policy through service provisioning and command mapping', async () => {
+  const { Context } = await import('effect');
+  const { mapCommand } = await import('./program.js');
+  const { uiRuntime } = await import('./runtime.js');
+  class Store extends Context.Service<Store, { save: typeof pending.effect }>()('QueueStore') {}
+  const pending = controlledEffect<string>();
+  const runtime = uiRuntime(Context.make(Store, { save: pending.effect }));
+  const source = runtime.program({
+    initial: '',
+    update: (model: string, message: string) =>
+      message === 'run'
+        ? {
+            model,
+            commands: [
+              mapCommand(
+                {
+                  slot: 'save',
+                  policy: 'queue',
+                  effect: Effect.flatMap(Store, (store) => store.save),
+                },
+                (value) => `saved:${value}`,
+              ),
+            ],
+          }
+        : { model: message },
+  });
+  source.send('run');
+  source.send('run');
+  expect(pending.pending()).toBe(1);
+  pending.succeed('one');
+  await vi.waitFor(() => expect(source.model()).toBe('saved:one'));
+  expect(pending.pending()).toBe(1);
+  pending.succeed('two');
+  await source.awaitIdle();
+  expect(source.model()).toBe('saved:two');
+  source.dispose();
+});
+
+it('suppresses synchronous completion messages already queued behind reset or replacement', async () => {
+  const { program } = await import('./program.js');
+  type Message = 'run' | 'cancel' | 'replace' | 'stale' | 'fresh';
+  for (const action of ['cancel', 'replace'] as const) {
+    const source = program<string, Message>({
+      initial: '',
+      update: (model, message) => {
+        if (message === 'cancel') return { model: 'canceled', cancel: ['save'] };
+        if (message === 'run')
+          return {
+            model,
+            commands: [
+              {
+                slot: 'save',
+                policy: 'queue',
+                effect: Effect.sync(() => {
+                  source.send(action);
+                  return 'stale' as const;
+                }),
+              },
+            ],
+          };
+        if (message === 'replace')
+          return { model, commands: [{ slot: 'save', effect: Effect.succeed('fresh' as const) }] };
+        return { model: message };
+      },
+    });
+    const seen: string[] = [];
+    source.subscribe((model) => seen.push(model));
+    source.send('run');
+    await source.awaitIdle();
+    expect(seen).not.toContain('stale');
+    expect(source.model()).toBe(action === 'cancel' ? 'canceled' : 'fresh');
+    source.dispose();
+  }
+});
+
+it('waits for all parallel work in a shared slot before starting queued work', async () => {
+  const app = modelOwner({});
+  const first = controlledEffect<void>();
+  const second = controlledEffect<void>();
+  const queued = vi.fn();
+  app.run('save', first.effect, 'parallel');
+  app.run('save', second.effect, 'parallel');
+  app.run('save', Effect.sync(queued), 'queue');
+  first.succeed(undefined);
+  await Promise.resolve();
+  expect(queued).not.toHaveBeenCalled();
+  second.succeed(undefined);
+  await app.awaitIdle();
+  expect(queued).toHaveBeenCalledOnce();
+  app.dispose();
+});

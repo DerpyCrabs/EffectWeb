@@ -10,7 +10,7 @@ interface Props {
   run: (text: string, suffix: string) => Effect.Effect<string, unknown>;
 }
 type Fields = { text: string };
-function mountTask(props: Props, policy: 'drop' | 'replace' = 'drop') {
+function mountTask(props: Props, policy: 'drop' | 'replace' | 'queue' | 'latest-queued' = 'drop') {
   let child!: Scope<TaskModel<Props, Fields, string>, TaskMessage<Fields, string>>;
   const scope = new Scope<Props, never>(props, () => {});
   const task = taskComponent<Props, Fields, string, string>({
@@ -138,3 +138,38 @@ describe('component tasks', () => {
     task.scope.dispose();
   });
 });
+
+it.each(['queue', 'latest-queued'] as const)(
+  'single task components support %s with submission snapshots',
+  async (policy) => {
+    const first = deferred();
+    const second = deferred();
+    const calls: string[] = [];
+    const task = mountTask(
+      {
+        id: 'one',
+        run: (text, suffix) => {
+          calls.push(text + suffix);
+          return calls.length === 1 ? first.effect : second.effect;
+        },
+      },
+      policy,
+    );
+    task.controls.run('!');
+    task.controls.patch({ text: 'two' });
+    task.controls.run('?');
+    task.controls.patch({ text: 'three' });
+    task.controls.run('.');
+    task.controls.patch({ text: 'four' });
+    first.complete('first');
+    await expect.poll(() => calls.length).toBe(2);
+    expect(calls[1]).toBe(policy === 'queue' ? 'two?' : 'three.');
+    expect(task.model().task.waiting).toBe(true);
+    task.controls.cancel();
+    second.complete('stale');
+    await expect.poll(second.canceled).toBe(true);
+    expect(calls.length).toBe(2);
+    expect(AsyncResult.isInitial(task.model().task)).toBe(true);
+    task.scope.dispose();
+  },
+);
