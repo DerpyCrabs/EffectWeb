@@ -66,3 +66,18 @@ it('uses collection scope and composite identities without conflating entities',
     'Duplicate collection identity',
   );
 });
+
+it('rejects duplicate identities at construction and on unchanged share fast paths', async () => {
+  const { collection } = await import('./collection.js');
+  const domain = collection<{ id: number }>((item) => item.id);
+  const duplicate = [{ id: 3 }, { id: 3 }];
+  for (const operation of [
+    () => domain.from(duplicate),
+    () => domain.share(duplicate, duplicate),
+    () => domain.share([], duplicate),
+    () => domain.share(duplicate, []),
+  ]) {
+    expect(operation).toThrow('indices 0 and 1');
+  }
+  expect(() => domain.from([{ id: undefined as unknown as number }])).toThrow('at index 0');
+});

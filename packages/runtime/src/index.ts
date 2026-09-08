@@ -29,6 +29,10 @@ export {
 export { fromPromise, type UiLoad, type UiPage } from './load.js';
 export {
   observeBindings,
+  inspectBindings,
+  mountBindingInspector,
+  type BindingInspector,
+  type BindingInspection,
   observePrograms,
   type BindingUpdate,
   type ProgramUpdate,

@@ -1,4 +1,6 @@
 import type { Snapshot } from './snapshot.js';
+
+import { validateIdentities } from './collection.js';
 import { runAll, reportError, reportSafely, type ReportError } from './errors.js';
 import { eventEffects } from './effectEvent.js';
 import { traceBinding, type BindingSource } from './diagnostics.js';
@@ -592,7 +594,7 @@ export function each<M, E, A>(
       previousIdentities = [];
       return;
     }
-    const identities = items.map((item, index) => {
+    const identities = validateIdentities(items, (item, index) => {
       const key = collection ? collection.identity(item, index) : item;
       if (typeof key !== 'string' && typeof key !== 'number')
         throw new Error(
@@ -601,10 +603,6 @@ export function each<M, E, A>(
       return key;
     });
     const keep = new Set(identities);
-    if (keep.size !== identities.length)
-      throw new Error(
-        'Duplicate collection identity. Identity must be unique within the rendered collection.',
-      );
     for (const [key, row] of rows) {
       if (keep.has(key)) continue;
       row.scope.dispose();

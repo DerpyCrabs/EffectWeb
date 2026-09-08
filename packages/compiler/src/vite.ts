@@ -25,7 +25,7 @@ export function effectweb(options: CompilerOptions = {}): Plugin {
           options.onDiagnostic ??
           ((diagnostic) =>
             this.warn(
-              `${diagnostic.file}:${diagnostic.line}:${diagnostic.column} ${diagnostic.message}`,
+              `${diagnostic.file}:${diagnostic.line}:${diagnostic.column} [${diagnostic.code}] ${diagnostic.message}`,
             )),
       });
       return { code: result.code, map: result.map };

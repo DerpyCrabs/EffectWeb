@@ -1,5 +1,7 @@
 mod analysis;
+mod identity;
 mod lower;
+mod query_diagnostics;
 mod sourcemap;
 mod template;
 use oxc::{
@@ -53,10 +55,13 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
     }
     let mut markers = HashSet::new();
     let mut slot_markers = HashSet::new();
+    let mut query_markers = HashSet::new();
     let mut runtime = options.runtime_module.clone();
     for statement in &program.body {
         if let Statement::ImportDeclaration(import) = statement
-            && options.import_source.as_deref() == Some(import.source.value.as_str())
+            && options.import_source.as_deref().is_some_and(|source| {
+                import.source.value == source || import.source.value == format!("{source}/query")
+            })
         {
             for specifier in import.specifiers.iter().flatten() {
                 if let ImportDeclarationSpecifier::ImportSpecifier(s) = specifier {
@@ -70,10 +75,18 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                         ModuleExportName::StringLiteral(n) => n.value == "slot",
                         _ => false,
                     };
-                    if slot {
+                    if matches!(&s.imported, ModuleExportName::IdentifierName(n) if n.name == "query")
+                    {
+                        query_markers.insert(s.local.symbol_id.get().unwrap());
+                    }
+                    if slot
+                        && options.import_source.as_deref() == Some(import.source.value.as_str())
+                    {
                         slot_markers.insert(s.local.symbol_id.get().unwrap());
                     }
-                    if view {
+                    if view
+                        && options.import_source.as_deref() == Some(import.source.value.as_str())
+                    {
                         markers.insert(s.local.symbol_id.get().unwrap());
                         runtime.get_or_insert_with(|| format!("{}/dom", import.source.value));
                     }
@@ -81,7 +94,7 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
             }
         }
     }
-    if markers.is_empty() {
+    if markers.is_empty() && query_markers.is_empty() {
         return serde_json::to_string(&Output {
             code: source.into(),
             map: None,
@@ -93,8 +106,53 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
     index.visit_program(&program);
     index.refs.sort_by_key(|r| r.span.start);
     index.calls.sort_by_key(|c| c.span.start);
+    // Explicit view<Model> supplies a useful same-file annotation without a TS host.
+    for call in &index.calls {
+        if let Expression::Identifier(id) = &call.callee
+            && index.symbol(id).is_some_and(|id| markers.contains(&id))
+            && let Some(arguments) = &call.type_arguments
+            && let Some(model) = arguments.params.first()
+            && let Some(Expression::ArrowFunctionExpression(function)) =
+                call.arguments.first().and_then(Argument::as_expression)
+            && let Some(parameter) = function.params.items.first()
+            && parameter.type_annotation.is_none()
+            && let BindingPattern::BindingIdentifier(id) = &parameter.pattern
+        {
+            index
+                .type_annotations
+                .insert(id.symbol_id.get().unwrap(), model);
+        }
+    }
     let mut compiler = lower::Lower::new(source, filename, &index, &options);
     compiler.slot_markers = slot_markers;
+    for call in &index.calls {
+        if let Expression::Identifier(id) = &call.callee
+            && index
+                .symbol(id)
+                .is_some_and(|id| query_markers.contains(&id))
+            && let Some(fields) = query_diagnostics::omitted_fields(&index, call)
+        {
+            let remedy = format!(
+                "Include {} in the query key. Return a tuple or object containing every load-relevant argument field.",
+                fields.join(", ")
+            );
+            let mut diagnostic = compiler
+                .fail::<()>(
+                    call.span,
+                    &format!(
+                        "Query load reads argument fields absent from key: {}. {}",
+                        fields.join(", "),
+                        remedy
+                    ),
+                )
+                .unwrap_err();
+            diagnostic.code = "EW2002".into();
+            diagnostic.category = "unprovable-dependency".into();
+            diagnostic.severity = "warning".into();
+            diagnostic.remedy = remedy;
+            compiler.diagnostics.push(*diagnostic);
+        }
+    }
     let mut edits = vec![];
     let mut until = 0;
     for call in &index.calls {
@@ -107,16 +165,17 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
             let replacement = match compiler.compile_view(call) {
                 Ok(code) => code,
                 Err(error) if options.diagnostics_only => {
-                    compiler.diagnostics.push(error);
+                    compiler.diagnostics.push(*error);
                     until = call.span.end;
                     continue;
                 }
                 Err(error) => {
                     return Err(format!(
-                        "{}:{}:{}: EffectWeb JSX: {}\n> {} | {}",
+                        "{}:{}:{}: EffectWeb JSX [{}]: {}\n> {} | {}",
                         error.file,
                         error.line,
                         error.column,
+                        error.code,
                         error.message,
                         error.line,
                         source.lines().nth(error.line - 1).unwrap_or("")

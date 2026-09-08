@@ -11,10 +11,10 @@ const results = new WeakMap<
   Source,
   { text: string; diagnostics: Map<string, readonly Diagnostic[]> }
 >();
-function rule(severity: Diagnostic['severity']) {
+function rule(category: Diagnostic['category'] | 'errors') {
   return {
     meta: {
-      type: severity === 'error' ? ('problem' as const) : ('suggestion' as const),
+      type: category !== 'performance' ? ('problem' as const) : ('suggestion' as const),
       schema: [
         {
           type: 'object',
@@ -26,7 +26,11 @@ function rule(severity: Diagnostic['severity']) {
     create(context: Context) {
       return {
         Program() {
-          if (!context.filename.endsWith('.tsx')) return;
+          if (
+            !context.filename.endsWith('.tsx') &&
+            !(category === 'unprovable-dependency' && context.filename.endsWith('.ts'))
+          )
+            return;
           const importSource = context.options[0]?.importSource ?? 'effectweb';
           let cached = results.get(context.sourceCode);
           if (!cached || cached.text !== context.sourceCode.text) {
@@ -46,6 +50,10 @@ function rule(severity: Diagnostic['severity']) {
                   line: 1,
                   column: 1,
                   severity: 'error',
+                  code: 'EW1000',
+                  category: 'correctness',
+                  remedy:
+                    'Fix the parser error or install the native compiler binary for this platform.',
                   message: error instanceof Error ? error.message : String(error),
                 },
               ];
@@ -53,10 +61,16 @@ function rule(severity: Diagnostic['severity']) {
             cached.diagnostics.set(key, diagnostics);
           }
           for (const diagnostic of diagnostics) {
-            if (diagnostic.severity !== severity) continue;
+            const selected =
+              category === 'unprovable-dependency'
+                ? diagnostic.code === 'EW2002' || diagnostic.code === 'EW1000'
+                : category === 'errors'
+                  ? diagnostic.severity === 'error'
+                  : diagnostic.category === category;
+            if (!selected) continue;
             context.report({
               loc: { line: diagnostic.line, column: diagnostic.column - 1 },
-              message: diagnostic.message,
+              message: `[${diagnostic.code}] ${diagnostic.message}`,
             });
           }
         },
@@ -66,5 +80,9 @@ function rule(severity: Diagnostic['severity']) {
 }
 export default {
   meta: { name: 'effectweb' },
-  rules: { 'valid-view': rule('error'), 'whole-model-dependency': rule('warning') },
+  rules: {
+    'valid-view': rule('errors'),
+    'whole-model-dependency': rule('performance'),
+    'query-key': rule('unprovable-dependency'),
+  },
 };

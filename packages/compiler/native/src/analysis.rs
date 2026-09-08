@@ -67,6 +67,9 @@ pub struct Index<'a, 's> {
     pub callback_mutations: Vec<(&'a Expression<'a>, Span, &'a str)>,
     pub global_calls: Vec<(Span, String)>,
     pub render_inputs: Vec<(Span, Vec<SymbolId>)>,
+    pub type_annotations: HashMap<SymbolId, &'a TSType<'a>>,
+    pub type_aliases: HashMap<SymbolId, &'a TSType<'a>>,
+    pub interfaces: HashMap<SymbolId, &'a TSInterfaceDeclaration<'a>>,
     parents: Vec<AstKind<'a>>,
 }
 impl<'a, 's> Index<'a, 's> {
@@ -82,6 +85,9 @@ impl<'a, 's> Index<'a, 's> {
             callback_mutations: vec![],
             global_calls: vec![],
             render_inputs: vec![],
+            type_annotations: HashMap::new(),
+            type_aliases: HashMap::new(),
+            interfaces: HashMap::new(),
             parents: vec![],
         }
     }
@@ -197,7 +203,35 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                 names.visit_formal_parameters(&function.params);
                 self.render_inputs.push((function.span, names.0));
             }
+            AstKind::TSTypeAliasDeclaration(declaration) => {
+                if declaration.type_parameters.is_none() {
+                    self.type_aliases.insert(
+                        declaration.id.symbol_id.get().unwrap(),
+                        &declaration.type_annotation,
+                    );
+                }
+            }
+            AstKind::TSInterfaceDeclaration(declaration) => {
+                if declaration.type_parameters.is_none() && declaration.extends.is_empty() {
+                    self.interfaces
+                        .insert(declaration.id.symbol_id.get().unwrap(), declaration);
+                }
+            }
+            AstKind::FormalParameter(parameter) => {
+                if let BindingPattern::BindingIdentifier(id) = &parameter.pattern
+                    && let Some(annotation) = &parameter.type_annotation
+                {
+                    self.type_annotations
+                        .insert(id.symbol_id.get().unwrap(), &annotation.type_annotation);
+                }
+            }
             AstKind::VariableDeclarator(declaration) => {
+                if let BindingPattern::BindingIdentifier(id) = &declaration.id
+                    && let Some(annotation) = &declaration.type_annotation
+                {
+                    self.type_annotations
+                        .insert(id.symbol_id.get().unwrap(), &annotation.type_annotation);
+                }
                 if let Some(init) = &declaration.init {
                     // Destructured bindings borrow from the same initializer too.
                     let mut names = BindingIds(vec![]);

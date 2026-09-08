@@ -72,3 +72,21 @@ writes.save(owner.read().document);
 Component tasks capture the model snapshot and input when `Run` is submitted, including requests that wait in a queue. Editing fields afterward does not replace that captured model. Controller tasks retain their supplied arguments; their factories execute when work starts. Pass `owner.read()` data as arguments to capture submission state, or read inside the Effect when execution-time state is intended. Effects and inputs are retained, not deep-cloned; keep supplied data immutable. Dropped and coalesced pending factories are never invoked.
 
 Queue progress continues after successes, typed failures, or defects. Component results remain `waiting` while more work is pending, publish each settlement, and retain the latest successful value if a later write fails. Action failures use the owner's error reporter. `cancel`, component reset or identity change, and disposal discard pending requests and interrupt active work; stale command completions cannot publish afterward. `awaitIdle` includes pending work. Cancellation cannot undo an external write that already completed. Transactions admit their whole command batch before starting Effects, so replacements and cancellation can remove superseded work without executing it.
+
+## Inspect source dependencies
+
+Mount a development panel before mounting the application so it sees initial evaluations:
+
+```ts
+import { mountBindingInspector } from 'effectweb/diagnostics';
+
+const removeInspector = mountBindingInspector(document.querySelector<HTMLElement>('#inspector')!);
+// Mount the application here. On teardown or HMR:
+// removeInspector();
+```
+
+The live, filterable table shows original file/line/column, source expressions, inferred snapshot dependencies, the latest changed dependency names, and derive/binding evaluation counts. It uses development compiler metadata; production builds emit none. Counts include initial evaluations, aggregate instances of the same source expression, and measure evaluations rather than actual DOM writes. Change reasons use reference/value equality, without retaining previous or next values.
+
+For custom tooling, `inspectBindings({ limit: 200 })` returns `entries()`, `subscribe(listener)`, `clear()`, and `dispose()`. Entries are immutable metadata, newest first, with at most 1000 source records. Least recently updated sources are evicted and start fresh if seen again. `dispose()` unsubscribes and clears retained metadata. `mountBindingInspector(element, inspector)` can share an inspector; removing that panel leaves the supplied inspector running. Low-level `observeBindings` remains available.
+
+The inspector covers instrumented derivations and text/attribute bindings; it is not a snapshot recorder, time-travel debugger, or complete profile of branch/list reconciliation. Source labels describe the compiler's inferred dependencies, not a proof that an opaque helper has no hidden state.

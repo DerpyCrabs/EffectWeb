@@ -10,10 +10,39 @@ export interface Rows<A> {
   slice(start?: number, end?: number): Rows<A>;
 }
 
+/** Validate without retaining values. Positions are zero-based array indices. */
+export function validateIdentities<A>(
+  items: readonly A[],
+  identity: (item: A, index: number) => Identity,
+): Identity[] {
+  const seen = new Map<Identity, number>();
+  return items.map((item, index) => {
+    const key = identity(item, index);
+    if (typeof key !== 'string' && typeof key !== 'number')
+      throw new Error(
+        `Invalid collection identity at index ${index}. Use a string or number domain identity, or sequence(items) for positional identity.`,
+      );
+    const previous = seen.get(key);
+    if (previous !== undefined)
+      throw new Error(
+        `Duplicate collection identity at indices ${previous} and ${index}. Identity must be unique within the collection; use a composite domain identity when IDs are only locally unique.`,
+      );
+    seen.set(key, index);
+    return key;
+  });
+}
+
 export function collection<A>(identity: (item: A, index: number) => Identity) {
   const cache = new WeakMap<readonly A[], Rows<A>>();
+  const validated = new WeakSet<readonly A[]>();
+  const validate = (items: readonly A[]) => {
+    if (validated.has(items)) return;
+    validateIdentities(items, identity);
+    validated.add(items);
+  };
   const comparisons = new WeakMap<readonly A[], WeakMap<readonly A[], readonly A[]>>();
   const from = (items: readonly A[]): Rows<A> => {
+    validate(items);
     const cached = cache.get(items);
     if (cached) return cached;
     const rows: Rows<A> = {
@@ -30,6 +59,8 @@ export function collection<A>(identity: (item: A, index: number) => Identity) {
   function share<B extends A>(previous: readonly B[], next: B[]): B[];
   function share<B extends A>(previous: readonly B[], next: readonly B[]): readonly B[];
   function share<B extends A>(previous: readonly B[], next: readonly B[]): readonly B[] {
+    validate(previous);
+    validate(next);
     if (previous === next) return previous;
     let pairs = comparisons.get(previous);
     const cached = pairs?.get(next);
@@ -45,11 +76,6 @@ export function collection<A>(identity: (item: A, index: number) => Identity) {
       if (index >= previous.length || !Object.is(identity(old!, index), key)) {
         if (!byIdentity) {
           byIdentity = new Map(previous.map((value, i) => [identity(value, i), value]));
-          const keys = next.map(identity);
-          if (byIdentity.size !== previous.length || new Set(keys).size !== keys.length)
-            throw new Error(
-              'Duplicate collection identity. Identity must be unique within the collection.',
-            );
         }
         old = byIdentity.get(key);
       }

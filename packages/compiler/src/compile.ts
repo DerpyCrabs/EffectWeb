@@ -6,6 +6,9 @@ export interface Diagnostic {
   readonly column: number;
   readonly message: string;
   readonly severity: 'error' | 'warning';
+  readonly code: string;
+  readonly category: 'correctness' | 'unprovable-dependency' | 'performance';
+  readonly remedy: string;
 }
 export interface CompilerOptions {
   /** The module exporting view and slot. Defaults to effectweb. */

@@ -118,3 +118,105 @@ const Bad=view(model => <ui.Button />);`;
     expect(reports).toEqual([]);
   });
 });
+
+it.each([
+  `const A = view(model => <>{([{id: 'a'}] as const).map(item => <p>{item.id}</p>)}</>);`,
+  `const A = view(model => <>{[{id: 'a'}].map(item => <p>{item.id}</p>)}</>);`,
+  `type Item = {id: string}; type Model = {items: readonly Item[]}; const A = view<Model>(model => <>{model.items.map(item => <p>{item.id}</p>)}</>);`,
+  `interface Item {id: string} interface Model {items: ReadonlyArray<Item>} const A = view((model: Model) => <>{model.items.filter(item => item.id).map(item => <p>{item.id}</p>)}</>);`,
+  `const A = view(model => { const items: {id: string}[] = model.items; return <>{items.map(item => <p>{item.id}</p>)}</>; });`,
+])('rejects statically known raw object lists: %s', (body) => {
+  const text = `import {view} from 'effectweb'; ${body}`;
+  const diagnostic = diagnose(text, 'identity.tsx')[0]!;
+  expect(diagnostic).toMatchObject({ code: 'EW1002', category: 'correctness', severity: 'error' });
+  expect(diagnostic.remedy).toContain('entities(items)');
+  expect(diagnostic.remedy).toContain('sequence(items)');
+  expect(() => compile(text, 'identity.tsx')).toThrow('[EW1002]');
+});
+
+it('accepts explicit collections, primitive lists, and unproven imported types', () => {
+  const text = `import {view, entities, sequence} from 'effectweb'; import type {Remote} from './types';
+  type Model = {items: {id: string}[], names: string[]};
+  const A = view<Model>(model => <>{entities(model.items).map(item => <p>{item.id}</p>)}{sequence(model.items).map(item => <p>{item.id}</p>)}{model.names.map(name => <p>{name}</p>)}</>);
+  const B = view<Remote>(model => <>{model.items.map(item => <p>{item.id}</p>)}</>);`;
+  expect(diagnose(text, 'explicit.tsx')).toEqual([]);
+});
+
+it('gives mutable captures and performance advice distinct actionable categories', () => {
+  const text = `import {view} from 'effectweb'; let outside = 1; const A = view(model => <p>{outside}</p>); const B = view(model => <p>{format(model)}</p>);`;
+  expect(diagnose(text, 'categories.tsx')).toEqual([
+    expect.objectContaining({
+      code: 'EW2001',
+      category: 'unprovable-dependency',
+      severity: 'error',
+      remedy: expect.stringContaining('model'),
+    }),
+    expect.objectContaining({
+      code: 'EW3001',
+      category: 'performance',
+      severity: 'warning',
+      remedy: expect.stringContaining('fields'),
+    }),
+  ]);
+});
+
+it.each([
+  `key: ({account, page}) => [account], load: ({account, page}) => api(account, page)`,
+  `key: args => args.account, load: args => api(args.account, args.page)`,
+  `key: () => 'fixed', load: args => api(args.page)`,
+  `key: ({account: owner}) => [owner], load: ({page: cursor}) => api(cursor)`,
+])('reports query load argument omissions through native analysis and TS lint', (definition) => {
+  const text = `import {query as defineQuery} from 'effectweb'; const q = defineQuery({name: 'page', ${definition}});`;
+  expect(diagnose(text, 'queries.ts')[0]).toMatchObject({
+    code: 'EW2002',
+    severity: 'warning',
+    remedy: expect.stringContaining('page'),
+  });
+  const reports: unknown[] = [];
+  plugin.rules['query-key']
+    .create({
+      filename: 'queries.ts',
+      sourceCode: { text },
+      options: [],
+      report: (report) => reports.push(report),
+    })
+    .Program();
+  expect(reports).toHaveLength(1);
+});
+
+it.each([
+  `key: args => [args.account, args.page], load: args => api(args.account, args.page)`,
+  `key: args => makeKey(args), load: args => api(args.page)`,
+  `key: buildKey, load: args => api(args.page)`,
+  `key: ({account, ...rest}) => [account, rest], load: args => api(args.page)`,
+])('keeps complete or unprovable query keys silent: %s', (definition) => {
+  expect(
+    diagnose(`import {query} from 'effectweb'; const q = query({${definition}});`, 'queries.ts'),
+  ).toEqual([]);
+});
+
+it('recognizes query subpath imports without treating unrelated query functions as framework calls', () => {
+  const definition = `{key: args => args.account, load: args => api(args.page)}`;
+  expect(
+    diagnose(
+      `import {query} from 'effectweb/query'; const q = query(${definition});`,
+      'queries.ts',
+    )[0]?.code,
+  ).toBe('EW2002');
+  expect(
+    diagnose(`import {query} from './other'; const q = query(${definition});`, 'queries.ts'),
+  ).toEqual([]);
+});
+
+it('surfaces parser or native-analysis failures when query-key is used on TypeScript', () => {
+  const reports: { message: string }[] = [];
+  plugin.rules['query-key']
+    .create({
+      filename: 'queries.ts',
+      sourceCode: { text: `import {query} from 'effectweb'; const q = query({` },
+      options: [],
+      report: (report) => reports.push(report),
+    })
+    .Program();
+  expect(reports[0]?.message).toContain('[EW1000]');
+});

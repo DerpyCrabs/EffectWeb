@@ -26,6 +26,9 @@ pub struct Diagnostic {
     pub column: usize,
     pub message: String,
     pub severity: String,
+    pub code: String,
+    pub category: String,
+    pub remedy: String,
 }
 #[derive(Clone)]
 enum Value<'a> {
@@ -34,7 +37,7 @@ enum Value<'a> {
     Template(&'a Expression<'a>),
 }
 type Env<'a> = BTreeMap<SymbolId, Value<'a>>;
-type Result<T> = std::result::Result<T, Diagnostic>;
+type Result<T> = std::result::Result<T, Box<Diagnostic>>;
 fn quote(s: &str) -> String {
     serde_json::to_string(s).unwrap()
 }
@@ -139,12 +142,23 @@ impl<'a, 's> Lower<'a, 's> {
             .encode_utf16()
             .count()
             + 1;
-        Err(Diagnostic {
+        Err(Box::new(Diagnostic {
             file: self.filename.into(),
             line,
             column: col,
             message: message.into(),
             severity: "error".into(),
+            code: "EW1001".into(),
+            category: "correctness".into(),
+            remedy: message.into(),
+        }))
+    }
+
+    fn unprovable<T>(&self, span: Span, message: &str) -> Result<T> {
+        self.fail(span, message).map_err(|mut diagnostic| {
+            diagnostic.code = "EW2001".into();
+            diagnostic.category = "unprovable-dependency".into();
+            diagnostic
         })
     }
 
@@ -343,9 +357,18 @@ impl<'a, 's> Lower<'a, 's> {
         format!("({event})=>({read})({event})")
     }
     fn deps(&self, e: &Expression<'a>, env: &Env<'a>) -> Vec<String> {
-        self.deps_inner(e, env, 0)
+        self.dependencies(e, env, 0)
+            .into_iter()
+            .map(|(value, _)| value)
+            .collect()
     }
-    fn deps_inner(&self, e: &Expression<'a>, env: &Env<'a>, depth: usize) -> Vec<String> {
+    /// Expressions and labels share ordering and deduplication, including template captures.
+    fn dependencies(
+        &self,
+        e: &Expression<'a>,
+        env: &Env<'a>,
+        depth: usize,
+    ) -> Vec<(String, String)> {
         if depth > 100 {
             return vec![];
         }
@@ -353,17 +376,20 @@ impl<'a, 's> Lower<'a, 's> {
         let mut seen = HashSet::new();
         for r in self.index.references(e.span()) {
             let values = match r.symbol.and_then(|id| env.get(&id)) {
-                Some(Value::Read(value)) => vec![if r.path.is_empty() {
-                    value.clone()
-                } else {
-                    format!("({value}){}", r.path.join(""))
-                }],
-                Some(Value::Template(t)) => self.deps_inner(t, env, depth + 1),
+                Some(Value::Read(value)) => vec![(
+                    if r.path.is_empty() {
+                        value.clone()
+                    } else {
+                        format!("({value}){}", r.path.join(""))
+                    },
+                    r.label.clone(),
+                )],
+                Some(Value::Template(t)) => self.dependencies(t, env, depth + 1),
                 Some(Value::Stable(_)) | None => vec![],
             };
-            for value in values {
+            for (value, label) in values {
                 if seen.insert(value.clone()) {
-                    found.push(value);
+                    found.push((value, label));
                 }
             }
         }
@@ -373,12 +399,11 @@ impl<'a, 's> Lower<'a, 's> {
         if !self.options.development {
             return String::new();
         }
-        let mut labels = vec![];
-        for r in self.index.references(e.span()) {
-            if r.symbol.is_some_and(|id| env.contains_key(&id)) && !labels.contains(&r.label) {
-                labels.push(r.label.clone());
-            }
-        }
+        let labels = self
+            .dependencies(e, env, 0)
+            .into_iter()
+            .map(|(_, label)| label)
+            .collect::<Vec<_>>();
         let span = e.span();
         let head = &self.source[..span.start as usize];
         let line = head.bytes().filter(|&b| b == b'\n').count() + 1;
@@ -397,7 +422,7 @@ impl<'a, 's> Lower<'a, 's> {
                     )
             })
         {
-            self.diagnostics.push(Diagnostic{file:self.filename.into(),line,column,severity:"warning".into(),message:"This call depends on the whole model. Pass the fields it uses to avoid recomputing on unrelated changes.".into()});
+            self.diagnostics.push(Diagnostic{file:self.filename.into(),line,column,severity:"warning".into(),code:"EW3001".into(),category:"performance".into(),remedy:"Pass only the model fields used by this helper.".into(),message:"This call depends on the whole model. Pass the fields it uses to avoid recomputing on unrelated changes.".into()});
         }
         format!(
             ",{}",
@@ -507,7 +532,7 @@ impl<'a, 's> Lower<'a, 's> {
             && !flags.is_function_scoped_declaration())
             || self.index.scoping.symbol_is_mutated(id)
         {
-            return self.fail(reference.span, &format!("Mutable capture {} is not a model dependency. Pass immutable data through the model.", reference.name));
+            return self.unprovable(reference.span, &format!("Mutable capture {} is not a model dependency. Pass immutable data through the model.", reference.name));
         }
         if !seen.insert(id) {
             return Ok(());
@@ -609,7 +634,7 @@ impl<'a, 's> Lower<'a, 's> {
                     && !flags.is_function_scoped_declaration())
                     || self.index.scoping.symbol_is_mutated(id)
                 {
-                    return self.fail(r.span,&format!("Mutable capture {} is not a model dependency. Pass immutable data through the model.",r.name));
+                    return self.unprovable(r.span,&format!("Mutable capture {} is not a model dependency. Pass immutable data through the model.",r.name));
                 }
                 self.external_capture(r, false, false, &mut HashSet::new())?;
             } else if [
@@ -990,6 +1015,11 @@ impl<'a, 's> Lower<'a, 's> {
                 && let Some(Expression::ArrowFunctionExpression(f)) =
                     call.arguments[0].as_expression()
             {
+                if self.index.raw_object_array(&m.object) {
+                    let mut diagnostic = self.fail::<()>(m.object.span(), "Raw object arrays need explicit collection identity. Use entities(items) for domain IDs, collection(item => item.domainKey).from(items) for custom identity, or sequence(items) for positional identity.").unwrap_err();
+                    diagnostic.code = "EW1002".into();
+                    return Err(diagnostic);
+                }
                 if f.r#async
                     || f.params.items.is_empty()
                     || f.params.items.len() > 2
