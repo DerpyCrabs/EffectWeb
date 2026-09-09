@@ -11,44 +11,44 @@ import {
   type Send,
   type RunningProgram,
 } from './program.js';
+import { defaultUiRuntime, type UiRuntime } from './runtime.js';
 import { available } from './resource.js';
-const commandPage = commandSlot('page');
 
-export interface PagesModel<Props, A, Cursor> {
+export interface PagesModel<Props, A, Cursor, E = unknown> {
   readonly props: Props;
   readonly key: string | undefined;
-  readonly result: AsyncResult.AsyncResult<UiPage<A, Cursor>, unknown>;
+  readonly result: AsyncResult.AsyncResult<UiPage<A, Cursor>, E>;
   readonly append: boolean;
 }
 export type PagesRequest = { type: 'More' } | { type: 'Retry' } | { type: 'Refresh' };
 /** Low-level reducer protocol, including completions for explicit program composition. */
-export type PagesMessage<A, Cursor> =
+export type PagesMessage<A, Cursor, E = unknown> =
   | PagesRequest
   | { type: 'Loaded'; page: UiPage<A, Cursor>; append: boolean }
-  | { type: 'Failed'; cause: Cause.Cause<unknown> };
+  | { type: 'Failed'; cause: Cause.Cause<E> };
 /** An owned pagination source with immutable input updates. */
-export interface PagesProgram<Props, A, Cursor> extends RunningProgram<
-  PagesModel<Props, A, Cursor>,
+export interface PagesProgram<Props, A, Cursor, E = unknown> extends RunningProgram<
+  PagesModel<Props, A, Cursor, E>,
   PagesRequest
 > {
   readonly receive: (props: Props | Snapshot<Props>) => void;
 }
 
 /** Reusable pagination transitions, or an independently owned source through create. */
-export interface Pagination<Props, A, Cursor> {
+export interface Pagination<Props, A, Cursor, E = unknown> {
   readonly init: (
     props: Props | Snapshot<Props>,
-  ) => PagesModel<Props, A, Cursor> | Snapshot<PagesModel<Props, A, Cursor>>;
+  ) => PagesModel<Props, A, Cursor, E> | Snapshot<PagesModel<Props, A, Cursor, E>>;
   readonly receive: (
-    model: PagesModel<Props, A, Cursor> | Snapshot<PagesModel<Props, A, Cursor>>,
+    model: PagesModel<Props, A, Cursor, E> | Snapshot<PagesModel<Props, A, Cursor, E>>,
     props: Props | Snapshot<Props>,
     options?: { refresh?: boolean },
-  ) => Transition<PagesModel<Props, A, Cursor>, PagesMessage<A, Cursor>>;
+  ) => Transition<PagesModel<Props, A, Cursor, E>, PagesMessage<A, Cursor, E>>;
   readonly update: (
-    model: PagesModel<Props, A, Cursor> | Snapshot<PagesModel<Props, A, Cursor>>,
-    message: PagesMessage<A, Cursor>,
-  ) => Transition<PagesModel<Props, A, Cursor>, PagesMessage<A, Cursor>>;
-  readonly create: (props: Props | Snapshot<Props>) => PagesProgram<Props, A, Cursor>;
+    model: PagesModel<Props, A, Cursor, E> | Snapshot<PagesModel<Props, A, Cursor, E>>,
+    message: PagesMessage<A, Cursor, E>,
+  ) => Transition<PagesModel<Props, A, Cursor, E>, PagesMessage<A, Cursor, E>>;
+  readonly create: (props: Props | Snapshot<Props>) => PagesProgram<Props, A, Cursor, E>;
 }
 
 /**
@@ -56,13 +56,21 @@ export interface Pagination<Props, A, Cursor> {
  * same-key refreshes keep the last success, and retries repeat the failed cursor.
  * Feed request inputs through receive; pass { refresh: true } for explicit same-key submissions.
  */
-export function pages<Props, A, Cursor>(definition: {
-  key: (props: Snapshot<Props>) => string | undefined;
-  load: (props: Snapshot<Props>, cursor: Snapshot<Cursor> | undefined) => UiLoad<UiPage<A, Cursor>>;
-  itemKey: (item: Snapshot<A>) => string;
-}): Pagination<Props, A, Cursor> {
-  type Model = PagesModel<Props, A, Cursor>;
-  type Message = PagesMessage<A, Cursor>;
+export function pages<Props, A, Cursor, E = unknown, R = never>(
+  definition: {
+    key: (props: Snapshot<Props>) => string | undefined;
+    load: (
+      props: Snapshot<Props>,
+      cursor: Snapshot<Cursor> | undefined,
+    ) => UiLoad<UiPage<A, Cursor>, E, R>;
+    itemKey: (item: Snapshot<A>) => string;
+  },
+  ...provided: [R] extends [never] ? [runtime?: UiRuntime<R>] : [runtime: UiRuntime<R>]
+): Pagination<Props, A, Cursor, E> {
+  const runtime = provided[0] ?? (defaultUiRuntime as UiRuntime<R>);
+  const commandPage = commandSlot('page');
+  type Model = PagesModel<Props, A, Cursor, E>;
+  type Message = PagesMessage<A, Cursor, E>;
   const request = (model: Model, append: boolean): Transition<Model, Message> => {
     const previous = available(model.result);
     if (append && (model.result.waiting || !previous || previous.next === undefined))
@@ -72,15 +80,20 @@ export function pages<Props, A, Cursor>(definition: {
     return {
       model: { ...model, append, result: AsyncResult.waiting(model.result) },
       commands: [
-        effectCommand(
-          commandPage,
-          () =>
-            definition.load(model.props as Snapshot<Props>, cursor as Snapshot<Cursor> | undefined),
-          {
-            policy: 'replace',
-            onSuccess: (page): Message => ({ type: 'Loaded', page, append }),
-            onFailure: (cause): Message => ({ type: 'Failed', cause }),
-          },
+        runtime.command(
+          effectCommand(
+            commandPage,
+            () =>
+              definition.load(
+                model.props as Snapshot<Props>,
+                cursor as Snapshot<Cursor> | undefined,
+              ),
+            {
+              policy: 'replace',
+              onSuccess: (page): Message => ({ type: 'Loaded', page, append }),
+              onFailure: (cause): Message => ({ type: 'Failed', cause }),
+            },
+          ),
         ),
       ],
     };
@@ -89,7 +102,7 @@ export function pages<Props, A, Cursor>(definition: {
     init: (props: Props | Snapshot<Props>): Model | Snapshot<Model> => ({
       props: props as Props,
       key: undefined,
-      result: AsyncResult.initial<UiPage<A, Cursor>, unknown>(),
+      result: AsyncResult.initial<UiPage<A, Cursor>, E>(),
       append: false,
     }),
     receive(
@@ -110,7 +123,7 @@ export function pages<Props, A, Cursor>(definition: {
         props,
         key,
         append: false,
-        result: AsyncResult.initial<UiPage<A, Cursor>, unknown>(),
+        result: AsyncResult.initial<UiPage<A, Cursor>, E>(),
       };
       return key === undefined ? { model: next, cancel: [commandPage] } : request(next, false);
     },

@@ -6,6 +6,13 @@ import type { Query } from './query.js';
 import type { Snapshot } from './snapshot.js';
 
 export interface CacheInternals<R> {
+  refresh(atom: Atom.Atom<unknown>): void;
+  readonly disposed: () => boolean;
+  revision<Args, A, E>(
+    definition: Query<Args, A, E, R>,
+    args: Args | Snapshot<Args>,
+  ): number | undefined;
+  retain(atom: Atom.Atom<unknown>): () => void;
   readonly registry: AtomRegistry.AtomRegistry;
   readonly generation: Atom.Writable<number>;
   query<Args, A, E>(

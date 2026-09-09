@@ -58,9 +58,8 @@ export function protectSnapshot<T>(value: T): T {
   if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return value;
   // Mark before walking to allow cyclic data and reuse already checked shared branches.
   checked.add(value);
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  for (const key of Reflect.ownKeys(descriptors)) {
-    const descriptor = Reflect.get(descriptors, key) as PropertyDescriptor;
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
     // Never execute getters or traverse closures, class instances, Effects or DOM objects.
     if ('value' in descriptor) protectSnapshot(descriptor.value);
   }

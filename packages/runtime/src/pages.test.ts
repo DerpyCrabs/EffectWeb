@@ -1,7 +1,7 @@
 import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import { pages, type PagesMessage, type PagesModel } from './pages.js';
-import { program } from './program.js';
+import { mapCommand, program } from './program.js';
 import { available, resourceError } from './resource.js';
 import type { UiLoad, UiPage } from './load.js';
 
@@ -27,6 +27,54 @@ const make = () => {
   });
 };
 const ids = (model: Model) => available(model.result)?.items.map((item) => item.id);
+
+it('isolates pagination definitions composed into the same parent program', async () => {
+  const definition = (id: number) =>
+    pages<string, Item, number>({
+      key: (key) => key,
+      load: () => Effect.succeed(page([id])),
+      itemKey: (item) => String(item.id),
+    });
+  const left = definition(1);
+  const right = definition(2);
+  type Parent = { left: PagesModel<string, Item, number>; right: PagesModel<string, Item, number> };
+  type Message = { type: 'Init' } | { type: 'Left' | 'Right'; message: PagesMessage<Item, number> };
+  const source = program<Parent, Message>({
+    initial: { left: left.init('left'), right: right.init('right') },
+    update: (model, message) => {
+      if (message.type === 'Init') {
+        const a = left.receive(model.left, 'left');
+        const b = right.receive(model.right, 'right');
+        return {
+          model: { left: a.model, right: b.model },
+          commands: [
+            ...(a.commands ?? []).map((command) =>
+              mapCommand(command, (message): Message => ({ type: 'Left', message })),
+            ),
+            ...(b.commands ?? []).map((command) =>
+              mapCommand(command, (message): Message => ({ type: 'Right', message })),
+            ),
+          ],
+        };
+      }
+      return {
+        model:
+          message.type === 'Left'
+            ? { ...model, left: left.update(model.left, message.message).model }
+            : { ...model, right: right.update(model.right, message.message).model },
+      };
+    },
+  });
+  try {
+    source.send({ type: 'Init' });
+    await source.awaitIdle();
+    expect(available(source.model().left.result)?.items).toEqual([{ id: 1 }]);
+    expect(available(source.model().right.result)?.items).toEqual([{ id: 2 }]);
+    expect(source.model().left.result.waiting).toBe(false);
+  } finally {
+    source.dispose();
+  }
+});
 
 describe('owned pagination', () => {
   it('deduplicates first and appended pages, retains results and retries the failed cursor', async () => {

@@ -17,6 +17,8 @@ const taskPolicies: readonly string[] = ['replace', 'drop', 'parallel', 'queue',
 export type Command<Message, R = never> = {
   readonly slot: CommandSlot;
   readonly policy: TaskPolicy;
+  /** Notification for work that never started. */
+  readonly onDiscard?: (reason: 'Cancelled' | 'Superseded' | 'Dropped') => void;
 } & (
   | {
       readonly effect: Effect.Effect<Message, never, R>;
@@ -82,6 +84,9 @@ export interface Program<Model, Message> {
   readonly dispose: () => void;
 }
 export interface RunningProgram<Model, Message> extends Program<Model, Message> {
+  /** Wait for interrupted work and its finalizers as well as admitted work. */
+  readonly awaitStopped: () => Promise<void>;
+  readonly close: () => Promise<void>;
   readonly activeSlots: () => readonly CommandSlot[];
   readonly awaitIdle: (slot?: CommandSlot) => Promise<void>;
 }
@@ -113,6 +118,7 @@ export function program<Model, Message>(options: {
     });
   const waiters = new Set<{ slot: CommandSlot | undefined; done: () => void }>();
   const notify = () => {
+    notifyStopped();
     for (const waiter of waiters) {
       if (
         disposed ||
@@ -127,14 +133,37 @@ export function program<Model, Message>(options: {
   // Effect still owns all command fibers, streams, and cancellation below.
   let current = protectSnapshot(options.initial) as Model;
   const listeners = new Set<(model: Snapshot<Model>) => void>();
-  type Running = { fiber?: Fiber.Fiber<Option.Option<Message>, unknown> };
+  type Running = {
+    fiber?: Fiber.Fiber<Option.Option<Message>, unknown>;
+    command?: Command<Message>;
+  };
   type Group = { active: Set<Running>; pending: Command<Message>[] };
   const running = new Map<CommandSlot, Group>();
+  const live = new Set<Running>();
+  const stopped = new Set<() => void>();
+  const notifyStopped = () => {
+    if (live.size || running.size || draining) return;
+    for (const done of stopped) done();
+    stopped.clear();
+  };
+  const awaitStopped = () =>
+    live.size === 0 && running.size === 0 && !draining
+      ? Promise.resolve()
+      : new Promise<void>((done) => stopped.add(done));
   let disposed = false;
   let draining = false;
   const queue: Array<{ message: Message; slot?: CommandSlot }> = [];
   const deferred: Array<{ slot: CommandSlot; group: Group }> = [];
-  const cancel = (slot: CommandSlot) => {
+  const discard = (command: Command<Message>, reason: 'Cancelled' | 'Superseded' | 'Dropped') => {
+    if (command.onDiscard) {
+      try {
+        command.onDiscard(reason);
+      } catch (error) {
+        reportSafely(options.onDefect ?? reportError, error);
+      }
+    }
+  };
+  const cancel = (slot: CommandSlot, reason: 'Cancelled' | 'Superseded' = 'Cancelled') => {
     // A synchronous Effect can enqueue completion behind a reset/replacement message.
     // Its fiber is already done, but cancellation still owns that unpublished completion.
     for (let index = queue.length - 1; index >= 0; index--)
@@ -143,9 +172,12 @@ export function program<Model, Message>(options: {
     running.delete(slot);
     if (previous) {
       trace('cancel', slot);
-      previous.pending.length = 0;
-      for (const task of previous.active)
+      const pending = previous.pending.splice(0);
+      for (const command of pending) discard(command, reason);
+      for (const task of previous.active) {
         if (task.fiber) Effect.runFork(Fiber.interrupt(task.fiber));
+        else if (task.command && !live.has(task)) discard(task.command, reason);
+      }
       previous.active.clear();
     }
   };
@@ -180,13 +212,12 @@ export function program<Model, Message>(options: {
       : command.action
         ? command.action.pipe(Effect.as(Option.none<Message>()))
         : command.effect.pipe(Effect.map(Option.some));
+    live.add(task);
     const fiber = Effect.runFork(effect);
     task.fiber = fiber;
-    if (!valid()) {
-      Effect.runFork(Fiber.interrupt(fiber));
-      return;
-    }
     fiber.addObserver((exit) => {
+      live.delete(task);
+      notifyStopped();
       if (!valid()) return;
       group.active.delete(task);
       if (!group.active.size && !group.pending.length) running.delete(command.slot);
@@ -202,12 +233,13 @@ export function program<Model, Message>(options: {
       }
       notify();
     });
+    if (!valid()) Effect.runFork(Fiber.interrupt(fiber));
   };
   const advance = (slot: CommandSlot, group: Group) => {
     if (disposed || running.get(slot) !== group || group.active.size) return;
     const next = group.pending.shift();
     if (!next) return;
-    const task: Running = {};
+    const task: Running = { command: next };
     group.active.add(task);
     launch(next, group, task);
   };
@@ -245,13 +277,17 @@ export function program<Model, Message>(options: {
           if (disposed) break;
           const policy = command.policy;
           let group = running.get(command.slot);
-          if (policy === 'drop' && group) continue;
+          if (policy === 'drop' && group) {
+            discard(command, 'Dropped');
+            continue;
+          }
           if (policy === 'replace') {
-            cancel(command.slot);
+            cancel(command.slot, 'Superseded');
             group = undefined;
           }
           if (group && (policy === 'queue' || policy === 'latest-queued')) {
-            if (policy === 'latest-queued') group.pending.length = 0;
+            if (policy === 'latest-queued')
+              for (const pending of group.pending.splice(0)) discard(pending, 'Superseded');
             group.pending.push(command);
             continue;
           }
@@ -259,7 +295,7 @@ export function program<Model, Message>(options: {
             group = { active: new Set(), pending: [] };
             running.set(command.slot, group);
           }
-          const task: Running = {};
+          const task: Running = { command };
           group.active.add(task);
           const admitted = group;
           starts.push(() => launch(command, admitted, task));
@@ -278,7 +314,22 @@ export function program<Model, Message>(options: {
     }
   };
   const send: Send<Message> = (message) => enqueue(message);
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    queue.length = 0;
+    deferred.length = 0;
+    for (const slot of running.keys()) cancel(slot);
+    listeners.clear();
+    trace('dispose');
+    notify();
+  };
   return {
+    awaitStopped,
+    close: () => {
+      dispose();
+      return awaitStopped();
+    },
     model: () => current as Snapshot<Model>,
     activeSlots: () => [...running.keys()],
     awaitIdle: (slot) =>
@@ -302,15 +353,6 @@ export function program<Model, Message>(options: {
         listeners.delete(receive);
       };
     },
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      queue.length = 0;
-      deferred.length = 0;
-      for (const slot of running.keys()) cancel(slot);
-      listeners.clear();
-      trace('dispose');
-      notify();
-    },
+    dispose,
   };
 }

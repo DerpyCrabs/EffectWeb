@@ -127,6 +127,14 @@
     "./http": {
       "types": "./dist/http.d.ts",
       "import": "./dist/http.js"
+    },
+    "./infinite-query": {
+      "types": "./dist/infinite-query.d.ts",
+      "import": "./dist/infinite-query.js"
+    },
+    "./keyed-tasks": {
+      "types": "./dist/keyed-tasks.d.ts",
+      "import": "./dist/keyed-tasks.js"
     }
   },
   "publishConfig": {

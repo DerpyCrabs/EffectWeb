@@ -70,9 +70,9 @@ export {
   type TaskResults,
 } from './tasks.js';
 export { uiRuntime, type UiRuntime } from './runtime.js';
-export { query, type Query, type QueryKey } from './query.js';
+export { query, queryGroup, type Query, type QueryKey, type QueryGroup } from './query.js';
 
-export { makeQueryCache, type QueryCache } from './cache.js';
+export { makeQueryCache, type QueryCache, type QueryCacheOptions } from './cache.js';
 export {
   queryResource,
   type QueryResource,
@@ -85,3 +85,12 @@ export {
 } from './session.js';
 
 export { httpJson } from './http.js';
+
+export {
+  infiniteQuery,
+  infiniteResource,
+  type InfiniteData,
+  type InfiniteQuery,
+  type InfiniteResource,
+} from './infinite-query.js';
+export { keyedTasks, type TaskHandle, type TaskOutcome } from './keyed-tasks.js';

@@ -17,7 +17,7 @@ export function effectweb(options: CompilerOptions = {}): Plugin {
     enforce: 'pre',
     transform(code, id) {
       const filename = id.split('?')[0];
-      if (!filename || !/\.tsx?$/u.test(filename) || filename.endsWith('.d.ts')) return;
+      if (!filename || !/\.(?:tsx?|jsx)$/u.test(filename) || filename.endsWith('.d.ts')) return;
       const result = compile(code, filename, {
         ...options,
         development,

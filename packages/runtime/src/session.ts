@@ -61,7 +61,10 @@ export function queryResource<Args, A, E, R>(
   const initial = AsyncResult.initial<Snapshot<A>, E>();
   const listeners = new Set<(result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void>();
   const read = () =>
-    atom && !disposed && generation === internal.registry.get(internal.generation)
+    atom &&
+    !disposed &&
+    !internal.disposed() &&
+    generation === internal.registry.get(internal.generation)
       ? internal.registry.get(atom)
       : initial;
   let published: AsyncResult.AsyncResult<Snapshot<A>, E> | undefined;
@@ -116,7 +119,7 @@ export function queryResource<Args, A, E, R>(
   });
   return {
     select(args: Args | Snapshot<Args> | undefined) {
-      if (disposed) return;
+      if (disposed || internal.disposed()) return;
       const nextGeneration = internal.registry.get(internal.generation);
       const nextKey =
         args === undefined ? undefined : encodeQueryKey(args as import('./query.js').QueryKey);
@@ -130,7 +133,12 @@ export function queryResource<Args, A, E, R>(
       atom = nextAtom;
       if (nextAtom) {
         // Subscription setup itself can execute a synchronous Effect and reenter selection.
-        const release = internal.registry.subscribe(nextAtom, notify);
+        const releaseUse = internal.retain(nextAtom);
+        const unsubscribe = internal.registry.subscribe(nextAtom, notify);
+        const release = () => {
+          unsubscribe();
+          releaseUse();
+        };
         if (disposed || selected !== revision) {
           release();
           return;
@@ -151,10 +159,11 @@ export function queryResource<Args, A, E, R>(
       if (
         atom &&
         !disposed &&
+        !internal.disposed() &&
         generation === internal.registry.get(internal.generation) &&
         !internal.registry.get(atom).waiting
       )
-        internal.registry.refresh(atom);
+        internal.refresh(atom);
     },
     dispose: () => {
       if (disposed) return;

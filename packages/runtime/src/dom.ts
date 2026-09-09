@@ -10,6 +10,7 @@ import type { Rows } from './index.js';
 import type { Identity } from './collection.js';
 import { jsxComponent, type JSX } from './jsx.js';
 import type { DomMount } from './mount.js';
+import { Settlement } from './settlement.js';
 import { startMount } from './mount.js';
 import type { Program, Send } from './program.js';
 type Dependencies = () => readonly unknown[];
@@ -50,6 +51,7 @@ export class Scope<M, E> {
     public value: M,
     readonly send: Send<E>,
     readonly report: ReportError = reportError,
+    readonly settlement: Settlement = new Settlement(),
   ) {}
   derive<A>(dependencies: Dependencies, compute: () => A, source?: BindingSource): () => A {
     let previous: readonly unknown[] | undefined;
@@ -147,6 +149,7 @@ type ContentDefinition = {
     before: Node,
     value: unknown,
     report: ReportError,
+    settlement: Settlement,
   ): { set(value: unknown): void; dispose(): void };
 };
 type ContentValue = CompiledContent & { definition: ContentDefinition; value?: unknown };
@@ -176,9 +179,9 @@ export function compiledSlot<M, E, A>(owner: Scope<M, E>, build: Build<A, E>): S
     placements.clear();
   });
   const definition: ContentDefinition = {
-    mount(parent, before, value) {
+    mount(parent, before, value, _report, settlement) {
       if (owner.disposed) throw new Error('Cannot mount content after its declaring view disposed');
-      const scope = new Scope(value as A, owner.send, owner.report);
+      const scope = new Scope(value as A, owner.send, owner.report, settlement);
       const fragment = buildFragment(parent);
       const range = markers(fragment, null);
       scope.cleanups.push(() => remove(range.start, range.end));
@@ -321,10 +324,17 @@ export function mountView<M, E>(
       remove(start, end);
       throw error;
     }
-    return () => {
+    const dispose = () => {
       if (scope.disposed) return;
       runAll([unsubscribe, () => scope.dispose(), () => remove(start, end)], scope.report);
     };
+    return Object.assign(dispose, {
+      dispose,
+      close: () => {
+        dispose();
+        return scope.settlement.wait();
+      },
+    });
   });
 }
 export function element(parent: Node, before: Node | null, tag: string): Element {
@@ -592,7 +602,13 @@ export function text<M, E>(
         }
         content = {
           definition: value.definition,
-          mounted: value.definition.mount(node.parentNode!, node, value.value, scope.report),
+          mounted: value.definition.mount(
+            node.parentNode!,
+            node,
+            value.value,
+            scope.report,
+            scope.settlement,
+          ),
         };
         return;
       }
@@ -629,12 +645,17 @@ function validateContent(value: unknown, active = new Set<readonly unknown[]>())
 }
 
 const arrayContent: ContentDefinition = {
-  mount: (_parent, before, value, report) =>
-    mountArray(report, before, value as readonly unknown[]),
+  mount: (_parent, before, value, report, settlement) =>
+    mountArray(report, before, value as readonly unknown[], settlement),
 };
 
 /** Runtime content arrays are positional; domain lists retain the explicit collection contract. */
-function mountArray(report: ReportError, before: Node, initial: readonly unknown[]) {
+function mountArray(
+  report: ReportError,
+  before: Node,
+  initial: readonly unknown[],
+  settlement: Settlement,
+) {
   const cells: Array<{ scope: Scope<unknown, never>; start: Comment; end: Comment }> = [];
   const disposeCell = (cell: (typeof cells)[number]) => {
     cell.scope.dispose();
@@ -650,7 +671,7 @@ function mountArray(report: ReportError, before: Node, initial: readonly unknown
         if (!Object.is(cell.scope.value, values[index])) cell.scope.set(values[index]);
         continue;
       }
-      const scope = new Scope(values[index], unboundSend, report);
+      const scope = new Scope(values[index], unboundSend, report, settlement);
       const fragment = buildFragment(before.parentNode!);
       const range = markers(fragment, null);
       try {
@@ -741,7 +762,7 @@ export function bindEvent<M, E>(
     current = next;
     if (typeof next === 'function') {
       const handler: (input: Event) => unknown = next as (input: Event) => unknown;
-      owned = new Scope(next, scope.send, scope.report);
+      owned = new Scope(next, scope.send, scope.report, scope.settlement);
       event(owned, element, name, handler);
     }
   });
@@ -794,7 +815,7 @@ export function bindAttributes<M, E>(
         binding.set(value);
         continue;
       }
-      const owned = new Scope<unknown, E>(value, scope.send, scope.report);
+      const owned = new Scope<unknown, E>(value, scope.send, scope.report, scope.settlement);
       bindings.set(name, owned);
       if (name === 'use')
         attach(
@@ -844,7 +865,7 @@ export function branch<M, E>(
     if (active !== next) {
       child?.dispose();
       clear(start, end);
-      child = new Scope(scope.value, scope.send, scope.report);
+      child = new Scope(scope.value, scope.send, scope.report, scope.settlement);
       const fragment = buildFragment(end.parentNode!);
       try {
         (next ? yes : no)(child, fragment, null);
@@ -928,7 +949,12 @@ export function each<M, E, A>(
       if (!row) {
         const fragment = buildFragment(target);
         const range = markers(fragment, null);
-        const child = new Scope<readonly [A, number], E>([item, index], scope.send, scope.report);
+        const child = new Scope<readonly [A, number], E>(
+          [item, index],
+          scope.send,
+          scope.report,
+          scope.settlement,
+        );
         try {
           build(child, fragment, range.end);
         } catch (error) {
@@ -1009,7 +1035,7 @@ export function invoke<M, E>(
   read: () => readonly unknown[],
   build: Build<readonly unknown[], E>,
 ) {
-  const child = new Scope(read(), scope.send, scope.report);
+  const child = new Scope(read(), scope.send, scope.report, scope.settlement);
   scope.cleanups.push(() => child.dispose());
   build(child, parent, before);
   scope.watch(dependencies, () => {
@@ -1026,7 +1052,7 @@ export function child<M, E, C, F>(
   model: () => C,
   send: Send<F>,
 ) {
-  const child = new Scope(model(), send, scope.report);
+  const child = new Scope(model(), send, scope.report, scope.settlement);
   scope.cleanups.push(() => child.dispose());
   definition.build(child, parent, before);
   scope.watch(dependencies, () => {
@@ -1059,7 +1085,7 @@ export function viewRegion<M, E>(scope: Scope<M, E>, parent: Node, before: Node 
       if (scope.disposed) return;
       clear(start, end);
       if (!next) return;
-      const child = new Scope(scope.value, scope.send, scope.report);
+      const child = new Scope(scope.value, scope.send, scope.report, scope.settlement);
       const fragment = buildFragment(end.parentNode!);
       active = child;
       definition = next;
@@ -1100,11 +1126,14 @@ export function attach<M, E, T extends Element>(
     if (!mount) return;
     queueMicrotask(() => {
       if (!scope.disposed && token === generation) {
+        const finished = scope.settlement.begin();
         try {
           const acquired = startMount(element, mount, scope.report);
+          acquired.closed.then(finished, finished);
           if (scope.disposed || token !== generation) acquired.dispose();
           else active = acquired;
         } catch (error) {
+          finished();
           reportSafely(scope.report, error);
         }
       }
@@ -1133,7 +1162,7 @@ export function portal<M, E>(
         ? target.ownerDocument.createElementNS(svgNamespace, 'g')
         : target.ownerDocument.createElement('div');
       host.style.display = 'contents';
-      child = new Scope(scope.value, scope.send, scope.report);
+      child = new Scope(scope.value, scope.send, scope.report, scope.settlement);
       target.appendChild(host);
       build(child, host, null);
       return;

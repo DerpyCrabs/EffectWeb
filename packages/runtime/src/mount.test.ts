@@ -53,3 +53,36 @@ it('releases an acquisition superseded synchronously by another host', async () 
   scope.dispose();
   expect(released).toEqual(['first', 'second']);
 });
+
+it('accounts for close requested before reentrant DOM acquisition returns its fiber', async () => {
+  const scope = new Scope({}, () => {});
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let closing!: Promise<void>;
+  const binding = domMount(() => {
+    scope.dispose();
+    closing = scope.settlement.wait();
+    return Effect.never.pipe(Effect.ensuring(Effect.promise(() => gate)));
+  });
+  attach(
+    scope,
+    new EventTarget() as Element,
+    () => [],
+    () => binding,
+  );
+  await Promise.resolve();
+  let closed = false;
+  closing.then(
+    () => {
+      closed = true;
+    },
+    () => {},
+  );
+  await Promise.resolve();
+  expect(closed).toBe(false);
+  release();
+  await closing;
+  expect(closed).toBe(true);
+});

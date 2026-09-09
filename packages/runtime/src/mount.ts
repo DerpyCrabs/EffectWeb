@@ -52,22 +52,39 @@ export function startMount<T extends Element>(
   const work = mount.acquire(element, () => data);
   const fiber = Effect.isEffect(work) ? Effect.runFork(work) : undefined;
   let disposed = false;
+  let finish!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
   fiber?.addObserver((exit) => {
     if (exit._tag === 'Failure' && !disposed) reportSafely(report, exit.cause);
+    finish();
   });
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    if (fiber) Effect.runFork(Fiber.interrupt(fiber));
+    else {
+      try {
+        if (typeof work === 'function') work();
+        else if ('dispose' in work) work.dispose();
+      } finally {
+        finish();
+      }
+    }
+  };
   return {
+    closed,
+    close() {
+      dispose();
+      return closed;
+    },
     update(next: DomMount<T>) {
       if (next.identity !== mount.identity) return false;
       data = next.data;
       if (!fiber && typeof work === 'object' && 'update' in work) work.update?.();
       return true;
     },
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      if (fiber) Effect.runFork(Fiber.interrupt(fiber));
-      else if (typeof work === 'function') work();
-      else if ('dispose' in work) work.dispose();
-    },
+    dispose,
   };
 }

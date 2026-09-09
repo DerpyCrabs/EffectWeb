@@ -101,6 +101,18 @@ export function query<Args, A, E = never, R = never>(
   if (Number.isNaN(staleTime) || staleTime < 0)
     throw new RangeError('Query staleTime must be nonnegative.');
   const result = Object.freeze({ name: definition.name }) as Query<Args, A, E, R>;
-  registerQuery(result, Object.freeze({ ...definition, staleTime }));
+  registerQuery(
+    result,
+    Object.freeze({
+      ...definition,
+      ...(definition.groups ? { groups: Object.freeze([...definition.groups]) } : {}),
+      staleTime,
+    }),
+  );
   return result;
 }
+
+declare const groupType: unique symbol;
+export type QueryGroup = symbol & { readonly [groupType]: true };
+/** Invalidation identity; equal diagnostic names do not share membership. */
+export const queryGroup = (name: string): QueryGroup => Symbol(name) as QueryGroup;

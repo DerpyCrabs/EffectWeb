@@ -61,26 +61,29 @@ function share<T>(previous: T, next: T, fields: ShareFields<T> | undefined): T {
   )
     return next;
   let equal = keys.length === oldKeys.length && (!array || value.length === old.length);
-  let unchangedNext = true;
-  const shared: Record<string, unknown> = array ? ([] as unknown as Record<string, unknown>) : {};
-  if (array) shared.length = value.length;
+  let changed: Map<string, unknown> | undefined;
   for (const key of keys) {
     const custom = fields && Object.hasOwn(fields, key) ? fields[key as keyof T] : undefined;
     const item =
       custom && Object.hasOwn(old, key)
         ? custom(old[key] as T[keyof T], value[key] as T[keyof T])
         : share(Object.hasOwn(old, key) ? old[key] : undefined, value[key], undefined);
-    // Define an own data property, including __proto__, without invoking setters.
-    Object.defineProperty(shared, key, {
-      value: item,
-      writable: true,
-      enumerable: true,
-      configurable: true,
-    });
     if (!Object.hasOwn(old, key) || !Object.is(item, old[key])) equal = false;
-    if (!Object.is(item, value[key])) unchangedNext = false;
+    if (!Object.is(item, value[key])) (changed ??= new Map()).set(key, item);
   }
-  const result = equal ? previous : unchangedNext ? next : (shared as T);
+  let result: T = equal ? previous : next;
+  if (!equal && changed) {
+    const shared: Record<string, unknown> = array ? ([] as unknown as Record<string, unknown>) : {};
+    if (array) shared.length = value.length;
+    for (const key of keys)
+      Object.defineProperty(shared, key, {
+        value: changed.has(key) ? changed.get(key) : value[key],
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+    result = shared as T;
+  }
   if (fields) return result;
   if (!pairs) {
     pairs = new WeakMap();

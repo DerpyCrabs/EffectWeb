@@ -132,6 +132,28 @@ const refreshedEntities = shareValue(
 assert.equal(refreshedEntities.items[0], previousEntities.items[1]);
 assert.equal(refreshedEntities.items[1], previousEntities.items[0]);
 
+const runtimeExports = await import(
+  pathToFileURL(join(temp, 'node_modules/effectweb/dist/index.js')).href
+);
+assert.equal(typeof runtimeExports.infiniteQuery, 'function');
+assert.equal(typeof runtimeExports.keyedTasks, 'function');
+run(
+  process.platform === 'win32' ? 'npm.cmd' : 'npm',
+  [
+    'install',
+    '--ignore-scripts',
+    '--no-audit',
+    '--no-fund',
+    '--save-dev',
+    'solid-js@2.0.0-rc.7',
+    '@solidjs/web@2.0.0-rc.7',
+    '@solidjs/vite-plugin@3.0.0-next.39',
+  ],
+  temp,
+);
+for (const file of ['mixed-islands.jsx', 'mixed-islands.d.ts'])
+  writeFileSync(join(temp, file), readFileSync(`tests/fixtures/${file}`));
+
 writeFileSync(
   join(temp, 'vite.config.mjs'),
   "import { effectweb } from '@effectweb/compiler/vite'; export default { plugins: [effectweb()] };\n",
@@ -222,12 +244,13 @@ for (const file of [
   'query.typecheck.ts',
   'commands.typecheck.ts',
   'tasks.typecheck.ts',
+  'large-project.typecheck.ts',
   'lazy.typecheck.tsx',
   'portal.typecheck.tsx',
   'native-jsx.typecheck.ts',
 ]) {
   const source = readFileSync(`packages/runtime/src/${file}`, 'utf8').replace(
-    /(['"])\.\/([A-Za-z]+)\.js\1/gu,
+    /(['"])\.\/([A-Za-z-]+)\.js\1/gu,
     (_match, quote, module) =>
       `${quote}${['AsyncContent', 'owner', 'dom', 'index', 'snapshot'].includes(module) ? 'effectweb' : `effectweb/${module}`}${quote}`,
   );
@@ -329,6 +352,25 @@ assert.ok(
   'Dynamic registry leaked into the bundle',
 );
 assert.ok(bundle.length < 160_000, `Icon consumer unexpectedly large: ${bundle.length} bytes`);
+// Build optional integrations separately so the existing core/icon bundle budget stays meaningful.
+writeFileSync(
+  join(temp, 'mixed.html'),
+  '<!doctype html><html><body><script type="module" src="/mixed-islands-entry.jsx"></script></body></html>',
+);
+writeFileSync(
+  join(temp, 'mixed-islands-entry.jsx'),
+  "import { mountMixedIslands } from './mixed-islands.jsx'; Object.assign(window, { mountMixedIslands });\n",
+);
+writeFileSync(
+  join(temp, 'vite.mixed.config.mjs'),
+  "import { effectweb } from '@effectweb/compiler/vite'; import solid from '@solidjs/vite-plugin'; export default { base: '/mixed/', plugins: [effectweb(), solid()], build: { outDir: 'mixed-dist', rollupOptions: { input: 'mixed.html' } } };\n",
+);
+run(
+  process.execPath,
+  ['node_modules/vite/bin/vite.js', 'build', '--config', 'vite.mixed.config.mjs'],
+  temp,
+);
+
 const { Effect, Context } = await import(
   pathToFileURL(join(temp, 'node_modules/effect/dist/Effect.js')).href
 ).then(async (effect) => ({
@@ -351,13 +393,22 @@ assert.equal(await Effect.runPromise(cache.prefetch(definition, true)), 'written
 cache.dispose();
 const server = createServer((request, response) => {
   const pathname = new URL(request.url, 'http://localhost').pathname;
-  if (!/^\/(?:assets\/[\w.-]+|index.html)?$/.test(pathname)) {
+  if (!/^\/(?:assets\/[\w.-]+|index.html|mixed\/(?:assets\/[\w.-]+|mixed.html))?$/.test(pathname)) {
     response.writeHead(404).end();
     return;
   }
   try {
     response.setHeader('Content-Type', pathname.endsWith('.js') ? 'text/javascript' : 'text/html');
-    response.end(readFileSync(join(temp, 'dist', pathname === '/' ? 'index.html' : pathname)));
+    const mixed = pathname.startsWith('/mixed/');
+    response.end(
+      readFileSync(
+        join(
+          temp,
+          mixed ? 'mixed-dist' : 'dist',
+          mixed ? pathname.slice('/mixed/'.length) : pathname === '/' ? 'index.html' : pathname,
+        ),
+      ),
+    );
   } catch {
     response.writeHead(404).end();
   }
@@ -387,6 +438,28 @@ try {
     await page.evaluate(() => window.originalCamera === document.querySelector('.lucide-camera')),
     true,
   );
+  const islands = await browser.newPage();
+  islands.on('pageerror', (error) => errors.push(error.message));
+  const mixedResponse = await islands.goto(
+    `http://127.0.0.1:${server.address().port}/mixed/mixed.html`,
+  );
+  assert.equal(mixedResponse.status(), 200);
+  await islands.evaluate(() => {
+    const host = document.createElement('div');
+    host.id = 'mixed-islands';
+    document.body.append(host);
+    window.stopMixedIslands = window.mountMixedIslands(host);
+  });
+  await islands.getByRole('button', { name: 'Solid 0', exact: true }).click();
+  await islands.getByRole('button', { name: 'EffectWeb 0', exact: true }).click();
+  await islands.getByRole('button', { name: 'Solid 1', exact: true }).waitFor();
+  await islands.getByRole('button', { name: 'EffectWeb 1', exact: true }).waitFor();
+  await islands.evaluate(() => {
+    window.stopMixedIslands();
+    document.getElementById('mixed-islands').remove();
+  });
+  assert.equal(await islands.getByRole('button', { name: 'EffectWeb 1', exact: true }).count(), 0);
+  await islands.close();
   const authoring = await page.evaluate(async () => {
     const host = document.createElement('section');
     document.body.append(host);

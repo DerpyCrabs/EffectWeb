@@ -54,3 +54,27 @@ it('still rejects invalid EffectWeb view code without project-level checks', asy
   );
   await expect(buildConsumer(root)).rejects.toThrow(/mutating method sort/u);
 });
+
+it('compiles JavaScript JSX view markers before a downstream JSX plugin sees them', async () => {
+  const root = consumer();
+  writeFileSync(
+    join(root, 'app.jsx'),
+    "import { view } from 'effectweb'; export const Counter = view((model) => <b>{model.count}</b>);",
+  );
+  const output = await build({
+    root,
+    configFile: false,
+    logLevel: 'silent',
+    plugins: [effectweb()],
+    build: {
+      write: false,
+      lib: { entry: join(root, 'app.jsx'), formats: ['es'] },
+      rolldownOptions: { external: /^effectweb(?:\/|$)/u },
+    },
+  });
+  const chunks = (Array.isArray(output) ? output : [output])
+    .flatMap((result) => ('output' in result ? result.output : []))
+    .filter((item) => item.type === 'chunk');
+  expect(chunks.map((chunk) => chunk.code).join('\n')).toContain('compiled');
+  expect(chunks.map((chunk) => chunk.code).join('\n')).not.toContain('jsx-runtime');
+});
