@@ -179,9 +179,9 @@ export function compiledSlot<M, E, A>(owner: Scope<M, E>, build: Build<A, E>): S
     placements.clear();
   });
   const definition: ContentDefinition = {
-    mount(parent, before, value, _report, settlement) {
+    mount(parent, before, value, report, settlement) {
       if (owner.disposed) throw new Error('Cannot mount content after its declaring view disposed');
-      const scope = new Scope(value as A, owner.send, owner.report, settlement);
+      const scope = new Scope(value as A, owner.send, report, settlement);
       const fragment = buildFragment(parent);
       const range = markers(fragment, null);
       scope.cleanups.push(() => remove(range.start, range.end));
@@ -721,7 +721,7 @@ export function event<M, E>(
       try {
         const result = handler(event);
         if (result !== null && typeof result === 'object' && !scope.disposed) {
-          effects ??= eventEffects(scope.report);
+          effects ??= eventEffects(scope.report, scope.settlement);
           effects.accept(result);
         }
       } catch (error) {
@@ -1062,11 +1062,16 @@ export function child<M, E, C, F>(
 }
 
 /** A late-bound compiled definition owns one replaceable DOM region. */
-export function viewRegion<M, E>(scope: Scope<M, E>, parent: Node, before: Node | null) {
+export function viewRegion<M, E>(
+  scope: Scope<M, E>,
+  parent: Node,
+  before: Node | null,
+  options: { manual?: boolean; report?: ReportError } = {},
+) {
   const { start, end } = markers(parent, before);
   let active: Scope<M, E> | undefined;
   let definition: View<M, E> | undefined;
-  scope.jobs.push(() => active?.set(scope.value));
+  if (!options.manual) scope.jobs.push(() => active?.set(scope.value));
   scope.cleanups.push(() => {
     active?.dispose();
     remove(start, end);
@@ -1085,7 +1090,12 @@ export function viewRegion<M, E>(scope: Scope<M, E>, parent: Node, before: Node 
       if (scope.disposed) return;
       clear(start, end);
       if (!next) return;
-      const child = new Scope(scope.value, scope.send, scope.report, scope.settlement);
+      const child = new Scope(
+        scope.value,
+        scope.send,
+        options.report ?? scope.report,
+        scope.settlement,
+      );
       const fragment = buildFragment(end.parentNode!);
       active = child;
       definition = next;

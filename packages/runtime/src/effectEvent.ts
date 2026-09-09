@@ -1,5 +1,6 @@
 import { Effect, Fiber } from 'effect';
 import { reportSafely, type ReportError } from './errors.js';
+import type { Settlement } from './settlement.js';
 import { defaultUiRuntime, type UiRuntime } from './runtime.js';
 
 const tag = Symbol('Effect event');
@@ -29,7 +30,7 @@ export function effectEvent<EventType extends Event, E, R>(
 }
 
 /** Internal listener owner, allocated only when an event returns a value needing inspection. */
-export function eventEffects(report: ReportError) {
+export function eventEffects(report: ReportError, settlement?: Settlement) {
   let active: { fiber?: Fiber.Fiber<unknown, unknown> } | undefined;
   let disposed = false;
   const stop = () => {
@@ -46,8 +47,10 @@ export function eventEffects(report: ReportError) {
         stop();
         const token: { fiber?: Fiber.Fiber<unknown, unknown> } = {};
         active = token;
+        const finished = settlement?.begin();
         try {
           const fiber = Effect.runFork(request.effect);
+          fiber.addObserver(() => finished?.());
           token.fiber = fiber;
           if (disposed || active !== token) {
             Effect.runFork(Fiber.interrupt(fiber));
@@ -59,6 +62,7 @@ export function eventEffects(report: ReportError) {
             if (exit._tag === 'Failure') reportSafely(report, exit.cause);
           });
         } catch (error) {
+          finished?.();
           if (active === token) active = undefined;
           reportSafely(report, error);
         }

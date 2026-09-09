@@ -129,8 +129,34 @@ export function modelOwner<Model extends object, R>(
       options.onDefect ?? reportError,
     );
   };
+  const close = () => {
+    if (closing) return closing;
+    disposed = true;
+    const resources = cleanups.splice(0).reverse();
+    let finish!: () => void;
+    let fail!: (error: unknown) => void;
+    closing = new Promise<void>((resolve, reject) => {
+      finish = resolve;
+      fail = reject;
+    });
+    const closeResources = async () => {
+      await source.close();
+      const errors: unknown[] = [];
+      for (const resource of resources) {
+        try {
+          if (resource.close) await resource.close();
+          else resource.dispose();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      if (errors.length) throw new AggregateError(errors, 'Owner cleanup failed.');
+    };
+    closeResources().then(finish, fail);
+    return closing;
+  };
   return {
-    source: { model: source.model, send: source.send, subscribe: source.subscribe, dispose },
+    source: { model: source.model, send: source.send, subscribe: source.subscribe, dispose, close },
     read,
     patch,
     fields: (...keys) => {
@@ -189,32 +215,7 @@ export function modelOwner<Model extends object, R>(
     get disposed() {
       return disposed;
     },
-    close() {
-      if (closing) return closing;
-      disposed = true;
-      const resources = cleanups.splice(0).reverse();
-      let finish!: () => void;
-      let fail!: (error: unknown) => void;
-      closing = new Promise<void>((resolve, reject) => {
-        finish = resolve;
-        fail = reject;
-      });
-      const closeResources = async () => {
-        await source.close();
-        const errors: unknown[] = [];
-        for (const resource of resources) {
-          try {
-            if (resource.close) await resource.close();
-            else resource.dispose();
-          } catch (error) {
-            errors.push(error);
-          }
-        }
-        if (errors.length) throw new AggregateError(errors, 'Owner cleanup failed.');
-      };
-      closeResources().then(finish, fail);
-      return closing;
-    },
+    close,
     own(resource) {
       if (disposed) resource.dispose();
       else cleanups.push(resource);

@@ -202,7 +202,8 @@ import { ownershipContracts } from './ownershipFixture';
 import { Editor } from './safeAuthoringFixture';
 import { createLazyViewFixture } from './lazyViewFixture';
 import { mountPortal } from './portalFixture';
-Object.assign(window, { mountAuthoring, mountContracts, ownershipContracts, Editor, createLazyViewFixture, mountPortal });
+import { mountIdentityFixture, mountRecoveryFixture } from './recoveryFixture';
+Object.assign(window, { mountAuthoring, mountContracts, ownershipContracts, Editor, createLazyViewFixture, mountPortal, mountIdentityFixture, mountRecoveryFixture });
 const name: IconName = 'camera';
 // @ts-expect-error Unknown icon names must fail at compile time.
 const badName: IconName = 'not-a-lucide-icon';
@@ -227,6 +228,7 @@ writeFileSync(
   readFileSync('tests/fixtures/authoringFixture.tsx'),
 );
 for (const file of [
+  'recoveryFixture.tsx',
   'contractsFixture.tsx',
   'scalarContract.ts',
   'ownershipFixture.tsx',
@@ -239,6 +241,7 @@ for (const file of [
   writeFileSync(join(temp, file), readFileSync(`tests/fixtures/${file}`));
 }
 for (const file of [
+  'composition.typecheck.tsx',
   'contracts.typecheck.tsx',
   'async.typecheck.tsx',
   'query.typecheck.ts',
@@ -438,6 +441,38 @@ try {
     await page.evaluate(() => window.originalCamera === document.querySelector('.lucide-camera')),
     true,
   );
+  const recovery = await page.evaluate(async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const fixture = window.mountRecoveryFixture(host);
+    await Promise.resolve();
+    fixture.update({ broken: true });
+    await Promise.resolve();
+    const failed = Boolean(host.querySelector('[data-fallback]'));
+    fixture.update({ broken: false, reset: 1 });
+    const recovered = Boolean(host.querySelector('[data-content]'));
+    fixture.release();
+    await fixture.close();
+    host.remove();
+    return { failed, recovered, errors: fixture.state().errors.length };
+  });
+  assert.deepEqual(recovery, { failed: true, recovered: true, errors: 1 });
+  const identity = await page.evaluate(async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const fixture = window.mountIdentityFixture(host, 'local');
+    host.querySelector('[data-increment]').click();
+    const old = host.querySelector('[data-editor]');
+    fixture.update({ id: 'b', label: 'next' });
+    const result = {
+      replaced: !old.isConnected,
+      text: host.querySelector('[data-increment]').textContent,
+    };
+    await fixture.close();
+    host.remove();
+    return result;
+  });
+  assert.deepEqual(identity, { replaced: true, text: 'b:next:0' });
   const islands = await browser.newPage();
   islands.on('pageerror', (error) => errors.push(error.message));
   const mixedResponse = await islands.goto(

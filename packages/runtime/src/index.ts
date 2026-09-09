@@ -20,6 +20,7 @@ export {
 } from './pages.js';
 export {
   program,
+  mapTransition,
   actionCommand,
   effectCommand,
   commandSlot,
@@ -94,3 +95,5 @@ export {
   type InfiniteResource,
 } from './infinite-query.js';
 export { keyedTasks, type TaskHandle, type TaskOutcome } from './keyed-tasks.js';
+
+export { errorBoundary } from './boundary.js';

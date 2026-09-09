@@ -206,3 +206,47 @@ it('spread handlers retain active work on unrelated updates and interrupt it on 
   click();
   scope.dispose();
 });
+
+it('joins replaced and active event finalizers when the owning scope closes', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const closed: number[] = [];
+  let request = 0;
+  const mounted = listener(
+    effectEvent('replace', () => {
+      const id = ++request;
+      return Effect.never.pipe(
+        Effect.ensuring(
+          Effect.promise(async () => {
+            await gate;
+            closed.push(id);
+          }),
+        ),
+      );
+    }),
+  );
+  mounted.click();
+  mounted.click();
+  mounted.scope.dispose();
+  let settled = false;
+  const closing = mounted.scope.settlement.wait().then(() => {
+    settled = true;
+  });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  release();
+  await closing;
+  expect(closed.sort((a, b) => a - b)).toEqual([1, 2]);
+});
+
+it('accounts for event disposal during synchronous acquisition', async () => {
+  const mounted = listener(
+    effectEvent('replace', () => Effect.sync(() => mounted.scope.dispose())),
+  );
+  mounted.click();
+  await mounted.scope.settlement.wait();
+  expect(mounted.scope.disposed).toBe(true);
+  expect(mounted.errors).toEqual([]);
+});

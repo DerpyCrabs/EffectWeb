@@ -13,7 +13,7 @@ import {
   type FieldState,
   type Transition,
 } from 'effectweb';
-import { effectCommand, mapCommand } from 'effectweb/program';
+import { effectCommand, mapTransition } from 'effectweb/program';
 
 const commandSave = commandSlot('save');
 
@@ -70,31 +70,16 @@ export function createProfileForm(service: ProfileService = demoService) {
         ? { ok: true, value: Number(draft) }
         : { ok: false, error: 'Enter a whole number from 1 to 40.' },
   });
-  const liftUsername = (
-    model: Model,
-    message: FieldMessage<string>,
-  ): Transition<Model, Message> => {
-    const next = username.update(model.username, message);
-    return {
-      model: { ...model, username: next.model },
-      cancel: next.cancel ?? [],
-      commands:
-        next.commands?.map((command) =>
-          mapCommand(command, (message): Message => ({ type: 'Username', message })),
-        ) ?? [],
-    };
-  };
-  const liftHours = (model: Model, message: FieldMessage<string>): Transition<Model, Message> => {
-    const next = hours.update(model.hours, message);
-    return {
-      model: { ...model, hours: next.model },
-      cancel: next.cancel ?? [],
-      commands:
-        next.commands?.map((command) =>
-          mapCommand(command, (message): Message => ({ type: 'Hours', message })),
-        ) ?? [],
-    };
-  };
+  const liftUsername = (model: Model, message: FieldMessage<string>): Transition<Model, Message> =>
+    mapTransition(username.update(model.username, message), {
+      model: (username) => ({ ...model, username }),
+      message: (message): Message => ({ type: 'Username', message }),
+    });
+  const liftHours = (model: Model, message: FieldMessage<string>): Transition<Model, Message> =>
+    mapTransition(hours.update(model.hours, message), {
+      model: (hours) => ({ ...model, hours }),
+      message: (message): Message => ({ type: 'Hours', message }),
+    });
   const finishValidation = (next: Transition<Model, Message>): Transition<Model, Message> => {
     const model = next.model;
     if (model.status !== 'validating') return next;

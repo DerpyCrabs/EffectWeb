@@ -77,11 +77,27 @@ export interface Transition<Model, Message, R = never> {
   readonly commands?: readonly Command<Message, R>[];
   readonly cancel?: readonly CommandSlot[];
 }
+export function mapTransition<Model, Message, Parent, ParentMessage, R = never>(
+  transition: Transition<Model, Message, R>,
+  maps: {
+    readonly model: (model: Snapshot<Model>) => Parent | Snapshot<Parent>;
+    readonly message: (message: Message) => ParentMessage;
+  },
+): Transition<Parent, ParentMessage, R> {
+  return {
+    model: maps.model(transition.model as Snapshot<Model>),
+    ...(transition.cancel ? { cancel: transition.cancel } : {}),
+    ...(transition.commands
+      ? { commands: transition.commands.map((command) => mapCommand(command, maps.message)) }
+      : {}),
+  };
+}
 export interface Program<Model, Message> {
   readonly model: () => Snapshot<Model>;
   readonly send: Send<Message>;
   readonly subscribe: (listener: (model: Snapshot<Model>) => void) => () => void;
   readonly dispose: () => void;
+  readonly close?: () => Promise<void>;
 }
 export interface RunningProgram<Model, Message> extends Program<Model, Message> {
   /** Wait for interrupted work and its finalizers as well as admitted work. */

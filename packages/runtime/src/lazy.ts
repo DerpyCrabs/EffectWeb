@@ -42,7 +42,14 @@ export function lazyView<Model, Message = never, E = never, R = never>(
     };
     scope.cleanups.push(interrupt);
     if (scope.disposed) return;
-    fiber = Effect.runFork(runtime.provide(Effect.suspend(load)));
+    const finished = scope.settlement.begin();
+    try {
+      fiber = Effect.runFork(runtime.provide(Effect.suspend(load)));
+      fiber.addObserver(finished);
+    } catch (error) {
+      finished();
+      throw error;
+    }
     if (scope.disposed) {
       interrupt();
       return;

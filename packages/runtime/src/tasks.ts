@@ -274,6 +274,7 @@ function taskBuilder<Props, State extends object, R>(
         controls,
         view: (view: View<Model, Message>): View<Props, never> =>
           programView<Props, Model, Message>({
+            ...(definition.identity ? { identity: definition.identity } : {}),
             create,
             receive: (source, props) => receive(source as RunningProgram<Model, Message>, props),
             view,
