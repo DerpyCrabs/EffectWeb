@@ -4,7 +4,7 @@ export default defineConfig({
   plugins: [effectweb()],
   test: { environment: 'node', include: ['packages/*/src/**/*.test.ts'] },
   lint: {
-    ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**'],
+    ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**', 'vendor/**'],
     plugins: ['typescript', 'unicorn', 'oxc', 'effecttsgo'],
     jsPlugins: ['./packages/compiler/dist/oxlint.js'],
     options: { typeAware: true, typeCheck: true },
@@ -72,7 +72,7 @@ export default defineConfig({
     ],
   },
   fmt: {
-    ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**'],
+    ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**', 'vendor/**'],
     semi: true,
     singleQuote: true,
     objectWrap: 'collapse',
