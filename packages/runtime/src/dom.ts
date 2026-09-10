@@ -1,3 +1,4 @@
+import { compiledSlots } from './slotIdentity.js';
 import attributeData from './dom-attributes.json' with { type: 'json' };
 import type { Snapshot } from './snapshot.js';
 
@@ -204,10 +205,12 @@ export function compiledSlot<M, E, A>(owner: Scope<M, E>, build: Build<A, E>): S
       };
     },
   };
-  return Object.assign((value: A): JSX.Element => new SlotPlacement(definition, value), {
+  const slot = Object.assign((value: A): JSX.Element => new SlotPlacement(definition, value), {
     [contentBrand]: true as const,
     definition,
   }) as unknown as Slot<A>;
+  compiledSlots.add(slot);
+  return slot;
 }
 
 /** This declaration is a compiler marker, never a component setup callback. */
@@ -1262,3 +1265,4 @@ export function template(build: string | ((parent: Node, before: Node | null) =>
 export function literal(parent: Node, before: Node | null, value: string) {
   parent.insertBefore((parent.ownerDocument ?? document).createTextNode(value), before);
 }
+export { intrinsic } from './intrinsic.js';

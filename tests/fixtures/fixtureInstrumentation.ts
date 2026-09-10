@@ -4,3 +4,8 @@ export const label = (text: string) => {
   counters.labels++;
   return text.toUpperCase();
 };
+
+export const identity = (counters: { identities: number }, id: number) => {
+  counters.identities++;
+  return id;
+};

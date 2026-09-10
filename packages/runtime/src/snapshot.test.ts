@@ -65,7 +65,7 @@ describe('published snapshot protection', () => {
     }
   });
 
-  it('preserves opaque instances and never evaluates getters', () => {
+  it('preserves opaque instances', () => {
     class Service {
       count = 0;
       increment() {
@@ -74,16 +74,8 @@ describe('published snapshot protection', () => {
     }
     const service = new Service();
     const effect = Effect.succeed(1);
-    let reads = 0;
-    const record = {
-      get current() {
-        reads++;
-        return 1;
-      },
-    };
-    const app = modelOwner({ service, effect, record });
+    const app = modelOwner({ service, effect });
     try {
-      expect(reads).toBe(0);
       app.read().service.increment();
       expect(service.count).toBe(1);
       expect(app.read().effect).toBe(effect);
@@ -92,6 +84,19 @@ describe('published snapshot protection', () => {
     } finally {
       app.dispose();
     }
+  });
+
+  it('rejects accessor-backed snapshot data without executing the getter', () => {
+    let reads = 0;
+    const record = {
+      get current() {
+        reads++;
+        return 1;
+      },
+    };
+    expect(() => modelOwner({ record })).toThrow(/accessor/u);
+    expect(() => modelOwner({ record })).toThrow(/accessor/u);
+    expect(reads).toBe(0);
   });
 
   it('checks symbol fields, cyclic data, and already frozen parent records', () => {

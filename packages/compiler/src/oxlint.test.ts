@@ -7,6 +7,38 @@ const A = render(model => { const x = model.items.sort(); return <p>{x}</p>; });
 const B = render(model => <p>{model.title}</p>);
 const C = render(model => { const x = Math.random(); return <p>{x}</p>; });`;
 
+it('reports JSX errors in JavaScript files supported by the compiler', () => {
+  const text = `import {view} from 'effectweb'; const App=view(model=><p>{model.count++}</p>);`;
+  const reports: { message: string }[] = [];
+  plugin.rules['valid-view']
+    .create({
+      filename: 'view.jsx',
+      sourceCode: { text },
+      options: [],
+      report: (report) => reports.push(report),
+    })
+    .Program();
+  expect(reports).toHaveLength(1);
+  expect(reports[0]!.message).toContain('mutate');
+  expect(() => compile(text, 'view.jsx')).toThrow('mutate');
+});
+
+it('uses the same import contracts as compilation and invalidates cached diagnostics when they change', () => {
+  const text = `import {view} from 'effectweb';import {format} from './format';view(m=><p>{format(m.value)}</p>);`;
+  for (const pureImports of [undefined, { './format': ['format'] }, undefined]) {
+    const reports: unknown[] = [];
+    plugin.rules['valid-view']
+      .create({
+        filename: 'contracts.tsx',
+        sourceCode: { text },
+        options: pureImports ? [{ pureImports }] : [],
+        report: (report) => reports.push(report),
+      })
+      .Program();
+    expect(reports).toHaveLength(pureImports ? 0 : 1);
+  }
+});
+
 describe('compiler diagnostics in lint', () => {
   it('rejects computed mutations while accepting a copied-array derivation', () => {
     const text = `import { view } from 'effectweb';
@@ -56,7 +88,7 @@ const Bad=view(model => <ui.Button />);`;
   });
 
   it('supports custom imports and separates errors from performance advice', () => {
-    const text = `import { view } from './ui'; const A=view(model => <p>{format(model)}</p>);`;
+    const text = `import { view } from './ui';const format=model=>model.title; const A=view(model => <p>{format(model)}</p>);`;
     expect(diagnose(text, 'custom.tsx')).toEqual([]);
     expect(diagnose(text, 'custom.tsx', { importSource: './ui' })).toEqual([
       expect.objectContaining({
@@ -143,7 +175,7 @@ it('accepts explicit collections, primitive lists, and unproven imported types',
 });
 
 it('gives mutable captures and performance advice distinct actionable categories', () => {
-  const text = `import {view} from 'effectweb'; let outside = 1; const A = view(model => <p>{outside}</p>); const B = view(model => <p>{format(model)}</p>);`;
+  const text = `import {view} from 'effectweb';const format=model=>model.title; let outside = 1; const A = view(model => <p>{outside}</p>); const B = view(model => <p>{format(model)}</p>);`;
   expect(diagnose(text, 'categories.tsx')).toEqual([
     expect.objectContaining({
       code: 'EW2001',

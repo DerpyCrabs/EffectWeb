@@ -1,5 +1,6 @@
 import type { Plugin } from 'vite';
 import { compile, type CompilerOptions } from './compile.js';
+import { isCompilerFile } from './files.js';
 
 export function effectweb(options: CompilerOptions = {}): Plugin {
   let development = false;
@@ -17,7 +18,7 @@ export function effectweb(options: CompilerOptions = {}): Plugin {
     enforce: 'pre',
     transform(code, id) {
       const filename = id.split('?')[0];
-      if (!filename || !/\.(?:tsx?|jsx)$/u.test(filename) || filename.endsWith('.d.ts')) return;
+      if (!filename || !isCompilerFile(filename)) return;
       const result = compile(code, filename, {
         ...options,
         development,

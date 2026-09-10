@@ -2,6 +2,7 @@ mod analysis;
 mod identity;
 mod lower;
 mod query_diagnostics;
+mod semantics;
 mod sourcemap;
 mod template;
 use oxc::{
@@ -59,8 +60,6 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
     let mut slot_markers = HashSet::new();
     let mut binding_markers = HashSet::new();
     let mut query_markers = HashSet::new();
-    let mut host_callbacks = std::collections::HashMap::new();
-    let mut event_callbacks = std::collections::HashMap::new();
     let mut runtime = options.runtime_module.clone();
     for statement in &program.body {
         if let Statement::ExportFromDeclaration(export) = statement
@@ -91,8 +90,6 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
         };
         let root = import.source.value == source;
         let dom = root || import.source.value == format!("{source}/dom");
-        let mount = root || import.source.value == format!("{source}/mount");
-        let event = root || import.source.value == format!("{source}/effectEvent");
         let query = root || import.source.value == format!("{source}/query");
         for specifier in import.specifiers.iter().flatten() {
             let ImportDeclarationSpecifier::ImportSpecifier(specifier) = specifier else {
@@ -118,16 +115,6 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                 }
                 "query" if query => {
                     query_markers.insert(id);
-                }
-                "effectEvent" if event => {
-                    event_callbacks.insert(id, 1);
-                    host_callbacks.insert(id, 1);
-                }
-                "domMount" if mount => {
-                    host_callbacks.insert(id, 0);
-                }
-                "domBinding" if mount => {
-                    host_callbacks.insert(id, 1);
                 }
                 _ => {}
             }
@@ -160,14 +147,12 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
         .map_err(|e| e.to_string());
     }
     let mut index = analysis::Index::new(semantic.semantic.scoping());
-    analysis::resolve_host_aliases(&program, semantic.semantic.scoping(), &mut host_callbacks);
-    analysis::resolve_host_aliases(&program, semantic.semantic.scoping(), &mut event_callbacks);
-    index.event_callbacks = event_callbacks.into_keys().collect();
-    index.host_callbacks = host_callbacks;
     index.visit_program(&program);
     index.refs.sort_by_key(|r| r.span.start);
     index.calls.sort_by_key(|c| c.span.start);
-    index.collect_host_acquisitions();
+    index.compiled_views = index.calls.iter().filter(|call| {
+        matches!(&call.callee, Expression::Identifier(id) if index.symbol(id).is_some_and(|id| markers.contains(&id)))
+    }).map(|call| call.span).collect();
     // Explicit view<Model> supplies a useful same-file annotation without a TS host.
     for call in &index.calls {
         if let Expression::Identifier(id) = &call.callee

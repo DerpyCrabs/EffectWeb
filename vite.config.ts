@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite-plus';
 import { effectweb } from './packages/compiler/src/vite';
+// These test probes deliberately count evaluations. Their outputs depend only
+// on their explicit inputs; the counters are never render dependencies.
+const compilerOptions = { pureImports: { './fixtureInstrumentation': ['label', 'identity'] } };
 export default defineConfig({
-  plugins: [effectweb()],
+  plugins: [effectweb(compilerOptions)],
   test: { environment: 'node', include: ['packages/*/src/**/*.test.ts'] },
   lint: {
     ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**', 'vendor/**'],
@@ -52,7 +55,7 @@ export default defineConfig({
       ],
       'effecttsgo/any-unknown-in-error-context': 'off',
       'effecttsgo/floating-effect': 'error',
-      'effectweb/valid-view': 'error',
+      'effectweb/valid-view': ['error', compilerOptions],
     },
     overrides: [
       {

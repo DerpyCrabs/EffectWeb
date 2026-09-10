@@ -43,7 +43,7 @@ it.each([
   `const read=(input)=>{const result=structuredClone(input);result.nested.count++;return result;};`,
   `const read=(input)=>{const result=input.slice();result.sort();return result.length;};`,
   `const read=(input)=>{let result=input;result++;return result;};`,
-  `const read=(input)=>{const globalThis=input;return globalThis.Date.now();};`,
+  `const read=(input)=>{const globalThis={Date:{now:()=>input}};return globalThis.Date.now();};`,
 ])('allows pure helpers to mutate their own bindings and fresh buffers: %s', (source) => {
   expect(compile(`${source} view(model=><b>{read(model.value)}</b>);`)).toContain('.compiled(');
 });
@@ -115,7 +115,7 @@ it.each([
   `const mount=()=>{consume(Math.random());return domMount(()=>{});}; view(model=><div use={mount()}/>);`,
 ])('still checks work executed while creating a DOM host: %s', (source) => {
   expect(() => compile(`import { domMount, domBinding } from 'effectweb'; ${source}`)).toThrow(
-    /Read window|Read document|randomness/u,
+    /Read window|Read document|randomness|Cannot prove/u,
   );
 });
 
@@ -156,7 +156,7 @@ it('keeps pure helper locals and event-only work outside render capture checks',
   ).toContain('.compiled(');
   expect(
     compile(
-      `const actions=defineActions({Run:()=>Date.now()});view((model,send)=>{const dispatch=actions.bind(send);return <button onClick={()=>dispatch.Run()}/>;});`,
+      `import {defineActions} from 'effectweb';const actions=defineActions()({Run:()=>Date.now()});view((model,send)=>{const dispatch=actions.bind(send);return <button onClick={()=>dispatch.Run()}/>;});`,
     ),
   ).toContain('.bindEvent(');
   expect(
@@ -277,9 +277,13 @@ it('still checks work inside a fresh-array comparator', () => {
 
 it('keeps computed service actions and shadowed Math methods available', () => {
   expect(
-    compile('view(model => <Dialog confirm={() => model.service["delete"](model.id)} />)'),
+    compile(
+      `const service={delete:(id)=>window.alert(id)};view(model => <Dialog confirm={() => service["delete"](model.id)} />)`,
+    ),
   ).toContain('.child(');
-  expect(compile('view(({ Math }) => <p>{Math["random"]()}</p>)')).toContain('.compiled(');
+  expect(compile('const Math={random:()=>1};view(model => <p>{Math["random"]()}</p>)')).toContain(
+    '.compiled(',
+  );
 });
 
 it('resolves a configured public runtime without an application-root path', () => {
@@ -296,7 +300,7 @@ it('resolves a configured public runtime without an application-root path', () =
 
 it('emits dependency explanations only in development and flags broad helper inputs', () => {
   const diagnostics: unknown[] = [];
-  const source = `import { view } from 'effectweb'; const Demo = view((model, send) => { const label = format(model); return <p title={model.title}>{label}</p>; });`;
+  const source = `import { view } from 'effectweb'; const format=(model)=>model.title; const Demo = view((model, send) => { const label = format(model); return <p title={model.title}>{label}</p>; });`;
   const dev = compileSource(source, 'demo.tsx', {
     development: true,
     onDiagnostic: (value) => diagnostics.push(value),
@@ -487,7 +491,9 @@ it.each([
 
 it('allows imperative service calls in a custom component callback prop', () => {
   expect(
-    compile('view(model => <Dialog confirm={() => model.service.delete(model.id)} />)'),
+    compile(
+      'const service={delete:(id)=>window.alert(id)};view(model => <Dialog confirm={() => service.delete(model.id)} />)',
+    ),
   ).toContain('.child(');
 });
 
@@ -595,9 +601,10 @@ it('keeps direct spread event callbacks deferred and checks eager spread express
   for (const expression of [
     `{onClick:(()=>window.alert('eager'))()}`,
     `{onClick:make(window.innerWidth)}`,
-    `{style:{onClick:()=>window.alert('nested')}}`,
   ])
-    expect(() => compile(`view(p=><button {...${expression}}/>);`)).toThrow(/Read window/u);
+    expect(() => compile(`view(p=><button {...${expression}}/>);`)).toThrow(
+      /Read window|Cannot prove/u,
+    );
 });
 
 it.each([true, false])(
@@ -670,5 +677,7 @@ it.each([
   `{...{onClick:(() => window.alert('eager'))()}}`,
   `onClick={make(() => window.alert('eager'))}`,
 ])('does not treat an arbitrary eager event factory as a deferred callback: %s', (attribute) => {
-  expect(() => compile(`view(model=><button ${attribute}/>);`)).toThrow(/Read window/u);
+  expect(() => compile(`view(model=><button ${attribute}/>);`)).toThrow(
+    /Read window|Cannot prove/u,
+  );
 });

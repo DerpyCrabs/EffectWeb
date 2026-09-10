@@ -1,4 +1,5 @@
 import { collection, mountView, program, view } from 'effectweb';
+import { identity } from './fixtureInstrumentation';
 
 type Item = { readonly id: number; readonly label: string };
 type Model = {
@@ -10,10 +11,7 @@ type Model = {
 
 export function mountListOptimization(parent: HTMLElement) {
   const counters = { identities: 0 };
-  const rows = collection<Item>((item) => {
-    counters.identities++;
-    return item.id;
-  });
+  const rows = collection<Item>((item) => identity(counters, item.id));
   const View = view<Model, Partial<Model>>((model, send) => (
     <section>
       {rows.from(model.items).map((item, index) => (

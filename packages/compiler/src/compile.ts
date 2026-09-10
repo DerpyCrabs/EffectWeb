@@ -15,6 +15,12 @@ export interface CompilerOptions {
   importSource?: string;
   runtimeModule?: string;
   development?: boolean;
+  /**
+   * Audited render calls, keyed by import specifier and exported member path.
+   * These contracts promise immutable inputs, no observable effects or ambient
+   * reads, and no eager execution of unchecked callbacks. They do not load source.
+   */
+  pureImports?: Readonly<Record<string, readonly string[]>>;
   onDiagnostic?: (diagnostic: Diagnostic) => void;
 }
 export interface CompilerResult {

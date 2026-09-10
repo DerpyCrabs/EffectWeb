@@ -1,10 +1,11 @@
-import { diagnose, type Diagnostic } from './compile.js';
+import { diagnose, type CompilerOptions, type Diagnostic } from './compile.js';
+import { isCompilerFile } from './files.js';
 
 type Source = { text: string };
 type Context = {
   filename: string;
   sourceCode: Source;
-  options: readonly { importSource?: string }[];
+  options: readonly Pick<CompilerOptions, 'importSource' | 'pureImports'>[];
   report: (diagnostic: { loc: { line: number; column: number }; message: string }) => void;
 };
 const results = new WeakMap<
@@ -18,7 +19,13 @@ function rule(category: Diagnostic['category'] | 'errors') {
       schema: [
         {
           type: 'object',
-          properties: { importSource: { type: 'string' } },
+          properties: {
+            importSource: { type: 'string' },
+            pureImports: {
+              type: 'object',
+              additionalProperties: { type: 'array', items: { type: 'string' } },
+            },
+          },
           additionalProperties: false,
         },
       ],
@@ -26,18 +33,22 @@ function rule(category: Diagnostic['category'] | 'errors') {
     create(context: Context) {
       return {
         Program() {
-          if (!/\.tsx?$/u.test(context.filename) || context.filename.endsWith('.d.ts')) return;
+          if (!isCompilerFile(context.filename)) return;
           const importSource = context.options[0]?.importSource ?? 'effectweb';
+          const pureImports = context.options[0]?.pureImports;
           let cached = results.get(context.sourceCode);
           if (!cached || cached.text !== context.sourceCode.text) {
             cached = { text: context.sourceCode.text, diagnostics: new Map() };
             results.set(context.sourceCode, cached);
           }
-          const key = `${context.filename}\0${importSource}`;
+          const key = `${context.filename}\0${importSource}\0${JSON.stringify(pureImports)}`;
           let diagnostics = cached.diagnostics.get(key);
           if (!diagnostics) {
             try {
-              diagnostics = diagnose(context.sourceCode.text, context.filename, { importSource });
+              diagnostics = diagnose(context.sourceCode.text, context.filename, {
+                importSource,
+                ...(pureImports ? { pureImports } : {}),
+              });
             } catch (error) {
               // Parser failures and unavailable native binaries must not silently pass lint.
               diagnostics = [

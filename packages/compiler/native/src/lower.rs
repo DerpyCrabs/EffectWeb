@@ -1,10 +1,11 @@
 //! Lower snapshot JSX to calls into the existing DOM runtime.
 //! Oxc bindings identify dependencies; ordinary source expressions retain their lexical syntax.
-use crate::analysis::{Index, Reference, contains_jsx};
+use crate::analysis::{Index, contains_jsx};
 use oxc::{
+    allocator::Allocator,
     ast::ast::*,
     span::{GetSpan, Span},
-    syntax::symbol::SymbolId,
+    syntax::{symbol::SymbolId, xml_entities::decode_entities},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
@@ -18,6 +19,8 @@ pub struct Options {
     pub development: bool,
     #[serde(default)]
     pub diagnostics_only: bool,
+    #[serde(default)]
+    pub pure_imports: BTreeMap<String, Vec<String>>,
 }
 #[derive(Serialize)]
 pub struct Diagnostic {
@@ -40,6 +43,15 @@ type Env<'a> = BTreeMap<SymbolId, Value<'a>>;
 type Result<T> = std::result::Result<T, Box<Diagnostic>>;
 fn quote(s: &str) -> String {
     serde_json::to_string(s).unwrap()
+}
+fn jsx_value(value: &str) -> String {
+    if !value.contains('&') {
+        return value.into();
+    }
+    let allocator = Allocator::default();
+    let mut decoded = None;
+    decode_entities(value, &mut decoded, value.len(), &allocator);
+    decoded.map_or_else(|| value.into(), |value| value.into_str().to_owned())
 }
 fn unwrapped<'a>(mut e: &'a Expression<'a>) -> &'a Expression<'a> {
     loop {
@@ -95,6 +107,7 @@ pub struct Lower<'a, 's> {
     map_prefix: String,
     counter: usize,
     depth: usize,
+    certificate: crate::semantics::Certificate,
 }
 impl<'a, 's> Lower<'a, 's> {
     pub fn new(
@@ -122,6 +135,7 @@ impl<'a, 's> Lower<'a, 's> {
             map_prefix: crate::sourcemap::marker_prefix(source),
             counter: 0,
             depth: 0,
+            certificate: crate::semantics::Certificate::default(),
         }
     }
     fn uid(&mut self, hint: &str) -> String {
@@ -238,6 +252,49 @@ impl<'a, 's> Lower<'a, 's> {
         self.rewrite_span(e.span(), env, 0)
     }
     fn rewrite_span(&self, span: Span, env: &Env<'a>, depth: usize) -> String {
+        self.rewrite_guarded(span, env, depth, None)
+    }
+    fn rewrite_guarded(
+        &self,
+        span: Span,
+        env: &Env<'a>,
+        depth: usize,
+        skip: Option<Span>,
+    ) -> String {
+        if depth > 100 {
+            return "undefined".into();
+        }
+        let mut guards = self
+            .certificate
+            .guards
+            .iter()
+            .filter(|(part, _)| Some(**part) != skip && span.contains_inclusive(**part))
+            .collect::<Vec<_>>();
+        guards.sort_by_key(|(part, _)| (part.start, std::cmp::Reverse(part.end)));
+        let mut offset = span.start;
+        let mut output = String::new();
+        for (part, operations) in guards {
+            if part.start < offset {
+                continue;
+            }
+            output.push_str(&self.rewrite_references(Span::new(offset, part.start), env, depth));
+            let mut value = self.rewrite_guarded(*part, env, depth + 1, Some(*part));
+            for (path, method) in operations {
+                value = format!(
+                    "{}.intrinsic(({}),{},{})",
+                    self.runtime,
+                    value,
+                    serde_json::to_string(path).unwrap(),
+                    quote(method)
+                );
+            }
+            output.push_str(&value);
+            offset = part.end;
+        }
+        output.push_str(&self.rewrite_references(Span::new(offset, span.end), env, depth));
+        output
+    }
+    fn rewrite_references(&self, span: Span, env: &Env<'a>, depth: usize) -> String {
         if depth > 100 {
             return "undefined".into();
         }
@@ -264,9 +321,12 @@ impl<'a, 's> Lower<'a, 's> {
         out
     }
     fn captures(&self, e: &Expression<'a>, env: &Env<'a>) -> Vec<SymbolId> {
+        self.captures_span(e.span(), env)
+    }
+    fn captures_span(&self, span: Span, env: &Env<'a>) -> Vec<SymbolId> {
         let mut seen = HashSet::new();
         self.index
-            .references(e.span())
+            .references(span)
             .filter_map(|r| {
                 r.symbol
                     .filter(|id| matches!(env.get(id), Some(Value::Read(_))) && seen.insert(*id))
@@ -309,9 +369,12 @@ impl<'a, 's> Lower<'a, 's> {
         }
     }
     fn snapshot_body(&mut self, e: &Expression<'a>, env: &Env<'a>) -> (Env<'a>, String) {
+        self.snapshot_body_span(e.span(), env)
+    }
+    fn snapshot_body_span(&mut self, span: Span, env: &Env<'a>) -> (Env<'a>, String) {
         let mut local = env.clone();
         let mut captures = String::new();
-        for id in self.captures(e, env) {
+        for id in self.captures_span(span, env) {
             let name = self.uid("capture");
             if let Some(Value::Read(value)) = env.get(&id) {
                 captures.push_str(&format!("const {name}=({value});"));
@@ -434,12 +497,15 @@ impl<'a, 's> Lower<'a, 's> {
         env: &Env<'a>,
         depth: usize,
     ) -> Vec<(String, String)> {
+        self.dependencies_span(e.span(), env, depth)
+    }
+    fn dependencies_span(&self, span: Span, env: &Env<'a>, depth: usize) -> Vec<(String, String)> {
         if depth > 100 {
             return vec![];
         }
         let mut found = vec![];
         let mut seen = HashSet::new();
-        for r in self.index.references(e.span()) {
+        for r in self.index.references(span) {
             let values = match r.symbol.and_then(|id| env.get(&id)) {
                 Some(Value::Read(value)) => vec![(
                     if r.path.is_empty() {
@@ -458,18 +524,48 @@ impl<'a, 's> Lower<'a, 's> {
                 }
             }
         }
+        let mut covered = HashSet::new();
+        for reference in self.index.references(span) {
+            if let Some(id) = reference.symbol
+                && matches!(env.get(&id), Some(Value::Read(_)))
+            {
+                covered.insert(id);
+                if let Some(roots) = self.certificate.bindings.get(&id) {
+                    covered.extend(roots);
+                }
+            }
+        }
+        if let Some(roots) = self.certificate.reads.get(&span) {
+            for root in roots {
+                if !covered.contains(root)
+                    && let Some(Value::Read(value)) = env.get(root)
+                    && seen.insert(value.clone())
+                {
+                    found.push((
+                        value.clone(),
+                        self.index.scoping.symbol_name(*root).to_string(),
+                    ));
+                }
+            }
+        }
         found
     }
     fn diagnostic(&mut self, e: &Expression<'a>, env: &Env<'a>) -> String {
+        self.diagnostic_span(
+            e.span(),
+            env,
+            matches!(unwrapped(e), Expression::CallExpression(_)),
+        )
+    }
+    fn diagnostic_span(&mut self, span: Span, env: &Env<'a>, call: bool) -> String {
         if !self.options.development {
             return String::new();
         }
         let labels = self
-            .dependencies(e, env, 0)
+            .dependencies_span(span, env, 0)
             .into_iter()
             .map(|(_, label)| label)
             .collect::<Vec<_>>();
-        let span = e.span();
         let head = &self.source[..span.start as usize];
         let line = head.bytes().filter(|&b| b == b'\n').count() + 1;
         let column = head
@@ -479,7 +575,7 @@ impl<'a, 's> Lower<'a, 's> {
             .encode_utf16()
             .count()
             + 1;
-        if matches!(unwrapped(e), Expression::CallExpression(_))
+        if call
             && self.index.references(span).any(|r| {
                 r.path.is_empty()
                     && r.symbol.is_some_and(
@@ -560,96 +656,6 @@ impl<'a, 's> Lower<'a, 's> {
     }
     /// Same-file render calls cannot hide mutable captures behind an ordinary helper.
     /// Imported code and factory-created objects remain explicit purity boundaries.
-    fn external_capture(
-        &self,
-        reference: &Reference,
-        safe_date: bool,
-        invoked: bool,
-        seen: &mut HashSet<(SymbolId, bool)>,
-    ) -> Result<()> {
-        if reference.in_action {
-            return Ok(());
-        }
-        let Some(id) = reference.symbol else {
-            if [
-                "globalThis",
-                "self",
-                "performance",
-                "crypto",
-                "navigator",
-                "location",
-                "window",
-                "document",
-                "Date",
-                "localStorage",
-                "sessionStorage",
-            ]
-            .contains(&reference.name.as_str())
-                && !(reference.name == "Date" && (reference.safe_date || safe_date))
-            {
-                return self.fail(
-                    reference.span,
-                    &format!(
-                        "Read {} in a command or DOM host, then put its result in the model.",
-                        reference.name
-                    ),
-                );
-            }
-            return Ok(());
-        };
-        let flags = self.index.scoping.symbol_flags(id);
-        if (flags.is_variable()
-            && !flags.is_const_variable()
-            && !flags.is_function_scoped_declaration())
-            || self.index.scoping.symbol_is_mutated(id)
-        {
-            return self.unprovable(reference.span, &format!("Mutable capture {} is not a model dependency. Pass immutable data through the model.", reference.name));
-        }
-        let called = invoked || self.index.render_called(reference);
-        if !seen.insert((id, called)) {
-            return Ok(());
-        }
-        if let Some(init) = self.index.initializers.get(&id)
-            && matches!(
-                unwrapped(init),
-                Expression::Identifier(_)
-                    | Expression::StaticMemberExpression(_)
-                    | Expression::ComputedMemberExpression(_)
-            )
-        {
-            for input in self.index.references(init.span()) {
-                self.external_capture(input, safe_date || reference.safe_date, called, seen)?;
-            }
-        }
-        // A reference to a callback is stable data. Inspect its body only when called
-        // during rendering, so event handlers and command factories remain deferred.
-        if called && let Some(body) = self.index.helpers.get(&id) {
-            for (span, message) in &self.index.violations {
-                if span.start >= body.start
-                    && span.end <= body.end
-                    && !self.index.deferred_host_body(*span, *body)
-                    && !self.index.references(*span).any(|r| r.in_action)
-                    && !self.index.owns_mutation(*span, *body)
-                {
-                    return self.fail(*span, message);
-                }
-            }
-            for input in self.index.references(*body) {
-                if self.index.deferred_host_body(input.span, *body) {
-                    continue;
-                }
-                let local = input.symbol.is_some_and(|id| {
-                    let declaration = self.index.scoping.symbol_span(id);
-                    declaration.start >= body.start && declaration.end <= body.end
-                });
-                if !local || self.index.acquisition_called(input) {
-                    self.external_capture(input, false, false, seen)?;
-                }
-            }
-        }
-        Ok(())
-    }
-
     pub fn compile_view(&mut self, call: &'a CallExpression<'a>) -> Result<String> {
         // Diagnostics continue after failed views, whose lowering may have exited early.
         self.depth = 0;
@@ -670,87 +676,25 @@ impl<'a, 's> Lower<'a, 's> {
         {
             return self.fail(call.span,"view((model, send) => JSX) takes a synchronous pure arrow with an optional model parameter and optional named dispatch parameter.");
         }
-        for (span, message) in &self.index.violations {
-            if span.start >= f.span.start
-                && span.end <= f.span.end
-                && !(self.index.deferred_host_body(*span, f.span)
-                    && self
-                        .index
-                        .global_calls
-                        .iter()
-                        .any(|(global, _)| global == span))
-            {
-                return self.fail(*span, message);
+        self.certificate = match crate::semantics::certify(self.index, f, self.options) {
+            Ok(certificate) => certificate,
+            Err(issue) => {
+                return if issue.unprovable {
+                    self.unprovable(issue.span, &issue.message)
+                } else {
+                    self.fail(issue.span, &issue.message)
+                };
             }
-        }
-        let mut roots: HashSet<_> = f
-            .params
-            .items
-            .first()
-            .map(|parameter| self.index.binding_names(parameter.pattern.span()))
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect();
-        for (span, inputs) in &self.index.render_inputs {
-            if span.start >= f.span.start && span.end <= f.span.end {
-                roots.extend(inputs);
-            }
-        }
-        for (receiver, span, method) in &self.index.callback_mutations {
-            if span.start >= f.span.start
-                && span.end <= f.span.end
-                && self.index.borrows(receiver, &roots, &mut HashSet::new())
-            {
-                return self.fail(*span, &format!("Views cannot call mutating method {method} on model data. Dispatch a message and change the model in update."));
-            }
-        }
+        };
         for r in self.index.references(f.span) {
-            if r.in_host || self.index.deferred_host_body(r.span, f.span) {
-                continue;
-            }
             if let Some(id) = r.symbol {
-                let flags = self.index.scoping.symbol_flags(id);
                 let declaration = self.index.scoping.symbol_span(id);
-                if flags.is_const_variable()
+                if self.index.scoping.symbol_flags(id).is_const_variable()
                     && r.span.start < declaration.start
-                    && declaration.start >= f.span.start
-                    && declaration.end <= f.span.end
+                    && f.span.contains_inclusive(declaration)
                 {
-                    return self.fail(r.span,"Declare view constants before helpers that reference them. Forward captures are unsupported.");
+                    return self.fail(r.span, "Declare view constants before helpers that reference them. Forward captures are unsupported.");
                 }
-                if (flags.is_variable()
-                    && !flags.is_const_variable()
-                    && !flags.is_function_scoped_declaration())
-                    || self.index.scoping.symbol_is_mutated(id)
-                {
-                    return self.unprovable(r.span,&format!("Mutable capture {} is not a model dependency. Pass immutable data through the model.",r.name));
-                }
-                self.external_capture(r, false, false, &mut HashSet::new())?;
-            } else if [
-                "globalThis",
-                "self",
-                "performance",
-                "crypto",
-                "navigator",
-                "location",
-                "window",
-                "document",
-                "Date",
-                "localStorage",
-                "sessionStorage",
-            ]
-            .contains(&r.name.as_str())
-                && !r.in_event
-                && !(r.name == "Date" && r.safe_date)
-            {
-                return self.fail(
-                    r.span,
-                    &format!(
-                        "Read {} in a command or DOM host, then put its result in the model.",
-                        r.name
-                    ),
-                );
             }
         }
         let scope = self.uid("scope");
@@ -873,6 +817,20 @@ impl<'a, 's> Lower<'a, 's> {
                             }
                         } else {
                             let cached = self.uid("derived");
+                            if !matches!(decl.id, BindingPattern::BindingIdentifier(_)) {
+                                let names = self.index.binding_names(decl.id.span());
+                                let deps = self.dependencies_span(decl.span, &env, 0).into_iter().map(|(value, _)| value).collect::<Vec<_>>().join(",");
+                                let (local, captures) = self.snapshot_body_span(decl.span, &env);
+                                let pattern = self.rewrite_span(decl.id.span(), &local, 0);
+                                let value = self.rewrite(init, &local);
+                                let bindings = names.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>().join(",");
+                                let diagnostic = self.diagnostic_span(decl.span, &env, false);
+                                output.push_str(&format!("const {cached}={scope}.derive(()=>[{deps}],()=>{{{captures}return (({pattern})=>[{bindings}])({value});}}{diagnostic});"));
+                                for (index, (id, _)) in names.into_iter().enumerate() {
+                                    env.insert(id, Value::Read(format!("{cached}()[{index}]")));
+                                }
+                                continue;
+                            }
                             let deps = self.deps(init, &env).join(",");
                             let value = self.snapshot(init, &env);
                             let compute = self.snapshot_function(init, &env);
@@ -885,16 +843,8 @@ impl<'a, 's> Lower<'a, 's> {
                                 continue;
                             }
                             output.push_str(&format!("const {cached}={scope}.derive(()=>[{deps}],{compute}{diagnostic});"));
-                            // Rewrite defaults/computed keys before adding the pattern's own bindings.
-                            let pattern = self.rewrite_span(decl.id.span(), &env, 0);
-                            for (id, name) in self.index.binding_names(decl.id.span()) {
-                                let read = if matches!(decl.id, BindingPattern::BindingIdentifier(_)) {
-                                    format!("{cached}()")
-                                } else {
-                                    format!("(({pattern})=>{name})({cached}())")
-                                };
-                                env.insert(id, Value::Read(read));
-                            }
+                            let BindingPattern::BindingIdentifier(id) = &decl.id else { unreachable!() };
+                            env.insert(id.symbol_id.get().unwrap(), Value::Read(format!("{cached}()")));
                         }
                     }
                 }
@@ -1470,7 +1420,7 @@ impl<'a, 's> Lower<'a, 's> {
     fn jsx_text(value: &str) -> String {
         let lines = value.replace('\r', "");
         let lines = lines.split('\n').collect::<Vec<_>>();
-        lines
+        let text = lines
             .iter()
             .enumerate()
             .map(|(i, s)| {
@@ -1484,7 +1434,8 @@ impl<'a, 's> Lower<'a, 's> {
             })
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
-            .join(" ")
+            .join(" ");
+        jsx_value(&text)
     }
     fn element(
         &mut self,
@@ -1855,7 +1806,9 @@ impl<'a, 's> Lower<'a, 's> {
             };
             let value = match &a.value {
                 None => Attr::Static("true".into()),
-                Some(JSXAttributeValue::StringLiteral(s)) => Attr::Static(quote(s.value.as_str())),
+                Some(JSXAttributeValue::StringLiteral(s)) => {
+                    Attr::Static(quote(&jsx_value(s.value.as_str())))
+                }
                 Some(JSXAttributeValue::ExpressionContainer(c)) => {
                     match c.expression.as_expression() {
                         Some(e) => Attr::Expr(e),

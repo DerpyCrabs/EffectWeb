@@ -1,4 +1,4 @@
-//! Resolve source identities once. Generated expressions never reparse or rename user bindings.
+//! Index syntax and binding identities. Semantic decisions belong to semantics.rs.
 use oxc::{
     ast::{AstKind, ast::*},
     ast_visit::Visit,
@@ -6,40 +6,18 @@ use oxc::{
     span::{GetSpan, Span},
     syntax::symbol::SymbolId,
 };
-use std::collections::{HashMap, HashSet};
-
+use std::collections::HashMap;
 fn unwrapped<'a>(mut expression: &'a Expression<'a>) -> &'a Expression<'a> {
     loop {
         expression = match expression {
-            Expression::ParenthesizedExpression(node) => &node.expression,
-            Expression::TSAsExpression(node) => &node.expression,
-            Expression::TSSatisfiesExpression(node) => &node.expression,
-            Expression::TSNonNullExpression(node) => &node.expression,
+            Expression::ParenthesizedExpression(n) => &n.expression,
+            Expression::TSAsExpression(n) => &n.expression,
+            Expression::TSSatisfiesExpression(n) => &n.expression,
+            Expression::TSNonNullExpression(n) => &n.expression,
             _ => return expression,
         };
     }
 }
-
-fn property_depth(expression: &Expression<'_>) -> usize {
-    match unwrapped(expression) {
-        Expression::StaticMemberExpression(member) => 1 + property_depth(&member.object),
-        Expression::ComputedMemberExpression(member) => 1 + property_depth(&member.object),
-        _ => 0,
-    }
-}
-
-fn method<'a>(expression: &'a Expression<'a>) -> Option<(&'a Expression<'a>, &'a str)> {
-    match unwrapped(expression) {
-        Expression::StaticMemberExpression(member) => {
-            Some((&member.object, member.property.name.as_str()))
-        }
-        Expression::ComputedMemberExpression(member) => member
-            .static_property_name()
-            .map(|name| (&member.object, name.as_str())),
-        _ => None,
-    }
-}
-
 // Collect only immutable direct aliases. Resolve before reference classification so
 // factory declarations may follow helpers without making source order significant.
 pub fn resolve_host_aliases<'a>(
@@ -86,18 +64,6 @@ pub fn resolve_host_aliases<'a>(
     }
 }
 
-const ARRAY_MUTATORS: &[&str] = &[
-    "push",
-    "pop",
-    "shift",
-    "unshift",
-    "splice",
-    "sort",
-    "reverse",
-    "copyWithin",
-    "fill",
-];
-
 #[derive(Clone)]
 pub struct Reference {
     pub span: Span,
@@ -106,26 +72,19 @@ pub struct Reference {
     pub shorthand: bool,
     pub path: Vec<String>,
     pub label: String,
-    pub safe_date: bool,
-    pub in_event: bool,
-    pub in_action: bool,
-    pub in_host: bool,
 }
 pub struct Index<'a, 's> {
     pub scoping: &'s Scoping,
-    pub host_callbacks: HashMap<SymbolId, usize>,
-    pub event_callbacks: HashSet<SymbolId>,
-    host_acquisitions: HashSet<Span>,
     pub refs: Vec<Reference>,
     pub calls: Vec<&'a CallExpression<'a>>,
     pub bindings: Vec<(Span, SymbolId, String)>,
-    pub violations: Vec<(Span, String)>,
-    mutation_targets: HashMap<Span, (Span, bool, usize, usize)>,
-    pub helpers: HashMap<SymbolId, Span>,
     pub initializers: HashMap<SymbolId, &'a Expression<'a>>,
-    pub callback_mutations: Vec<(&'a Expression<'a>, Span, &'a str)>,
-    pub global_calls: Vec<(Span, String)>,
-    pub render_inputs: Vec<(Span, Vec<SymbolId>)>,
+    pub declarators: HashMap<SymbolId, &'a VariableDeclarator<'a>>,
+    pub functions: HashMap<SymbolId, &'a Function<'a>>,
+    pub writes: Vec<Span>,
+    pub(super) imports: HashMap<SymbolId, (String, Vec<String>)>,
+    pub jsx: Vec<Span>,
+    pub compiled_views: Vec<Span>,
     pub type_annotations: HashMap<SymbolId, &'a TSType<'a>>,
     pub type_aliases: HashMap<SymbolId, &'a TSType<'a>>,
     pub interfaces: HashMap<SymbolId, &'a TSInterfaceDeclaration<'a>>,
@@ -135,19 +94,16 @@ impl<'a, 's> Index<'a, 's> {
     pub fn new(scoping: &'s Scoping) -> Self {
         Self {
             scoping,
-            host_callbacks: HashMap::new(),
-            event_callbacks: HashSet::new(),
-            host_acquisitions: HashSet::new(),
             refs: vec![],
             calls: vec![],
             bindings: vec![],
-            violations: vec![],
-            mutation_targets: HashMap::new(),
-            helpers: HashMap::new(),
             initializers: HashMap::new(),
-            callback_mutations: vec![],
-            global_calls: vec![],
-            render_inputs: vec![],
+            declarators: HashMap::new(),
+            functions: HashMap::new(),
+            writes: vec![],
+            imports: HashMap::new(),
+            jsx: vec![],
+            compiled_views: vec![],
             type_annotations: HashMap::new(),
             type_aliases: HashMap::new(),
             interfaces: HashMap::new(),
@@ -165,306 +121,53 @@ impl<'a, 's> Index<'a, 's> {
             .get()
             .and_then(|id| self.scoping.get_reference(id).symbol_id())
     }
-    // Direct callback properties in JSX spread literals have the same boundary as
-    // explicit attributes. Nested objects and eagerly invoked factories do not.
-    fn spread_callback(&self, event_only: bool) -> Option<&'a ArrowFunctionExpression<'a>> {
-        self.parents.iter().enumerate().rev().find_map(|(position, node)| {
-            let AstKind::ObjectProperty(property) = node else { return None; };
-            let Expression::ArrowFunctionExpression(function) = unwrapped(&property.value) else { return None; };
-            if contains_jsx_body(&function.body) { return None; }
-            if event_only && !property.key.static_name().is_some_and(|name| name.starts_with("on") && name.chars().nth(2).is_some_and(|c| c.is_ascii_uppercase())) {
-                return None;
-            }
-            let object = self.parents[..position].iter().rev().find_map(|node| {
-                if let AstKind::ObjectExpression(object) = node { Some(object.span) } else { None }
-            })?;
-            self.parents[..position].iter().any(|node| matches!(node, AstKind::JSXSpreadAttribute(spread) if unwrapped(&spread.argument).span() == object)).then_some(&**function)
-        })
-    }
-    // Only callbacks inside onX attributes execute as events. Attribute factories and
-    // ordinary render callbacks still obey render-purity rules.
-    fn event_handler(&self) -> Option<&'a ArrowFunctionExpression<'a>> {
-        if let Some(function) = self.spread_callback(true) {
-            return Some(function);
-        }
-        for node in self.parents.iter().rev() {
-            if let AstKind::CallExpression(call) = node
-                && let Expression::Identifier(callee) = unwrapped(&call.callee)
-                && self
-                    .symbol(callee)
-                    .is_some_and(|id| self.event_callbacks.contains(&id))
-                && let Some(callback) = call.arguments.get(1).and_then(Argument::as_expression)
-                && let Expression::ArrowFunctionExpression(function) = unwrapped(callback)
-                && self
-                    .parents
-                    .iter()
-                    .any(|parent| parent.span() == function.span)
-                && !contains_jsx_body(&function.body)
-            {
-                return Some(function);
-            }
-        }
-        self.parents.iter().rev().find_map(|node| {
-            let AstKind::JSXAttribute(attribute) = node else {
-                return None;
-            };
-            let JSXAttributeName::Identifier(name) = &attribute.name else {
-                return None;
-            };
-            if !name.name.starts_with("on")
-                || !name
-                    .name
-                    .chars()
-                    .nth(2)
-                    .is_some_and(|c| c.is_ascii_uppercase())
-            {
-                return None;
-            }
-            let Some(JSXAttributeValue::ExpressionContainer(container)) = &attribute.value else {
-                return None;
-            };
-            let Expression::ArrowFunctionExpression(function) =
-                unwrapped(container.expression.as_expression()?)
-            else {
-                return None;
-            };
-            (!contains_jsx_body(&function.body)).then_some(&**function)
-        })
-    }
-
-    fn callback_prop(&self) -> bool {
-        if self.spread_callback(false).is_some() {
-            return true;
-        }
-        self.parents.iter().rev().find_map(|node| {
-            let AstKind::JSXAttribute(attribute) = node else { return None; };
-            Some(matches!(&attribute.value,
-                Some(JSXAttributeValue::ExpressionContainer(container))
-                    if matches!(container.expression.as_expression(),
-                        Some(Expression::ArrowFunctionExpression(function)) if !contains_jsx_body(&function.body))))
-        }).unwrap_or(false)
-    }
-    fn host_argument(&self, call: &CallExpression<'a>) -> Option<usize> {
-        let Expression::Identifier(callee) = unwrapped(&call.callee) else {
-            return None;
-        };
-        self.symbol(callee)
-            .and_then(|id| self.host_callbacks.get(&id).copied())
-    }
-    fn callback_body(&self, mut id: SymbolId) -> Option<Span> {
-        let mut seen = HashSet::new();
-        loop {
-            let flags = self.scoping.symbol_flags(id);
-            if !seen.insert(id)
-                || self.scoping.symbol_is_mutated(id)
-                || !(flags.is_const_variable() || flags.is_function())
-            {
-                return None;
-            }
-            if let Some(body) = self.helpers.get(&id) {
-                return Some(*body);
-            }
-            let Expression::Identifier(input) = unwrapped(self.initializers.get(&id)?) else {
-                return None;
-            };
-            id = self.symbol(input)?;
-        }
-    }
-    pub fn collect_host_acquisitions(&mut self) {
-        for call in &self.calls {
-            if let Some(argument) = self.host_argument(call)
-                && let Some(expression) = call
-                    .arguments
-                    .get(argument)
-                    .and_then(Argument::as_expression)
-                && let Expression::Identifier(id) = unwrapped(expression)
-                && let Some(body) = self.symbol(id).and_then(|id| self.callback_body(id))
-            {
-                self.host_acquisitions.insert(body);
-            }
-        }
-    }
-    // A declaration nested in a render helper only creates the callback. When
-    // that callback is itself invoked, its own body is checked without exemption.
-    pub fn deferred_host_body(&self, span: Span, enclosing: Span) -> bool {
-        self.host_acquisitions.iter().any(|body| {
-            body.start > enclosing.start
-                && body.end <= enclosing.end
-                && span.start >= body.start
-                && span.end <= body.end
-        })
-    }
-    pub fn acquisition_called(&self, reference: &Reference) -> bool {
-        reference
-            .symbol
-            .and_then(|id| self.callback_body(id))
-            .is_some_and(|body| self.host_acquisitions.contains(&body))
-            && self.render_called(reference)
-    }
-    pub fn render_called(&self, reference: &Reference) -> bool {
-        self.calls.iter().any(|call| {
-            (call.callee.span().start <= reference.span.start
-                && call.callee.span().end >= reference.span.end)
-                || (self.host_argument(call).is_none()
-                    && reference
-                        .symbol
-                        .and_then(|id| self.callback_body(id))
-                        .is_some_and(|body| self.host_acquisitions.contains(&body))
-                    && call
-                        .arguments
-                        .iter()
-                        .filter_map(Argument::as_expression)
-                        .any(|arg| unwrapped(arg).span() == reference.span))
-        })
-    }
-    // Only the literal acquisition callback is deferred. Factories producing it,
-    // domBinding data, and runtime arguments are evaluated during rendering.
-    fn host_callback(&self) -> bool {
-        self.parents.iter().any(|node| {
-            let AstKind::CallExpression(call) = node else {
-                return false;
-            };
-            let Some(argument) = self.host_argument(call) else {
-                return false;
-            };
-            let Some(callback) = call
-                .arguments
-                .get(argument)
-                .and_then(|argument| argument.as_expression())
-            else {
-                return false;
-            };
-            let callback = unwrapped(callback);
-            matches!(
-                callback,
-                Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
-            ) && self
-                .parents
-                .iter()
-                .any(|parent| parent.span() == callback.span())
-        })
-    }
-    fn event_dom_node(&self, expression: &Expression<'a>) -> bool {
-        let Some(handler) = self.event_handler() else {
-            return false;
-        };
-        let Some(parameter) = handler.params.items.first() else {
-            return false;
-        };
-        let BindingPattern::BindingIdentifier(parameter) = &parameter.pattern else {
-            return false;
-        };
-        let Expression::StaticMemberExpression(member) = unwrapped(expression) else {
-            return false;
-        };
-        matches!(member.property.name.as_str(), "currentTarget" | "target")
-            && matches!(unwrapped(&member.object), Expression::Identifier(id) if self.symbol(id) == parameter.symbol_id.get())
-    }
     pub fn binding_names(&self, span: Span) -> Vec<(SymbolId, String)> {
         self.bindings
             .iter()
-            .filter(|(s, _, _)| s.start >= span.start && s.end <= span.end)
+            .filter(|(s, _, _)| span.contains_inclusive(*s))
             .map(|(_, id, name)| (*id, name.clone()))
             .collect()
     }
-
-    /// Helper-owned bindings and fresh buffers may be mutated without changing inputs.
-    /// A shallow allocation owns its own properties, not the objects stored inside it.
-    pub fn owns_mutation(&self, span: Span, body: Span) -> bool {
-        let Some((target, binding, depth, actual_depth)) = self.mutation_targets.get(&span) else {
-            return false;
-        };
-        let Some(reference) = self.references(*target).next() else {
-            return false;
-        };
-        let Some(id) = reference.symbol else {
-            return false;
-        };
-        let declaration = self.scoping.symbol_span(id);
-        if declaration.start < body.start || declaration.end > body.end {
-            return false;
-        }
-        if *binding {
-            return true;
-        }
-        self.owns_buffer(id, body, actual_depth <= depth, &mut HashSet::new())
-    }
-    fn owns_buffer(
-        &self,
-        id: SymbolId,
-        body: Span,
-        shallow: bool,
-        seen: &mut HashSet<SymbolId>,
-    ) -> bool {
-        let declaration = self.scoping.symbol_span(id);
-        if declaration.start < body.start || declaration.end > body.end || !seen.insert(id) {
-            return false;
-        }
-        let Some(init) = self.initializers.get(&id) else {
-            return false;
-        };
-        match unwrapped(init) {
-            Expression::ArrayExpression(_) | Expression::ObjectExpression(_) => shallow,
-            Expression::Identifier(alias) => self
-                .symbol(alias)
-                .is_some_and(|id| self.owns_buffer(id, body, shallow, seen)),
-            Expression::CallExpression(call) => {
-                matches!(unwrapped(&call.callee), Expression::Identifier(id) if id.name == "structuredClone" && self.symbol(id).is_none())
-                    || (shallow
-                        && method(&call.callee).is_some_and(|(_, name)| {
-                            [
-                                "slice",
-                                "map",
-                                "filter",
-                                "concat",
-                                "toSorted",
-                                "toReversed",
-                                "toSpliced",
-                            ]
-                            .contains(&name)
-                        }))
-            }
-            Expression::NewExpression(new) => {
-                shallow
-                    && matches!(unwrapped(&new.callee), Expression::Identifier(id) if ["Array", "Map", "Set"].contains(&id.name.as_str()) && self.symbol(id).is_none())
-            }
-            _ => false,
-        }
-    }
-
-    /// Follow borrowed member reads and destructuring aliases, never fresh allocations.
-    pub fn borrows(
-        &self,
-        expression: &Expression<'a>,
-        roots: &HashSet<SymbolId>,
-        seen: &mut HashSet<SymbolId>,
-    ) -> bool {
-        match unwrapped(expression) {
-            Expression::Identifier(id) => self.symbol(id).is_some_and(|id| {
-                roots.contains(&id)
-                    || (seen.insert(id)
-                        && self
-                            .initializers
-                            .get(&id)
-                            .is_some_and(|value| self.borrows(value, roots, seen)))
-            }),
-            Expression::StaticMemberExpression(member) => self.borrows(&member.object, roots, seen),
-            Expression::ComputedMemberExpression(member) => {
-                self.borrows(&member.object, roots, seen)
-            }
-            _ => false,
-        }
+    pub fn uncompiled_jsx(&self, span: Span) -> bool {
+        self.jsx.iter().any(|jsx| {
+            span.contains_inclusive(*jsx)
+                && !self
+                    .compiled_views
+                    .iter()
+                    .any(|view| view.contains_inclusive(*jsx))
+        })
     }
 }
 impl<'a> Visit<'a> for Index<'a, '_> {
     fn visit_ts_type(&mut self, _: &TSType<'a>) {}
     fn enter_node(&mut self, kind: AstKind<'a>) {
         match kind {
-            AstKind::ArrowFunctionExpression(function) if contains_jsx_body(&function.body) => {
-                let mut names = BindingIds(vec![]);
-                names.visit_formal_parameters(&function.params);
-                self.render_inputs.push((function.span, names.0));
+            AstKind::ImportDeclaration(import) if !import.import_kind.is_type() => {
+                for specifier in import.specifiers.iter().flatten() {
+                    let (id, path) = match specifier {
+                        ImportDeclarationSpecifier::ImportSpecifier(specifier)
+                            if !specifier.import_kind.is_type() =>
+                        {
+                            (
+                                specifier.local.symbol_id.get().unwrap(),
+                                vec![specifier.imported.name().to_string()],
+                            )
+                        }
+                        ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => {
+                            (specifier.local.symbol_id.get().unwrap(), vec![])
+                        }
+                        ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => (
+                            specifier.local.symbol_id.get().unwrap(),
+                            vec!["default".into()],
+                        ),
+                        _ => continue,
+                    };
+                    self.imports
+                        .insert(id, (import.source.value.to_string(), path));
+                }
             }
+            AstKind::JSXElement(element) => self.jsx.push(element.span),
+            AstKind::JSXFragment(fragment) => self.jsx.push(fragment.span),
             AstKind::TSTypeAliasDeclaration(declaration) => {
                 if declaration.type_parameters.is_none() {
                     self.type_aliases.insert(
@@ -499,23 +202,14 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                     let mut names = BindingIds(vec![]);
                     names.visit_binding_pattern(&declaration.id);
                     for id in names.0 {
+                        self.declarators.insert(id, declaration);
                         self.initializers.insert(id, init);
-                        match unwrapped(init) {
-                            Expression::ArrowFunctionExpression(function) => {
-                                self.helpers.insert(id, function.span);
-                            }
-                            Expression::FunctionExpression(function) => {
-                                self.helpers.insert(id, function.span);
-                            }
-                            _ => {}
-                        }
                     }
                 }
             }
             AstKind::Function(function) => {
                 if let Some(id) = &function.id {
-                    self.helpers
-                        .insert(id.symbol_id.get().unwrap(), function.span);
+                    self.functions.insert(id.symbol_id.get().unwrap(), function);
                 }
             }
             AstKind::IdentifierReference(id) => {
@@ -569,16 +263,6 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                     label.push_str(&label_suffix);
                 }
                 let shorthand=self.parents.iter().rev().any(|p| matches!(p,AstKind::ObjectProperty(p) if p.shorthand && p.value.span()==id.span));
-                let safe_date = self.parents.last().is_some_and(|p| match p {
-                    AstKind::NewExpression(n) => {
-                        n.callee.span() == id.span && !n.arguments.is_empty()
-                    }
-                    AstKind::StaticMemberExpression(m) => {
-                        m.object.span() == id.span
-                            && matches!(m.property.name.as_str(), "UTC" | "parse")
-                    }
-                    _ => false,
-                });
                 self.refs.push(Reference {
                     span: id.span,
                     symbol: self.symbol(id),
@@ -586,12 +270,6 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                     shorthand,
                     path,
                     label,
-                    safe_date,
-                    in_event: self.event_handler().is_some(),
-                    in_action: self.event_handler().is_some()
-                        || self.callback_prop()
-                        || self.host_callback(),
-                    in_host: self.host_callback(),
                 });
             }
             AstKind::BindingIdentifier(id) => {
@@ -599,109 +277,12 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                     self.bindings.push((id.span, symbol, id.name.to_string()));
                 }
             }
-            AstKind::CallExpression(call) => {
-                self.calls.push(call);
-                if let Some((receiver, method)) = method(&call.callee) {
-                    let action = self.event_handler().is_some()
-                        || self.callback_prop()
-                        || self.host_callback();
-                    // Mutating a freshly allocated array cannot change a borrowed snapshot.
-                    // Named locals and method results need alias analysis; keep those checked.
-                    let fresh_array = ARRAY_MUTATORS.contains(&method)
-                        && matches!(unwrapped(receiver), Expression::ArrayExpression(_));
-                    if !action
-                        && !fresh_array
-                        && (ARRAY_MUTATORS.contains(&method)
-                            || ["set", "add", "delete", "clear"].contains(&method))
-                    {
-                        self.mutation_targets.insert(
-                            call.span,
-                            (receiver.span(), false, 0, property_depth(receiver)),
-                        );
-                        self.violations.push((call.span,format!("Views cannot call mutating method {method}. Use an immutable operation or a command.")));
-                    }
-                    if action && !fresh_array && ARRAY_MUTATORS.contains(&method) {
-                        self.callback_mutations.push((receiver, call.span, method));
-                    }
-                    if !action
-                        && method == "random"
-                        && matches!(unwrapped(receiver),Expression::Identifier(i) if i.name=="Math" && self.symbol(i).is_none())
-                    {
-                        let violation = (
-                            call.span,
-                            "Read randomness in a command, then put its result in the model."
-                                .into(),
-                        );
-                        self.global_calls.push(violation.clone());
-                        self.violations.push(violation);
-                    }
-                }
-            }
-            AstKind::AssignmentExpression(n) if !matches!(&n.left, AssignmentTarget::StaticMemberExpression(member) if self.event_dom_node(&member.object)) =>
-            {
-                self.mutation_targets.insert(
-                    n.span,
-                    (
-                        n.left.span(),
-                        matches!(n.left, AssignmentTarget::AssignmentTargetIdentifier(_)),
-                        1,
-                        match &n.left {
-                            AssignmentTarget::AssignmentTargetIdentifier(_) => 0,
-                            AssignmentTarget::StaticMemberExpression(m) => {
-                                1 + property_depth(&m.object)
-                            }
-                            AssignmentTarget::ComputedMemberExpression(m) => {
-                                1 + property_depth(&m.object)
-                            }
-                            _ => usize::MAX,
-                        },
-                    ),
-                );
-                self.violations.push((
-                    n.span,
-                    "Views do not mutate state. Dispatch a message and change the model in update."
-                        .into(),
-                ))
-            }
-            AstKind::UpdateExpression(n) => {
-                self.mutation_targets.insert(
-                    n.span,
-                    (
-                        n.argument.span(),
-                        matches!(
-                            n.argument,
-                            SimpleAssignmentTarget::AssignmentTargetIdentifier(_)
-                        ),
-                        1,
-                        match &n.argument {
-                            SimpleAssignmentTarget::AssignmentTargetIdentifier(_) => 0,
-                            SimpleAssignmentTarget::StaticMemberExpression(m) => {
-                                1 + property_depth(&m.object)
-                            }
-                            SimpleAssignmentTarget::ComputedMemberExpression(m) => {
-                                1 + property_depth(&m.object)
-                            }
-                            _ => usize::MAX,
-                        },
-                    ),
-                );
-                self.violations.push((
-                    n.span,
-                    "Views do not mutate state. Dispatch a message and change the model in update."
-                        .into(),
-                ));
-            }
+            AstKind::CallExpression(call) => self.calls.push(call),
+            AstKind::AssignmentExpression(n) => self.writes.push(n.left.span()),
+            AstKind::UpdateExpression(n) => self.writes.push(n.argument.span()),
             AstKind::UnaryExpression(n) if n.operator.as_str() == "delete" => {
-                self.mutation_targets.insert(
-                    n.span,
-                    (n.argument.span(), false, 1, property_depth(&n.argument)),
-                );
-                self.violations
-                    .push((n.span, "Views do not mutate state.".into()));
+                self.writes.push(n.argument.span())
             }
-            AstKind::AwaitExpression(n) if !self.host_callback() => self
-                .violations
-                .push((n.span, "Async work belongs in commands.".into())),
             _ => {}
         }
         self.parents.push(kind);
@@ -750,7 +331,7 @@ mod tests {
         let semantic = SemanticBuilder::new().build(&parsed.program);
         let mut index = Index::new(semantic.semantic.scoping());
         index.visit_program(&parsed.program);
-        (index.refs, index.violations)
+        (index.refs, vec![])
     }
 
     #[test]
@@ -778,7 +359,7 @@ mod tests {
 
     #[test]
     fn preserves_receivers_through_parenthesized_and_asserted_method_calls() {
-        let (references, violations) = inspect(
+        let (references, _) = inspect(
             "const read = model => [(model.items.filter)(row => row.visible), ((model.items.filter) as Function)(row => row.visible), (model.items.sort)()];",
         );
         let paths: Vec<_> = references
@@ -787,8 +368,6 @@ mod tests {
             .map(|reference| reference.path.join(""))
             .collect();
         assert_eq!(paths, ["?.items", "?.items", "?.items"]);
-        assert_eq!(violations.len(), 1);
-        assert!(violations[0].1.contains("sort"));
     }
 
     #[test]
@@ -809,25 +388,28 @@ mod tests {
 
     #[test]
     fn ignores_type_references_and_distinguishes_event_factories_from_render_work() {
-        let (references, violations) = inspect(
+        let (references, _) = inspect(
             "const view = (model: Model) => <button title={model.items.sort().length} onClick={() => model.service.set('x')}/>;",
         );
         assert!(references.iter().all(|reference| reference.name != "Model"));
-        assert_eq!(violations.len(), 1);
-        assert!(violations[0].1.contains("sort"));
     }
 
     #[test]
-    fn permits_explicit_date_inputs_and_does_not_confuse_shadowed_math_with_globals() {
-        let (references, violations) = inspect(
+    fn retains_global_and_shadowed_binding_identity() {
+        let (references, _) = inspect(
             "const read = (model, Math) => [new Date(model.timestamp), Date.parse(model.text), Date.now(), Math.random()];",
         );
-        let date: Vec<_> = references
-            .iter()
-            .filter(|reference| reference.name == "Date")
-            .map(|reference| reference.safe_date)
-            .collect();
-        assert_eq!(date, [true, true, false]);
-        assert!(violations.is_empty());
+        assert!(
+            references
+                .iter()
+                .filter(|r| r.name == "Date")
+                .all(|r| r.symbol.is_none())
+        );
+        assert!(
+            references
+                .iter()
+                .filter(|r| r.name == "Math")
+                .all(|r| r.symbol.is_some())
+        );
     }
 }

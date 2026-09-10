@@ -45,24 +45,34 @@ const checked = new WeakSet<object>();
 
 /** Protect published plain data in every build. Opaque objects keep their own lifecycle. */
 export function protectSnapshot<T>(value: T): T {
-  if (!value || typeof value !== 'object' || checked.has(value)) return value;
-  // AsyncResult is an immutable Effect wrapper, but its successful UI data is plain data.
-  if (isAsyncResult(value)) {
-    checked.add(value);
-    if (value._tag === 'Success') protectSnapshot(value.value);
-    else if (value._tag === 'Failure' && value.previousSuccess._tag === 'Some')
-      protectSnapshot(value.previousSuccess.value);
-    return value;
-  }
-  const prototype: unknown = Object.getPrototypeOf(value);
-  if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return value;
-  // Mark before walking to allow cyclic data and reuse already checked shared branches.
-  checked.add(value);
-  for (const key of Reflect.ownKeys(value)) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
-    // Never execute getters or traverse closures, class instances, Effects or DOM objects.
-    if ('value' in descriptor) protectSnapshot(descriptor.value);
-  }
-  Object.freeze(value);
+  const seen = new Set<object>();
+  const plain: object[] = [];
+  const validate = (item: unknown): void => {
+    if (!item || typeof item !== 'object' || checked.has(item) || seen.has(item)) return;
+    seen.add(item);
+    // Effect wrappers remain opaque, but their successful UI data is plain data.
+    if (isAsyncResult(item)) {
+      if (item._tag === 'Success') validate(item.value);
+      else if (item._tag === 'Failure' && item.previousSuccess._tag === 'Some')
+        validate(item.previousSuccess.value);
+      return;
+    }
+    const prototype: unknown = Object.getPrototypeOf(item);
+    if (!Array.isArray(item) && prototype !== Object.prototype && prototype !== null) return;
+    for (const key of Reflect.ownKeys(item)) {
+      const descriptor = Object.getOwnPropertyDescriptor(item, key)!;
+      if (!Object.hasOwn(descriptor, 'value'))
+        throw new Error(
+          `Snapshot data cannot contain an accessor (${String(key)}). Materialize its value before publication; keep services in opaque instances.`,
+        );
+      validate(descriptor.value as unknown);
+    }
+    plain.push(item);
+  };
+  // Validate the complete graph before caching any proof. A rejected cyclic graph
+  // must not make a later publication skip validation through a previously seen child.
+  validate(value);
+  for (const item of plain) Object.freeze(item);
+  for (const item of seen) checked.add(item);
   return value;
 }
