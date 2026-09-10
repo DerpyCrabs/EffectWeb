@@ -86,7 +86,7 @@ describe('published snapshot protection', () => {
     }
   });
 
-  it('rejects accessor-backed snapshot data without executing the getter', () => {
+  it('preserves getters without executing them during snapshot publication', () => {
     let reads = 0;
     const record = {
       get current() {
@@ -94,9 +94,15 @@ describe('published snapshot protection', () => {
         return 1;
       },
     };
-    expect(() => modelOwner({ record })).toThrow(/accessor/u);
-    expect(() => modelOwner({ record })).toThrow(/accessor/u);
-    expect(reads).toBe(0);
+    const app = modelOwner({ record });
+    try {
+      expect(reads).toBe(0);
+      expect(Object.isFrozen(record)).toBe(true);
+      expect(app.read().record.current).toBe(1);
+      expect(reads).toBe(1);
+    } finally {
+      app.dispose();
+    }
   });
 
   it('checks symbol fields, cyclic data, and already frozen parent records', () => {

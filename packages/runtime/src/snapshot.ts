@@ -1,4 +1,4 @@
-import type { Effect } from 'effect';
+import type * as Effect from 'effect/Effect';
 import type * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { isAsyncResult } from 'effect/unstable/reactivity/AsyncResult';
 
@@ -41,38 +41,33 @@ type ImmutableValue<T> = T extends string | number | bigint | boolean | symbol |
                 ? SnapshotRecord<T>
                 : T;
 
-const checked = new WeakSet<object>();
+const protectedValues = new WeakSet<object>();
 
 /** Protect published plain data in every build. Opaque objects keep their own lifecycle. */
 export function protectSnapshot<T>(value: T): T {
   const seen = new Set<object>();
   const plain: object[] = [];
-  const validate = (item: unknown): void => {
-    if (!item || typeof item !== 'object' || checked.has(item) || seen.has(item)) return;
+  const visit = (item: unknown): void => {
+    if (!item || typeof item !== 'object' || protectedValues.has(item) || seen.has(item)) return;
     seen.add(item);
     // Effect wrappers remain opaque, but their successful UI data is plain data.
     if (isAsyncResult(item)) {
-      if (item._tag === 'Success') validate(item.value);
+      if (item._tag === 'Success') visit(item.value);
       else if (item._tag === 'Failure' && item.previousSuccess._tag === 'Some')
-        validate(item.previousSuccess.value);
+        visit(item.previousSuccess.value);
       return;
     }
     const prototype: unknown = Object.getPrototypeOf(item);
     if (!Array.isArray(item) && prototype !== Object.prototype && prototype !== null) return;
     for (const key of Reflect.ownKeys(item)) {
       const descriptor = Object.getOwnPropertyDescriptor(item, key)!;
-      if (!Object.hasOwn(descriptor, 'value'))
-        throw new Error(
-          `Snapshot data cannot contain an accessor (${String(key)}). Materialize its value before publication; keep services in opaque instances.`,
-        );
-      validate(descriptor.value as unknown);
+      if (Object.hasOwn(descriptor, 'value')) visit(descriptor.value as unknown);
     }
     plain.push(item);
   };
-  // Validate the complete graph before caching any proof. A rejected cyclic graph
-  // must not make a later publication skip validation through a previously seen child.
-  validate(value);
+  // Traverse stored data without invoking application getters.
+  visit(value);
   for (const item of plain) Object.freeze(item);
-  for (const item of seen) checked.add(item);
+  for (const item of seen) protectedValues.add(item);
   return value;
 }

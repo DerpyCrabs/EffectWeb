@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { compile, diagnose } from './compile';
+import { compile, lint } from './compile';
+
+const checkRender = (source: string, filename: string) => {
+  const errors = lint(source, filename).filter((issue) => issue.severity === 'error');
+  if (errors.length) throw new Error(errors.map((issue) => issue.message).join('\n'));
+  return compile(source, filename);
+};
 
 const views = (prefix: string, expression: string) =>
   `import {view} from 'effectweb'; ${prefix} const App=view(m=><p>{${expression}}</p>);`;
@@ -35,15 +41,13 @@ for (const [name, declare, expression] of helpers) {
   describe(name, () => {
     it('rejects hidden mutable captures independent of the helper representation', () => {
       const source = views(`let ambient='old';${declare('ambient')}`, expression);
-      expect(() => compile(source, 'capture.tsx')).toThrow(
+      expect(() => checkRender(source, 'capture.tsx')).toThrow(
         /Mutable capture|unprovable|cannot prove/iu,
       );
-      expect(diagnose(source, 'capture.tsx')).toEqual([
-        expect.objectContaining({ severity: 'error' }),
-      ]);
+      expect(lint(source, 'capture.tsx')).toEqual([expect.objectContaining({ severity: 'error' })]);
     });
     it('accepts the corresponding pure helper', () => {
-      expect(diagnose(views(declare("'fixed'"), expression), 'pure.tsx')).toEqual([]);
+      expect(lint(views(declare("'fixed'"), expression), 'pure.tsx')).toEqual([]);
     });
   });
 }
@@ -55,7 +59,7 @@ it.each([
   `const invoke=fn=>fn();return <p>{invoke(read)}</p>;`,
 ])('checks eager callbacks independently of chaining and temporary variables: %s', (body) => {
   const source = `import {view} from 'effectweb'; let ambient='old';const read=()=>ambient;const App=view(m=>{${body}});`;
-  expect(() => compile(source, 'callbacks.tsx')).toThrow(
+  expect(() => checkRender(source, 'callbacks.tsx')).toThrow(
     /Mutable capture|unprovable|cannot prove/iu,
   );
 });
@@ -65,7 +69,7 @@ it.each([
   `const helpers={read:()=> 'fixed'};const alias=helpers;alias.read=()=>ambient;`,
 ])('invalidates provenance when an object can be modified: %s', (declarations) => {
   expect(() =>
-    compile(views(`let ambient='old';${declarations}`, 'helpers.read()'), 'writes.tsx'),
+    checkRender(views(`let ambient='old';${declarations}`, 'helpers.read()'), 'writes.tsx'),
   ).toThrow();
 });
 
@@ -77,7 +81,7 @@ it.each([
 ])(
   'requires ownership evidence at the mutation, including aliases and indirect calls: %s',
   (prefix) => {
-    expect(() => compile(views(prefix, 'read(m.items)'), 'ownership.tsx')).toThrow(
+    expect(() => checkRender(views(prefix, 'read(m.items)'), 'ownership.tsx')).toThrow(
       /mutat|borrowed/u,
     );
   },
@@ -94,7 +98,10 @@ for (const callback of [
   for (const attribute of [`onClick={${callback}}`, `{...{onClick:${callback}}}`]) {
     it(`keeps borrowed data immutable in events: ${attribute}`, () => {
       expect(() =>
-        compile(views('', `null`).replace('<p>{null}</p>', `<button ${attribute}/>`), 'events.tsx'),
+        checkRender(
+          views('', `null`).replace('<p>{null}</p>', `<button ${attribute}/>`),
+          'events.tsx',
+        ),
       ).toThrow(/mutat|borrowed/u);
     });
   }
@@ -103,15 +110,15 @@ for (const callback of [
 for (const callback of [`()=>window.alert('hello')`, `function(){window.alert('hello')}`]) {
   it(`recognizes deferred execution independently of function syntax: ${callback}`, () => {
     const source = `import {view} from 'effectweb';view(m=><button onClick={${callback}}/>);`;
-    expect(diagnose(source, 'event-syntax.tsx')).toEqual([]);
+    expect(lint(source, 'event-syntax.tsx')).toEqual([]);
   });
 }
 
 it('treats callback fields passed to a child as deferred and still forbids snapshot writes', () => {
   const source = `import {view} from 'effectweb';import {Child} from './child';view(m=><Child actions={{nested:{run:()=>window.alert(m.label)}}}/>);`;
-  expect(diagnose(source, 'callback-fields.tsx')).toEqual([]);
+  expect(lint(source, 'callback-fields.tsx')).toEqual([]);
   expect(() =>
-    compile(source.replace('window.alert(m.label)', 'm.items.push(1)'), 'callback-fields.tsx'),
+    checkRender(source.replace('window.alert(m.label)', 'm.items.push(1)'), 'callback-fields.tsx'),
   ).toThrow(/borrowed|mutat/u);
 });
 
@@ -122,7 +129,7 @@ it.each([true, false])(
     const source = inside
       ? `import {view} from 'effectweb';view(m=>{${helper}return <p>{read(m.value)}</p>});`
       : views(helper, 'read(m.value)');
-    expect(diagnose(source, 'local.tsx')).toEqual([]);
+    expect(lint(source, 'local.tsx')).toEqual([]);
   },
 );
 
@@ -130,7 +137,7 @@ it('does not confuse cached view allocations with a helper’s private scratch d
   const source = `import {view} from 'effectweb';
     const append=(items,value)=>{items.push(value);return items.length};
     view(m=>{const items=[];return <p>{append(items,m.value)}</p>});`;
-  expect(() => compile(source, 'cached-allocation.tsx')).toThrow(/mutat|borrowed/u);
+  expect(() => checkRender(source, 'cached-allocation.tsx')).toThrow(/mutat|borrowed/u);
 });
 
 it.each([
@@ -142,13 +149,30 @@ it.each([
   `const a=[];Object.defineProperty(a,'slice',{value:fn});return a.slice()`,
 ])('does not retain callable provenance after reconfiguring a private object: %s', (body) => {
   const source = views(`const read=fn=>{${body}};`, 'read(m.fn)');
-  expect(() => compile(source, 'reconfigured.tsx')).toThrow();
+  expect(() => checkRender(source, 'reconfigured.tsx')).toThrow();
 });
 
-it('requires an explicit contract for an opaque imported render call', () => {
-  const source = `import {view} from 'effectweb';import {format} from './format';view(m=><p>{format(m.value)}</p>);`;
-  expect(() => compile(source, 'imports.tsx')).toThrow(/pureImports/u);
-  expect(diagnose(source, 'imports.tsx', { pureImports: { './format': ['format'] } })).toEqual([]);
+it.each([
+  [`import {format} from './format';`, 'format(m.value)'],
+  [`import {format as label} from './renamed/helper';`, 'label(m.value)'],
+  [`import format from './format';`, 'format(m.value)'],
+  [`import * as format from './format';`, 'format.label(m.value)'],
+  [`import {formatters} from './format';`, 'formatters.label(m.value)'],
+  [`import {format} from 'format-library';`, 'format(m.value)'],
+])('accepts ordinary imported helpers without registration: %s', (imports, expression) => {
+  const source = `import {view} from 'effectweb';${imports}view(m=><p>{${expression}}</p>);`;
+  expect(lint(source, 'imports.tsx')).toEqual([]);
+  expect(checkRender(source, 'imports.tsx').code).toContain('markup');
+});
+
+it('does not infer ownership from an imported helper result', () => {
+  const source = `import {view} from 'effectweb';import {copy} from './helpers';view(m=>{const items=copy(m.items);items.push(1);return <p>{items.length}</p>});`;
+  expect(() => checkRender(source, 'imports.tsx')).toThrow(/borrowed|mutat/u);
+});
+
+it('allows immutable setup data to be passed to an imported helper', () => {
+  const source = `import {view} from 'effectweb';import {format} from './helpers';const options={prefix:'Name'};view(m=><p>{format(options,m.name)}</p>);`;
+  expect(lint(source, 'imports.tsx')).toEqual([]);
 });
 
 it.each([
@@ -160,7 +184,7 @@ it.each([
   `const read=value=>new Date(value).toLocaleTimeString();view(m=><p>{read(m.time)}</p>);`,
 ])('retains provenance without treating unrelated execution as mutation: %s', (body) => {
   expect(
-    diagnose(`import {view,collection} from 'effectweb';${body}`, 'provenance.tsx').filter(
+    lint(`import {view,collection} from 'effectweb';${body}`, 'provenance.tsx').filter(
       (issue) => issue.severity === 'error',
     ),
   ).toEqual([]);
@@ -176,7 +200,7 @@ it.each([
   `import {mountView} from 'effectweb';view(m=><p>{mountView(m.element,m.view,m.source)}</p>);`,
   `const visit=(items,borrowed,again)=>{if(again)visit(borrowed,borrowed,false);items.push(1)};view(m=><p>{visit([],m.items,true)}</p>);`,
 ])('requires evidence for every execution form and library effect: %s', (body) => {
-  expect(() => compile(`import {view} from 'effectweb';${body}`, 'effects.tsx')).toThrow();
+  expect(() => checkRender(`import {view} from 'effectweb';${body}`, 'effects.tsx')).toThrow();
 });
 
 it.each([
@@ -186,7 +210,7 @@ it.each([
   `const read=({value=Math.random()})=>value;view(m=><p>{read(m.data)}</p>);`,
   `const read=({[Math.random()]:value})=>value;view(m=><p>{read(m.data)}</p>);`,
 ])('checks effects executed while binding parameters: %s', (body) => {
-  expect(() => compile(`import {view} from 'effectweb';${body}`, 'parameter-effects.tsx')).toThrow(
-    /randomness/u,
-  );
+  expect(() =>
+    checkRender(`import {view} from 'effectweb';${body}`, 'parameter-effects.tsx'),
+  ).toThrow(/randomness/u);
 });

@@ -1,10 +1,17 @@
 import { defineConfig } from 'vite-plus';
 import { effectweb } from './packages/compiler/src/vite';
-// These test probes deliberately count evaluations. Their outputs depend only
-// on their explicit inputs; the counters are never render dependencies.
-const compilerOptions = { pureImports: { './fixtureInstrumentation': ['label', 'identity'] } };
 export default defineConfig({
-  plugins: [effectweb(compilerOptions)],
+  plugins: [effectweb()],
+  // Scan dynamically imported browser fixtures and the excluded linked runtime's dependencies.
+  // Foreign .jsx fixtures use stubs supplied only by the package smoke test.
+  optimizeDeps: {
+    entries: [
+      'index.html',
+      'tests/fixtures/**/*.{ts,tsx}',
+      'packages/runtime/src/**/*.{ts,tsx}',
+      '!packages/runtime/src/**/*.{test,typecheck}.{ts,tsx}',
+    ],
+  },
   test: { environment: 'node', include: ['packages/*/src/**/*.test.ts'] },
   lint: {
     ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**', 'vendor/**'],
@@ -55,7 +62,7 @@ export default defineConfig({
       ],
       'effecttsgo/any-unknown-in-error-context': 'off',
       'effecttsgo/floating-effect': 'error',
-      'effectweb/valid-view': ['error', compilerOptions],
+      'effectweb/valid-view': 'error',
     },
     overrides: [
       {

@@ -1,5 +1,7 @@
 # Consumer validation — 0.2.3 candidate
 
+> Historical 0.2.3 validation record. These counts and compiler restrictions describe that candidate, not 0.4.0. See the [0.4.0 migration guide](migration-0.4.0.md) for the current contracts.
+
 Validated on 2026-09-08 against packages built from `bdfbffa`. The five real consumer projects were changed and tested directly. Their existing manifests and lockfiles were preserved; the candidate was installed into their actual `node_modules` from local tarballs with `npm install --no-save --ignore-scripts`. Nothing was published.
 
 ## What failed and where it belonged

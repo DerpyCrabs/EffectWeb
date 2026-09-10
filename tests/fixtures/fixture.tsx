@@ -1,3 +1,4 @@
+import { list as renderList } from 'effectweb';
 import { Effect } from 'effect';
 import { commandSlot, collection, mountView, program, view, ViewBinding } from 'effectweb';
 
@@ -43,7 +44,7 @@ const FixtureView = view<Model, Message>((model, send) => {
       <p>{model.user ? model.user.name : 'anonymous'}</p>
       {visible ? (
         <section>
-          {rows.map((item) => (
+          {renderList(rows, (item) => (
             <ViewBinding view={ItemView} model={item} send={send} />
           ))}
         </section>
@@ -144,7 +145,7 @@ export function mountFixture(parent: HTMLElement, count = 1000) {
 export function mountPrimitiveList(parent: HTMLElement, values: readonly string[]) {
   const View = view<readonly string[], string>((model, send) => (
     <ul>
-      {model.map((value) => (
+      {renderList(model, (value) => (
         <li onClick={() => send(value)}>{value}</li>
       ))}
     </ul>
@@ -199,7 +200,7 @@ export function mountRootList(parent: HTMLElement) {
   type State = { visible: boolean; values: readonly string[] };
   const View = view<State, State>((model, send) =>
     model.visible ? (
-      model.values.map((value) => (
+      renderList(model.values, (value) => (
         <button onClick={() => send({ ...model, values: [value] })}>{value}</button>
       ))
     ) : (

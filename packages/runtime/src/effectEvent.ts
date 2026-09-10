@@ -1,4 +1,6 @@
-import { Effect, Fiber } from 'effect';
+import * as Cause from 'effect/Cause';
+import * as Effect from 'effect/Effect';
+import * as Fiber from 'effect/Fiber';
 import { reportSafely, type ReportError } from './errors.js';
 import type { Settlement } from './settlement.js';
 import { defaultUiRuntime, type UiRuntime } from './runtime.js';
@@ -29,7 +31,7 @@ export function effectEvent<EventType extends Event, E, R>(
   return (event) => ({ [tag]: true, policy, effect: owner.provide(load(event)) });
 }
 
-/** Internal listener owner, allocated only when an event returns a value needing inspection. */
+/** Internal listener owner, allocated only when an event returns an owned request. */
 export function eventEffects(report: ReportError, settlement?: Settlement) {
   let active: { fiber?: Fiber.Fiber<unknown, unknown> } | undefined;
   let disposed = false;
@@ -39,55 +41,30 @@ export function eventEffects(report: ReportError, settlement?: Settlement) {
     if (previous?.fiber) Effect.runFork(Fiber.interrupt(previous.fiber));
   };
   return {
-    accept(value: unknown) {
+    accept(request: EffectEventRequest) {
       if (disposed) return;
-      if (value && typeof value === 'object' && tag in value) {
-        const request = value as EffectEventRequest;
-        if (request.policy === 'drop' && active) return;
-        stop();
-        const token: { fiber?: Fiber.Fiber<unknown, unknown> } = {};
-        active = token;
-        const finished = settlement?.begin();
-        try {
-          const fiber = Effect.runFork(request.effect);
-          fiber.addObserver(() => finished?.());
-          token.fiber = fiber;
-          if (disposed || active !== token) {
-            Effect.runFork(Fiber.interrupt(fiber));
-            return;
-          }
-          fiber.addObserver((exit) => {
-            if (disposed || active !== token) return;
-            active = undefined;
-            if (exit._tag === 'Failure') reportSafely(report, exit.cause);
-          });
-        } catch (error) {
+      if (request.policy === 'drop' && active) return;
+      stop();
+      const token: { fiber?: Fiber.Fiber<unknown, unknown> } = {};
+      active = token;
+      const finished = settlement?.begin();
+      try {
+        const fiber = Effect.runFork(request.effect);
+        token.fiber = fiber;
+        fiber.addObserver((exit) => {
+          const current = !disposed && active === token;
+          if (current) active = undefined;
+          if (exit._tag === 'Failure' && (current || !Cause.hasInterruptsOnly(exit.cause)))
+            reportSafely(report, exit.cause);
           finished?.();
-          if (active === token) active = undefined;
-          reportSafely(report, error);
+        });
+        if (disposed || active !== token) {
+          Effect.runFork(Fiber.interrupt(fiber));
         }
-      } else if (Effect.isEffect(value)) {
-        reportSafely(
-          report,
-          new Error(
-            'Event returned an unowned Effect. Use effectEvent(policy, factory) or dispatch a command.',
-          ),
-        );
-      } else if (
-        value &&
-        typeof value === 'object' &&
-        'then' in value &&
-        typeof value.then === 'function'
-      ) {
-        void Promise.resolve(value as PromiseLike<unknown>).catch((error) =>
-          reportSafely(report, error),
-        );
-        reportSafely(
-          report,
-          new Error(
-            'Event returned an unowned Promise. Adapt it with fromPromise inside effectEvent or a command.',
-          ),
-        );
+      } catch (error) {
+        finished?.();
+        if (active === token) active = undefined;
+        reportSafely(report, error);
       }
     },
     dispose() {

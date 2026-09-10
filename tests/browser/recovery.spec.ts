@@ -194,6 +194,18 @@ test('awaited unmount joins a pending lazy loader finalizer', async ({ page }) =
   expect(result).toEqual({ waiting: true, finalized: true });
 });
 
+test('awaited unmount reports a lazy loader finalizer defect', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const path = '/tests/fixtures/recoveryFixture.tsx';
+    const { lazyFinalizerFailureFixture } = (await import(
+      path
+    )) as typeof import('../fixtures/recoveryFixture');
+    return lazyFinalizerFailureFixture();
+  });
+  expect(result).toEqual({ errors: ['Error: lazy cleanup failed'], children: 0 });
+});
+
 test('slotted content reports failures to its placement boundary', async ({ page }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {

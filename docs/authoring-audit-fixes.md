@@ -1,5 +1,7 @@
 # Authoring audit fixes — 2026-09-08
 
+> Historical 0.2.3 audit record. Compiler and lifecycle contracts changed in 0.4.0; use the [current authoring guide](authoring.md) and [0.4.0 migration guide](migration-0.4.0.md) for new code.
+
 Implemented the correctness fixes and authoring recommendations from the audit, with framework regressions and direct consumer validation. Packages are local 0.2.3 candidates; nothing was published. Consumer manifests and lockfiles retain their original bytes.
 
 ## Changes

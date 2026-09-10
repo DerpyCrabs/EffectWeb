@@ -1,8 +1,8 @@
 # EffectWeb
 
-Immutable Effect models and JSX compiled to direct DOM updates. No virtual DOM, signals, or reactive proxies.
+Immutable Effect models and JSX with direct DOM rendering.
 
-EffectWeb separates state transitions and scoped Effect work from pure snapshot views. Its Rust/Oxc compiler caches view derivations and emits granular DOM bindings. Collections declare domain identity once, and immutable structural sharing lets unchanged rows and bindings stay untouched.
+EffectWeb separates state transitions and scoped Effect work from snapshot views. A view executes ordinary JavaScript on each model publication. The Rust/Oxc compiler lowers JSX syntax; the renderer reconciles its output with existing DOM nodes. Explicit `list(...)` calls preserve row identity across edits, filtering, and reordering.
 
 The runtime is `effectweb`; compiler tooling and integrations use the `@effectweb` npm scope. All packages share one release version.
 
@@ -49,13 +49,15 @@ mountView(document.getElementById('app')!, Counter, counter);
 
 The [reading-list example](examples/reading-list) uses the packages with both IndexedDB and synchronous Effect storage.
 
-See the [authoring guide](docs/authoring.md) for choosing a state owner, growing local fields into domain transitions, forms, tasks, and cache ownership.
+See the [authoring guide](docs/authoring.md) for choosing a state owner, growing local fields into domain transitions, forms, tasks, and cache ownership. Upgrading from 0.3.x? Read the [0.4.0 migration guide](docs/migration-0.4.0.md) and [changelog](CHANGELOG.md).
 
 ## Design boundaries
 
 Views read ordinary immutable values; messages update models. Effects belong to program, component, or DOM-listener scopes. Changing a loader from synchronous Effect to asynchronous Effect does not change its view contract. Promise APIs are adapted explicitly with `fromPromise`.
 
-The compiler handles dependency checks and DOM updates, but cannot infer domain identity or make arbitrary work cheap. Declare entity identity with `collection`, preserve unchanged references, and keep view derivations pure. Published plain objects and arrays are frozen in every build, and `Snapshot<T>` exposes recursively readonly data. Opaque mutable resources keep their own lifecycle. Query identity includes every request argument; services belong in the Effect environment. Query caching is in memory; persistence, optimistic domain transactions, multi-tab coordination, and service acquisition remain application responsibilities.
+The compiler preserves calls, callbacks, locals, and control flow. It does not infer render dependencies or memoize helpers. Declare entity identity with `collection` or `entities`, render it with `list`, and keep expensive projections at an explicit application boundary. Ordinary `.map(...)` produces an ordinary array whose rendered children have positional identity. Published plain objects and arrays are frozen in every build, and `Snapshot<T>` exposes recursively readonly data. Opaque mutable resources keep their own lifecycle. Query identity includes every request argument; services belong in the Effect environment. Query caching is in memory; persistence, optimistic domain transactions, multi-tab coordination, and service acquisition remain application responsibilities.
+
+`dispose()` starts synchronous teardown and interrupts owned work. Execute the Effect returned by `close()` when teardown must wait for asynchronous finalizers before closing dependencies. DOM integrations use a stable acquisition function: declare `domMount` once, or pass changing data through `domBinding(data, acquire)`.
 
 This package is a client-side renderer without SSR, hydration, or built-in routing. Runtime and compiler releases advance together.
 
@@ -80,7 +82,7 @@ npm run dev:example
 
 `test:package` packs a real release, installs it into a clean temporary project with install scripts disabled, checks exported files and TypeScript, builds with standard Vite, and drives a browser interaction. It verifies the native loader without relying on workspace links or a consumer Rust build.
 
-CI runs the checks above. The release workflow builds native packages and publishes through GitHub Actions.
+CI runs the checks above. The release workflow builds native packages for all five supported platforms. Manual workflow runs default to `publish: false` for release validation; pushing a `v*` tag or explicitly enabling publishing performs the npm release.
 
 For the isolated renderer benchmark, run `npm run build:benchmark` and then `node scripts/benchmark-snapshot.mjs dist-benchmark /tmp/effectweb-benchmark.json`.
 

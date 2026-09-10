@@ -1,4 +1,4 @@
-import { Effect } from 'effect';
+import * as Effect from 'effect/Effect';
 
 export type UiLoad<A, E = unknown, R = never> = Effect.Effect<A, E, R>;
 export const loadEffect = <A, E, R>(load: () => UiLoad<A, E, R>): UiLoad<A, E, R> =>

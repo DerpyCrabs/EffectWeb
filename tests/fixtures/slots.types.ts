@@ -4,9 +4,9 @@ export function slotTypes(content: Slot<{ title: string }>, footer: Slot) {
   // oxlint-disable-next-line effectweb/valid-view -- Type-only slot inference probe is never mounted or executed.
   const inferred: Slot<{ title: string }> = slot((value) => value.title);
   // oxlint-disable-next-line effectweb/valid-view -- Type-only slot assignment probe is never mounted or executed.
-  const simple: JSX.Element = slot(() => 'Footer');
+  const simple: JSX.Element = slot(() => 'Footer')();
   const child: JSX.Element = content({ title: 'Typed content' });
-  const empty: JSX.Element = footer;
+  const empty: JSX.Element = footer();
   // @ts-expect-error Parameterized slots need their placement value.
   const missing: JSX.Element = content;
   // @ts-expect-error The slot's parameter is preserved across component props.

@@ -72,22 +72,26 @@ assert.deepEqual(
   readFileSync('packages/compiler/native/effectweb-compiler.node'),
   'Local packages must contain the compiler built from this checkout',
 );
-const { compile } = await import(
+const { compile, lint: renderLint } = await import(
   pathToFileURL(join(temp, 'node_modules/@effectweb/compiler/dist/index.js')).href
 );
+assert.equal(typeof renderLint, 'function', 'Optional render lint is a public export');
+const uncheckedSource = "import {view} from 'effectweb';view(m=><p>{Math.random()}</p>);";
+assert.deepEqual(compile(uncheckedSource, 'unchecked.tsx').diagnostics, []);
+assert.ok(renderLint(uncheckedSource, 'unchecked.tsx').some((issue) => issue.code === 'EW1003'));
 const bindingProbe = compile(
   `import {view, ViewBinding} from 'effectweb'; const Child=view(p=><b>{p}</b>); const Parent=view((p,send)=><ViewBinding view={Child} model={p} send={send}/>);`,
   'binding.tsx',
 ).code;
 assert.ok(
-  !bindingProbe.includes(', ViewBinding,'),
-  'The packaged compiler must lower explicit view bindings',
+  bindingProbe.includes('.renderComponent(ViewBinding,'),
+  'The packaged compiler must preserve the ViewBinding component call',
 );
 assert.ok(
   compile(
     `import {view} from 'effectweb'; const V=view(p=><button {...p}/>);`,
     'spread.tsx',
-  ).code.includes('.bindAttributes('),
+  ).code.includes('.markup('),
 );
 for (const name of ['effectweb', '@effectweb/compiler', '@effectweb/lucide']) {
   const directory = join(temp, 'node_modules', name);
@@ -151,7 +155,7 @@ run(
   ],
   temp,
 );
-for (const file of ['mixed-islands.jsx', 'mixed-islands.d.ts'])
+for (const file of ['mixed-islands.jsx', 'mixed-islands.d.ts', 'mixed-effectweb.jsx'])
   writeFileSync(join(temp, file), readFileSync(`tests/fixtures/${file}`));
 
 writeFileSync(
@@ -243,6 +247,8 @@ for (const file of [
 for (const file of [
   'composition.typecheck.tsx',
   'contracts.typecheck.tsx',
+  'render-contract.typecheck.tsx',
+  'effect-contract.typecheck.ts',
   'async.typecheck.tsx',
   'query.typecheck.ts',
   'commands.typecheck.ts',
@@ -255,7 +261,7 @@ for (const file of [
   const source = readFileSync(`packages/runtime/src/${file}`, 'utf8').replace(
     /(['"])\.\/([A-Za-z-]+)\.js\1/gu,
     (_match, quote, module) =>
-      `${quote}${['AsyncContent', 'owner', 'dom', 'index', 'snapshot'].includes(module) ? 'effectweb' : `effectweb/${module}`}${quote}`,
+      `${quote}${['AsyncContent', 'owner', 'index', 'snapshot'].includes(module) ? 'effectweb' : `effectweb/${module}`}${quote}`,
   );
   writeFileSync(join(temp, file), source);
 }
@@ -263,7 +269,7 @@ writeFileSync(
   join(temp, '.oxlintrc.json'),
   JSON.stringify({
     jsPlugins: ['@effectweb/compiler/oxlint'],
-    rules: { 'effectweb/valid-view': 'error' },
+    rules: { 'effectweb/valid-view': 'error', 'effectweb/render-safety': 'error' },
   }),
 );
 run(process.execPath, ['node_modules/oxlint/bin/oxlint', '--no-ignore', 'app.tsx'], temp);
@@ -285,7 +291,7 @@ assert.equal(lint.status, 1, 'Invalid view must fail the packed lint integration
 const diagnostics = JSON.parse(lint.stdout).diagnostics;
 assert.ok(
   diagnostics.some(
-    (d) => d.code?.includes('valid-view') && d.message.includes('mutating method sort'),
+    (d) => d.code?.includes('render-safety') && d.message.includes('mutating method sort'),
   ),
   lint.stdout,
 );
@@ -293,13 +299,13 @@ writeFileSync(
   lintProbe,
   `import { view } from 'effectweb';
 const Good = view((model: { items: number[] }) => {
-  // oxlint-disable-next-line effectweb/valid-view
+  // oxlint-disable-next-line effectweb/render-safety
   const sorted = model.items.sort();
   return <p>{sorted.length}</p>;
 });`,
 );
 run(process.execPath, ['node_modules/oxlint/bin/oxlint', '--no-ignore', 'lint-probe.tsx'], temp);
-// The suppression probe deliberately bypasses the compiler; remove it before build/type checks.
+// The lint suppression does not change the readonly type contract; remove the probe before type checks.
 unlinkSync(lintProbe);
 // These are the consumer's own tools and configuration, independent of the compiler package.
 run(
@@ -330,7 +336,10 @@ writeFileSync(
   }),
 );
 run(process.execPath, ['node_modules/typescript/bin/tsc', '--noEmit'], temp);
-const lintFiles = readdirSync(temp).filter((name) => /\.tsx?$/u.test(name));
+// Negative type probes are checked by tsc above; syntax lint does not interpret @ts-expect-error.
+const lintFiles = readdirSync(temp).filter(
+  (name) => /\.tsx?$/u.test(name) && !name.includes('.typecheck.'),
+);
 run(
   process.execPath,
   ['node_modules/oxlint/bin/oxlint', '--no-ignore', '--type-aware', '--type-check', ...lintFiles],

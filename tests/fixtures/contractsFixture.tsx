@@ -1,3 +1,4 @@
+import { list as renderList } from 'effectweb';
 import {
   domMount,
   mountView,
@@ -39,12 +40,12 @@ const Contract = view<Model, Partial<Model>>((model, send) => {
   return (
     <main>
       <select data-direct value={model.selected}>
-        {model.options.map((option) => (
+        {renderList(model.options, (option) => (
           <option value={option}>{option}</option>
         ))}
       </select>
       <select data-spread {...{ value: model.selected }}>
-        {model.options.map((option) => (
+        {renderList(model.options, (option) => (
           <option value={option}>{option}</option>
         ))}
       </select>

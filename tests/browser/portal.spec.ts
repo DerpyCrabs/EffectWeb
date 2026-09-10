@@ -43,6 +43,7 @@ test('portal targets retain their child state and events through updates and mov
     };
     source.update(undefined, 'body');
     const bodyDefault = content.parentElement?.parentElement === document.body;
+    const finalText = button.textContent;
     source.dispose();
     button.click();
     source.dispose();
@@ -57,7 +58,7 @@ test('portal targets retain their child state and events through updates and mov
     first.remove();
     second.remove();
     fullscreen.remove();
-    return { initial, updated, moved, externalMove, bodyDefault, disposed };
+    return { initial, updated, moved, externalMove, bodyDefault, finalText, disposed };
   });
   expect(result).toEqual({
     initial: { placed: true, parentEmpty: true },
@@ -71,11 +72,12 @@ test('portal targets retain their child state and events through updates and mov
     },
     externalMove: { same: true, contained: true, text: 'fullscreen:1' },
     bodyDefault: true,
+    finalText: 'body:1',
     disposed: {
       contentGone: true,
       secondEmpty: true,
       parentEmpty: true,
-      text: 'body:1',
+      text: '',
       lifetime: { mounted: 1, disposed: 1 },
     },
   });

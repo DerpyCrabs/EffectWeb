@@ -1,4 +1,6 @@
-import { Effect, Fiber, type Cause } from 'effect';
+import * as Cause from 'effect/Cause';
+import * as Effect from 'effect/Effect';
+import * as Fiber from 'effect/Fiber';
 import { child, compiled, viewRegion, type View } from './dom.js';
 import { reportSafely } from './errors.js';
 import { defaultUiRuntime, type UiRuntime } from './runtime.js';
@@ -45,18 +47,17 @@ export function lazyView<Model, Message = never, E = never, R = never>(
     const finished = scope.settlement.begin();
     try {
       fiber = Effect.runFork(runtime.provide(Effect.suspend(load)));
-      fiber.addObserver(finished);
     } catch (error) {
       finished();
       throw error;
     }
-    if (scope.disposed) {
-      interrupt();
-      return;
-    }
     fiber.addObserver((exit) => {
-      if (scope.disposed) return;
       try {
+        if (scope.disposed) {
+          if (exit._tag === 'Failure' && !Cause.hasInterruptsOnly(exit.cause))
+            reportSafely(scope.report, exit.cause);
+          return;
+        }
         if (exit._tag === 'Success') {
           loaded = exit.value;
           render(loaded);
@@ -83,7 +84,10 @@ export function lazyView<Model, Message = never, E = never, R = never>(
         }
       } catch (error) {
         reportSafely(scope.report, error);
+      } finally {
+        finished();
       }
     });
+    if (scope.disposed) interrupt();
   });
 }

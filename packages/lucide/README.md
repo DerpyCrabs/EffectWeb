@@ -1,12 +1,13 @@
 # EffectWeb Lucide
 
-Lucide icons compiled to direct DOM views. The build generates the complete catalogue from pinned official `@lucide/icons` data using EffectWeb's Oxc compiler. There is no VDOM or document-wide icon replacement.
+Lucide icons compiled to direct DOM views. The build generates the complete catalogue from pinned official `@lucide/icons` data using EffectWeb's Oxc compiler. Each mounted icon owns its SVG and updates it in place.
 
 Install `@effectweb/lucide` alongside `effectweb` and its declared Effect peer. For local use, run `npm run build` and `npm run test:package` from the repository root, then install the generated `artifacts/packages/effectweb-lucide-VERSION.tgz`.
 
 ```tsx
 import { view } from 'effectweb';
-import { Camera, Check } from '@effectweb/lucide';
+import Camera from '@effectweb/lucide/icons/camera';
+import Check from '@effectweb/lucide/icons/check';
 
 export const Toolbar = view<{ busy: boolean }, never>((model, _send) => (
   <button disabled={model.busy}>
@@ -15,7 +16,7 @@ export const Toolbar = view<{ busy: boolean }, never>((model, _send) => (
 ));
 ```
 
-Named imports are tree-shaken. Default exports are available at kebab-case paths such as `@effectweb/lucide/icons/camera`. Upstream aliases, including `AlarmCheck` / `AlarmClockCheck`, and `Icon`-suffixed named exports share the same view identity. Per-icon and lazy imports also support aliases. `LucideIcon` and `LucideProps` are exported types.
+Named imports such as `import { Camera } from '@effectweb/lucide'` are tree-shaken in production builds. Prefer the per-icon paths above for development: prebundling the root entry preserves the full catalogue's exports and source maps. Do not force the whole catalogue into Vite's `optimizeDeps.include` for a fixed icon set. Upstream aliases, including `AlarmCheck` / `AlarmClockCheck`, and `Icon`-suffixed named exports share the same view identity. Per-icon and lazy imports also support aliases. `LucideIcon` and `LucideProps` are exported types.
 
 ## Props
 

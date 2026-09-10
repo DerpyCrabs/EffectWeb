@@ -1,5 +1,5 @@
 import { commandSlot } from './program.js';
-import { Context, Effect } from 'effect';
+import { Context, Deferred, Effect, Fiber } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, it } from 'vitest';
 import { effectCommand, program } from './program.js';
@@ -12,6 +12,42 @@ const commandDelay = commandSlot('delay');
 const commandService = commandSlot('service');
 
 describe('public program test driver', () => {
+  it('forwards close so a wrapped program still joins its finalizers', () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const gate = Deferred.makeUnsafe<void>();
+        let finalized = false;
+        const source = program({
+          initial: 0,
+          update: (model: number, _message: void) => ({
+            model,
+            commands: [
+              {
+                slot: commandRead,
+                policy: 'replace' as const,
+                action: Effect.never.pipe(
+                  Effect.ensuring(
+                    Effect.gen(function* () {
+                      yield* Deferred.await(gate);
+                      finalized = true;
+                    }),
+                  ),
+                ),
+              },
+            ],
+          }),
+        });
+        const driver = programDriver(source);
+        driver.send();
+        const close = driver.close;
+        expect(close).toBeTypeOf('function');
+        const closing = Effect.runFork(close());
+        expect(finalized).toBe(false);
+        yield* Deferred.succeed(gate, undefined);
+        yield* Fiber.join(closing);
+        expect(finalized).toBe(true);
+      }),
+    ));
   it('awaits a named slot after its completion message has passed through the real queue', async () => {
     const controlled = controlledEffect<number>();
     const source = program({
@@ -33,7 +69,7 @@ describe('public program test driver', () => {
     const driver = programDriver(source);
     driver.send(-1);
     let settled = false;
-    const idle = driver.awaitSlot(commandRead).then(() => {
+    const idle = Effect.runPromise(driver.awaitSlot(commandRead)).then(() => {
       settled = true;
     });
     await Promise.resolve();
@@ -69,8 +105,8 @@ describe('public program test driver', () => {
         const driver = programDriver(source, runtime);
         driver.send(-1);
         expect(driver.model()).toBe(0);
-        yield* Effect.promise(() => driver.run(TestClock.adjust('1 hour')));
-        yield* Effect.promise(() => driver.awaitSlot(commandDelay));
+        yield* driver.run(TestClock.adjust('1 hour'));
+        yield* driver.awaitSlot(commandDelay);
         expect(driver.model()).toBe(7);
         driver.dispose();
       }).pipe(Effect.provide(TestClock.layer())),
@@ -99,7 +135,7 @@ describe('public program test driver', () => {
           : { model: message },
     });
     source.send(-1);
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(source.model()).toBe(23);
     source.dispose();
   });

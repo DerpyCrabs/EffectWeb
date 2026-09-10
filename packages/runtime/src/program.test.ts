@@ -316,7 +316,7 @@ it('keeps snapshot publication synchronous, deduplicated and safe when subscript
   });
   const idle: Promise<void>[] = [];
   app.subscribe((value) => {
-    idle.push(app.awaitIdle());
+    idle.push(Effect.runPromise(app.awaitIdle()));
     if (value === 1) app.send(2);
   });
   app.send(1);
@@ -336,6 +336,36 @@ it('keeps snapshot publication synchronous, deduplicated and safe when subscript
   await Promise.all(idle);
   expect(seen).toEqual([1, 1, 2, 2, 3]);
   expect(app.activeSlots()).toEqual([]);
+});
+
+it('reports canceled command finalizer defects before close settles', async () => {
+  const errors: unknown[] = [];
+  const problem = new Error('command cleanup failed');
+  const slot = commandSlot('cleanup-failure');
+  const app = program({
+    initial: 0,
+    onDefect: (cause) => {
+      errors.push(Cause.squash(cause as Cause.Cause<unknown>));
+    },
+    update: (model: number, message: 'start' | 'cancel') => ({
+      model,
+      commands:
+        message === 'start'
+          ? [
+              {
+                slot,
+                policy: 'replace' as const,
+                action: Effect.never.pipe(Effect.ensuring(Effect.die(problem))),
+              },
+            ]
+          : [],
+      cancel: message === 'cancel' ? [slot] : [],
+    }),
+  });
+  app.send('start');
+  app.send('cancel');
+  await Effect.runPromise(app.close());
+  expect(errors).toEqual([problem]);
 });
 
 it('isolates independent operation tokens even when their diagnostic names match', async () => {
@@ -369,7 +399,7 @@ it('isolates independent operation tokens even when their diagnostic names match
   expect(source.activeSlots()).toEqual([first, second]);
   expect(stopped).toEqual([]);
   source.send('cancel');
-  await source.awaitIdle(first);
+  await Effect.runPromise(source.awaitIdle(first));
   expect(source.activeSlots()).toEqual([second]);
   source.dispose();
   await expect.poll(() => stopped).toEqual(['first', 'second']);

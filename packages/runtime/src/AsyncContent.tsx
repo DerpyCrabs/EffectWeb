@@ -1,5 +1,7 @@
 import { commandSlot } from './program.js';
-import { Cause, Effect, Option } from 'effect';
+import * as Cause from 'effect/Cause';
+import * as Effect from 'effect/Effect';
+import * as Option from 'effect/Option';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { component } from './component.js';
 import { view, type Slot, type View } from './index.js';

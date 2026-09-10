@@ -47,8 +47,8 @@ try {
     report[name] = { bytes: Buffer.byteLength(code), gzip: gzipSync(code).length, modules };
   }
   if (process.argv.includes('--check')) {
-    // Includes owned nested content arrays and post-reconciliation control commits.
-    assert.ok(report.view.gzip < 3250, 'Renderer exceeds its 3.25 KB gzip budget');
+    // Includes Effect cancellation/settlement, owned content and native control/event bindings.
+    assert.ok(report.view.gzip < 18_000, 'Renderer including Effect exceeds its 18 KB gzip budget');
     assert.ok(report.unusedView.gzip < report.view.gzip + 100, 'Unused views retain runtime code');
   }
   console.log(JSON.stringify(report, null, 2));

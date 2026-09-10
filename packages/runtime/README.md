@@ -1,12 +1,43 @@
 # effectweb
 
-Immutable Effect models and JSX compiled to direct DOM updates, without signals, proxies, or virtual DOM.
+Immutable Effect models and JSX with direct DOM rendering.
 
 Use with `@effectweb/compiler/vite` and Effect `4.0.0-rc.112`. The package includes programs, named tasks, async presentation, query caching, DOM lifetimes, and `effectweb/testing` helpers.
 
 See [setup and example](https://github.com/DerpyCrabs/EffectWeb#vite-setup).
 
 Runtime and compiler versions advance together. Client-side only. Persistence and multi-tab coordination belong to the application.
+
+## Views and list identity
+
+`view(render)` evaluates `render(model, send)` as ordinary JavaScript on each immutable model publication. Calls, local variables, destructuring, loops, conditionals, and JSX helpers retain their JavaScript behavior. The renderer reconciles the returned content; the compiler does not infer dependencies or cache helper results.
+
+Use `list(rows, render)` to preserve domain identity:
+
+```tsx
+import { entities, list, view } from 'effectweb';
+
+type Todo = { id: string; title: string };
+const Todos = view<{ todos: Todo[] }>((model) => (
+  <ul>
+    {list(entities(model.todos), (todo) => (
+      <li>{todo.title}</li>
+    ))}
+  </ul>
+));
+```
+
+`collection(identity).from(items)` supplies a custom domain identity; `sequence(items)` supplies positional identity. `list(rawArray, render)` uses each item itself as its identity, so repeated values or references require an explicit collection identity. Duplicate identities throw with both positions. The callback receives the exact current item, including a replacement object with the same ID. `Rows.map` and ordinary array `.map` remain normal JavaScript mapping operations; their rendered arrays use positional identity.
+
+`slot(render)` is a typed render callback. Call it explicitly, including `footer()` for a `Slot<void>`; a function is not implicit JSX content. See the [0.4.0 migration guide](https://github.com/DerpyCrabs/EffectWeb/blob/main/docs/migration-0.4.0.md).
+
+## DOM and Effect lifetimes
+
+`domMount(acquire)` uses the acquisition function as its identity. Declare it outside the view body when its lifetime should survive model updates. `domBinding(data, acquire)` keeps a stable acquisition while supplying fresh data through `input()`. Return `{ update, dispose }` when the integration must apply changed data, or a scoped Effect that remains active for the lifetime. A new acquisition function replaces the old lifetime.
+
+Fresh event callbacks see current model data without canceling already running listener work. An Effect event's `replace` policy cancels the previous request when a new event submits work; removing the handler or unmounting disposes its owned work.
+
+`dispose()` interrupts owned work synchronously. `close()`, `awaitIdle()`, and `awaitStopped()` return Effects; merely creating or JavaScript-awaiting one does not execute it. Use `yield* owner.close()` inside an Effect or `await Effect.runPromise(owner.close())` at a Promise integration boundary. `close()` waits for finalizers; `awaitIdle()` waits without closing the owner. A mount returned by `mountView` also has `close()` for its DOM-owned work. The supplied program keeps its separate ownership.
 
 ## Query identity and account ownership
 
@@ -76,7 +107,7 @@ Queue progress continues after successes, typed failures, or defects. Component 
 
 `<Portal mount={model.dialogHost}>...</Portal>` renders into a supplied HTML or SVG element. Omitting `mount` uses the document body. Portal content retains its owner, events, and cleanup; changing between HTML and SVG targets rebuilds content in the correct namespace.
 
-## Inspect source dependencies
+## Inspect source bindings
 
 Mount a development panel before mounting the application so it sees initial evaluations:
 
@@ -88,11 +119,11 @@ const removeInspector = mountBindingInspector(document.querySelector<HTMLElement
 // removeInspector();
 ```
 
-The live, filterable table shows original file/line/column, source expressions, inferred snapshot dependencies, the latest changed dependency names, and derive/binding evaluation counts. It uses development compiler metadata; production builds emit none. Counts include initial evaluations, aggregate instances of the same source expression, and measure evaluations rather than actual DOM writes. Change reasons use reference/value equality, without retaining previous or next values.
+The live, filterable table shows original file/line/column, source expressions, and binding evaluation counts. Development metadata records the expressions actually evaluated for text and attributes; it does not infer which model fields a helper reads. Production builds emit none. Counts include initial evaluations, aggregate instances of the same source expression, and measure binding evaluations rather than DOM writes. Change reasons compare evaluated values without retaining previous or next values.
 
 For custom tooling, `inspectBindings({ limit: 200 })` returns `entries()`, `subscribe(listener)`, `clear()`, and `dispose()`. Entries are immutable metadata, newest first, with at most 1000 source records. Least recently updated sources are evicted and start fresh if seen again. `dispose()` unsubscribes and clears retained metadata. `mountBindingInspector(element, inspector)` can share an inspector; removing that panel leaves the supplied inspector running. Low-level `observeBindings` remains available.
 
-The inspector covers instrumented derivations and text/attribute bindings; it is not a snapshot recorder, time-travel debugger, or complete profile of branch/list reconciliation. Source labels describe the compiler's inferred dependencies, not a proof that an opaque helper has no hidden state.
+The inspector covers instrumented text/attribute bindings; it is not a snapshot recorder, time-travel debugger, or complete profile of view evaluation and list reconciliation. Use application profiling for expensive render helpers.
 
 ## Immutable inputs and outputs
 

@@ -13,9 +13,9 @@ Start with the state owner you need. All of these paths use the same compiled `v
 
 ## Keep the view a projection
 
-Views calculate presentation from their input snapshot. Event handlers send messages or call an owned action. Reading time, mutating a collection, acquiring a service, or starting a request belongs in the owner or its Effects.
+Views calculate presentation from their input snapshot. Their bodies execute ordinary JavaScript on each model publication; calls, locals, helpers, and control flow keep their language semantics. Keep render work pure as an application discipline. Event handlers send messages or call an owned action. Reading time, mutating a collection, acquiring a service, or starting a request belongs in the owner or its Effects. The compiler does not infer dependencies or cache render helpers.
 
-Declare list identity once with `collection`/`entities`, or explicitly choose positional identity with `sequence` when position is the intended identity. A domain row ID must remain stable across edits. The compiler can reject common raw object lists, but it cannot choose your application's identity rule.
+Render domain rows with `list(entities(items), render)` or `list(collection(identity).from(items), render)`. Use `list(sequence(items), render)` when position is the intended identity. A domain row ID must remain stable across edits. Ordinary `.map` calls are unchanged and produce arrays rendered by position; wrapping an array in `entities` does not make its `.map` call a keyed rendering operation. `list(rawArray, render)` instead uses the item value or object reference as identity and rejects duplicates. See the [0.4.0 migration guide](migration-0.4.0.md) for complete examples.
 
 Keep unchanged branches by reference. Construct a new array for an insertion and a new object for an edited row; return the existing model for a no-op. `Snapshot<Model>` makes published nested data readonly. Published plain objects and arrays are frozen in every build, including values held through retained references or untyped code.
 
@@ -33,7 +33,7 @@ const Panel = view<{ count: number }, 'Increment'>((model, send) => (
 ));
 ```
 
-Migration: replace `<Counter model={count} send={send} />` with `<ViewBinding view={Counter} model={count} send={send} />` when you intend reducer dispatch. `ViewBinding` resolves by import identity, so aliases work. Its `view` must be a named compiled view; use conditional JSX to choose between definitions.
+Use `<ViewBinding view={Counter} model={count} send={send} />` when you intend reducer dispatch. `ViewBinding` is an ordinary runtime component, so aliases, properties, and expressions supplying compatible view definitions work without compiler recognition.
 
 Readonly prop and attribute objects can be forwarded with JSX spreads. Later values overwrite earlier values with the same name; explicit JSX children override a spread's `children` prop on a component.
 
@@ -46,9 +46,9 @@ const Wrapper = view<{ label: { text: string; title?: string } }>((model) => (
 ));
 ```
 
-Intrinsic spreads reconcile removed attributes, event handlers, controlled inputs, and `use` hosts. Supply immutable records; replace a record to change its contents. Hosts and event requests are disposed when removed or replaced, and all bindings are disposed on unmount. Keep intrinsic children in JSX. `key`, `ref`, and `innerHTML` remain unsupported inside spreads as they are outside spreads; use collections for row identity and DOM hosts for integrations.
+Intrinsic spreads reconcile removed attributes, event handlers, controlled inputs, and `use` hosts. Supply immutable records; replace a record to change its contents. A changed DOM acquisition function replaces its lifetime. A fresh event callback sees current data without canceling work already running for that listener; removing the listener or unmounting cancels it. Explicit JSX children take precedence over the `children` prop in a spread. `key`, `ref`, and `innerHTML` are unsupported on intrinsic elements, including through spreads; use explicit lists for row identity and DOM hosts for integrations. Ordinary component props with those names retain their own meaning.
 
-Use `const` for render locals, and declare values before helpers that capture them. The compiler currently rejects `let` and forward local captures even when a particular program is pure. Model destructuring and ordinary discriminated-union narrowing are supported; accessor aliases and casts are unnecessary for those cases. Use a named compiled child view for recursive markup instead of a recursively expanded local JSX helper.
+Local `let` bindings, destructuring, union narrowing, loops, and finite recursive helpers work as ordinary JavaScript. JavaScript's normal scope and initialization rules still apply. `slot(render)` is a typed callback; invoke it explicitly to produce content, including `footer()` for a slot with no input. A component definition owns a mounted lifetime, so declare reusable stateful components outside render bodies.
 
 ## Grow local fields into domain actions
 
@@ -102,7 +102,11 @@ Use `modelOwner` for imperative callbacks from a transport, browser API, or appl
 
 Server reads belong in a `query` whose key includes every request input that changes the response: tenant, account, entity ID, filters, locale, and page cursor as appropriate. Structured keys avoid manual delimiter construction. Share a cache within its intended application/session scope; dispose or replace that scope when the signed-in identity changes. A cache is not an authorization boundary, persistent database, or multi-tab coordinator.
 
-If a field is missing a refresh, inspect the binding's source, dependency labels, and last invalidation reason. Fix the missing input or mutation at its owner. An unconditional repaint can conceal the dependency error while leaving other consumers stale.
+Keep DOM acquisition functions stable across view evaluations. A `domMount` created with a fresh inline acquisition callback each render creates a new lifetime. Declare the mount once for fixed inputs, or use `domBinding(data, acquire)` with a stable `acquire` function and read current data through its `input()` callback. Return an `update` method if the integration must apply changed input immediately. Release observers, listeners, object URLs, and other acquired resources in its disposer or Effect finalizer.
+
+`dispose()` begins teardown synchronously. Execute `close()` as an Effect when callers must wait for interrupted work and asynchronous finalizers before closing dependencies. Likewise, `awaitIdle()` and `awaitStopped()` return Effects. Use `yield*` inside Effect code and `Effect.runPromise` only at Promise-based integration boundaries. `mountView` owns its DOM integrations; the supplied program keeps its own lifetime.
+
+If a field is missing a refresh, check whether the owner published a new immutable snapshot, then inspect the evaluated binding expression. A helper reading mutable external state has no independent subscription. Publish that state into the model; memoize expensive projections explicitly at their owner when needed.
 
 ## Readonly data and external resources
 
@@ -121,11 +125,15 @@ A helper consuming published data should accept `Snapshot<Domain>` or an already
 
 When upgrading a consumer, update read-only helper signatures at the point where they borrow model data. Keep mutable types for builders that own their arrays; do not silence an error by casting a published snapshot back to that builder type. Collections accept both freshly assembled items and existing snapshots, and their identity/render callbacks borrow readonly items:
 
-```ts
+```tsx
+import { collection, list, view, type Snapshot } from 'effectweb';
+
 type Row = { id: string; tags: string[] };
 const rows = collection<Row>((row) => row.id);
 const label = (row: Snapshot<Row>) => row.tags.join(', ');
-const List = view<{ rows: Row[] }>((model) => rows.from(model.rows).map((row) => label(row)));
+const List = view<{ rows: Row[] }>((model) =>
+  list(rows.from(model.rows), (row) => <span>{label(row)}</span>),
+);
 ```
 
 Functions, Effects, DOM nodes, and standard external resources keep their own API and lifecycle. TypeScript cannot infer whether an arbitrary application type is a plain record or a class instance. Mark a service class explicitly when its complete instance type must survive snapshot publication:
@@ -156,7 +164,7 @@ EffectWeb's command slots prevent canceled or superseded commands from publishin
 
 ## Sharing and composing independent sessions
 
-`collection.share(previous, next)` may return `previous` or reuse its elements. A readonly previous array therefore produces a readonly result even when `next` is mutable. Mutable overloads require both input arrays to be mutable. Borrow that result as readonly; construct a new array for edits, and copy nested values only where you own a mutation. LocalChat's reconciliation helper follows this contract.
+`collection.share(previous, next)` may return `previous` or reuse its elements and always exposes a readonly snapshot result. Borrow that result as readonly; construct a new array for edits, and copy nested values only where you own a mutation. LocalChat's reconciliation helper follows this contract. Calling `list` does not implicitly share or substitute deeply equal row data; its callback receives the supplied current item.
 
 Structural sharing operates on immutable plain data. Accessors, class instances, hidden fields, and cycles retain the next value's identity. Sharing never invokes getters; do not use mutable getters as reactive dependencies. Identity-pair caches assume their inputs remain immutable.
 

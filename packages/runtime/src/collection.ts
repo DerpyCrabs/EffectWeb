@@ -12,17 +12,13 @@ export interface Rows<A> {
 }
 
 /** Validate without retaining values. Positions are zero-based array indices. */
-export function validateIdentities<A>(
+export function validateIdentities<A, K>(
   items: readonly A[],
-  identity: (item: A, index: number) => Identity,
-): Identity[] {
-  const seen = new Map<Identity, number>();
-  return items.map((item, index) => {
+  identity: (item: A, index: number) => K,
+): K[] {
+  const seen = new Map<K, number>();
+  return Array.from(items, (item, index) => {
     const key = identity(item, index);
-    if (typeof key !== 'string' && typeof key !== 'number')
-      throw new Error(
-        `Invalid collection identity at index ${index}. Use a string or number domain identity, or sequence(items) for positional identity.`,
-      );
     const previous = seen.get(key);
     if (previous !== undefined)
       throw new Error(

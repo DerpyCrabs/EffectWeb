@@ -1,3 +1,4 @@
+import { list as renderList } from 'effectweb';
 import { mountView, observeBindings, program, view } from 'effectweb';
 
 export function mountLexicalCapture(parent: HTMLElement) {
@@ -23,7 +24,7 @@ export function mountLexicalCapture(parent: HTMLElement) {
         {row({ title: 'inner' })}
         {action('shadow')}
         {indirect('alias')}
-        {model.values.map((model) => (
+        {renderList(model.values, (model) => (
           <p data-row={model}>{caption}</p>
         ))}
       </section>
@@ -51,12 +52,12 @@ export function mountSvgContexts(parent: Element) {
     <>
       {model.visible && <circle data-dynamic="" cx={model.x} cy="10" r="5" />}
       {model.visible && <rect data-static="" width="5" height="5" />}
-      {model.rows.map((row) => (
+      {renderList(model.rows, (row) => (
         <circle data-row={row} cx={row} cy="20" r="3" />
       ))}
       <foreignObject width="50" height="50">
         {model.visible && <div data-html="">{model.x}</div>}
-        {model.rows.map((row) => (
+        {renderList(model.rows, (row) => (
           <p data-html-row={row}>{row}</p>
         ))}
         {model.visible && <span data-html-static="">Static HTML</span>}

@@ -22,9 +22,10 @@ export namespace JSX {
     | undefined
     | CompiledContent
     | ElementArray;
+  export type EventResult = void | boolean | EffectEventRequest;
   export type EventHandler<T, E extends Event> = (
     event: E & { currentTarget: T; target: EventTarget & globalThis.Element },
-  ) => void | boolean | EffectEventRequest;
+  ) => EventResult;
   export type EventHandlerUnion<T, E extends Event> = EventHandler<T, E>;
   export type CSSProperties = { [property: string]: string | number | undefined | null };
   /** Standard event payloads not yet declared by the minimum supported TypeScript DOM library. */

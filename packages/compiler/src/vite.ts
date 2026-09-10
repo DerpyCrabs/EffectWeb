@@ -8,7 +8,8 @@ export function effectweb(options: CompilerOptions = {}): Plugin {
     config(_config, environment) {
       return {
         define: { __EFFECTWEB_DEV__: JSON.stringify(environment.command === 'serve') },
-        resolve: { dedupe: ['effect'] },
+        resolve: { dedupe: ['effect', 'effectweb'] },
+        optimizeDeps: { exclude: ['effectweb'] },
       };
     },
     configResolved(config) {

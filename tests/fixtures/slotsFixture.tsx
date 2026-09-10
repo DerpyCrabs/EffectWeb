@@ -136,7 +136,7 @@ export function mountChangingSlots(parent: HTMLElement) {
     const placement = first(model.value);
     return (
       <Frame
-        content={model.mode === 'first' ? placement : model.mode === 'second' ? second : 'plain'}
+        content={model.mode === 'first' ? placement : model.mode === 'second' ? second() : 'plain'}
       />
     );
   });

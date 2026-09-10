@@ -1,5 +1,76 @@
 import { expect, test } from '@playwright/test';
 
+test('equal presentation values leave nested markup and text untouched', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const path = '/tests/fixtures/runtime.ts';
+    const { Scope, view, markup } = (await import(path)) as typeof import('../fixtures/runtime');
+    const host = document.createElement('div');
+    const row = markup('span');
+    const panel = markup('section');
+    const scope = new Scope({ label: 'same' }, () => {});
+    const View = view<{ label: string }>((model) =>
+      panel({
+        title: model.label,
+        children: [row({ children: model.label }), row({ children: null })],
+      }),
+    );
+    View.build(scope, host, null);
+    const observer = new MutationObserver(() => {});
+    observer.observe(host, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      characterData: true,
+    });
+    scope.set({ label: 'same' });
+    const mutations = observer.takeRecords().map((record) => record.type);
+    scope.set({ label: 'changed' });
+    const text = host.textContent;
+    observer.disconnect();
+    scope.dispose();
+    return { mutations, text };
+  });
+  expect(result).toEqual({ mutations: [], text: 'changed' });
+});
+
+test('keyed rows receive the supplied item when an equal replacement retains its DOM identity', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const path = '/tests/fixtures/runtime.ts';
+    const { Scope, each, element, entities } = (await import(
+      path
+    )) as typeof import('../fixtures/runtime');
+    const old = { id: 1, label: 'same' };
+    const next = { ...old };
+    const scope = new Scope(entities([old]), () => {});
+    const host = document.createElement('div');
+    let received = old;
+    each(
+      scope,
+      host,
+      null,
+      () => scope.value,
+      () => [],
+      false,
+      (row, parent, before) => {
+        element(parent, before, 'span');
+        row.jobs.push(() => {
+          received = row.value[0];
+        });
+      },
+    );
+    const first = host.querySelector('span');
+    scope.set(entities([next]));
+    const result = { exact: received === next, stable: first === host.querySelector('span') };
+    scope.dispose();
+    return result;
+  });
+  expect(result).toEqual({ exact: true, stable: true });
+});
+
 test('selection skips unchanged list identities and unchanged class values while captures stay fresh', async ({
   page,
 }) => {
@@ -88,7 +159,9 @@ for (const layout of ['whole', 'prefix', 'suffix', 'both', 'multiple-roots'] as 
         (row, parent, before) => {
           const button = element(parent, before, 'button');
           button.textContent = String(row.value[0]);
-          event(row, button, 'onClick', () => clicks++);
+          event(row, button, 'onClick', () => {
+            clicks++;
+          });
           row.cleanups.push(() => {
             disposed.push(row.value[0]);
             connected.push(button.isConnected);

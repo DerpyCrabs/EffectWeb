@@ -220,9 +220,14 @@ interface OwnedSession {
 }
 export function sessionGroup(sessions: readonly OwnedSession[], changed: () => void) {
   const scope = lifetime();
-  for (const session of sessions) {
-    scope.add(() => session.dispose());
-    if (session.subscribe) scope.add(session.subscribe(changed));
+  for (const session of sessions) scope.add(() => session.dispose());
+  try {
+    for (const session of sessions) {
+      if (session.subscribe) scope.add(session.subscribe(changed));
+    }
+  } catch (error) {
+    scope.dispose();
+    throw error;
   }
   return {
     refresh: () => {

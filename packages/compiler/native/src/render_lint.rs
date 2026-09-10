@@ -1,8 +1,6 @@
-//! Certify the semantics of render work before lowering it.
-//!
-//! Source indexing has no authority to declare a call pure or a buffer owned.
-//! This analysis follows values across call edges with explicit argument bindings
-//! and an execution phase. Unresolved call targets never constitute a proof.
+//! Optional lint diagnostics for suspicious render work.
+//! These heuristics are never used to generate code or authorize runtime operations.
+//! Imported helpers follow the pure-render authoring contract; no source is loaded.
 use crate::{analysis::Index, lower::Options};
 use oxc::{
     ast::ast::*,
@@ -76,7 +74,6 @@ enum Kind<'a> {
     Union(Vec<Value<'a>>),
     Api(String, Vec<String>, Vec<Value<'a>>),
     Compiled,
-    RawJsx,
 }
 #[derive(Clone)]
 struct Value<'a> {
@@ -148,20 +145,11 @@ impl Issue {
         }
     }
 }
-/// A certificate is created only after all reachable work is checked. Lowering
-/// may retain precise syntactic paths; these roots complete hidden helper reads.
-#[derive(Default)]
-pub struct Certificate {
-    pub reads: HashMap<Span, BTreeSet<SymbolId>>,
-    pub bindings: HashMap<SymbolId, BTreeSet<SymbolId>>,
-    pub guards: BTreeMap<Span, Vec<IntrinsicGuard>>,
-}
-type IntrinsicGuard = (Vec<Option<String>>, String);
-pub fn certify<'a>(
+pub fn check<'a>(
     index: &Index<'a, '_>,
     function: &'a ArrowFunctionExpression<'a>,
     options: &Options,
-) -> Result<Certificate, Issue> {
+) -> Option<Issue> {
     let mut analyzer = Analyzer {
         index,
         options,
@@ -171,9 +159,7 @@ pub fn certify<'a>(
         scopes: vec![function.span],
         resolving: HashSet::new(),
         checking: HashSet::new(),
-        certificate: Certificate::default(),
         error: None,
-        root: function.span,
         steps: 0,
         slot_position: true,
         auditing_ambient: false,
@@ -198,10 +184,7 @@ pub fn certify<'a>(
     }
     analyzer.bindings = Rc::new(bindings);
     analyzer.visit_arrow_function_body(&function.body);
-    match analyzer.error {
-        Some(error) => Err(error),
-        None => Ok(analyzer.certificate),
-    }
+    analyzer.error
 }
 struct Analyzer<'a, 's> {
     index: &'s Index<'a, 's>,
@@ -212,9 +195,7 @@ struct Analyzer<'a, 's> {
     scopes: Vec<Span>,
     resolving: HashSet<SymbolId>,
     checking: HashSet<(Span, Phase)>,
-    certificate: Certificate,
     error: Option<Issue>,
-    root: Span,
     steps: usize,
     slot_position: bool,
     auditing_ambient: bool,
@@ -246,13 +227,6 @@ impl<'a> Analyzer<'a, '_> {
         self.scopes
             .iter()
             .any(|scope| scope.contains_inclusive(self.index.scoping.symbol_span(id)))
-    }
-    fn observe(&mut self, span: Span, value: &Value<'a>) {
-        self.certificate
-            .reads
-            .entry(span)
-            .or_default()
-            .extend(&value.reads);
     }
     fn symbol(&mut self, id: SymbolId, bindings: &Rc<Bindings<'a>>, depth: usize) -> Value<'a> {
         if let Some(value) = bindings.get(&id) {
@@ -341,11 +315,6 @@ impl<'a> Analyzer<'a, '_> {
         if self.index.scoping.symbol_is_mutated(id) && self.local(id) {
             value.ambient.clear();
         }
-        self.certificate
-            .bindings
-            .entry(id)
-            .or_default()
-            .extend(&value.reads);
         if !self.local(id)
             && !matches!(
                 value.kind,
@@ -585,13 +554,7 @@ impl<'a> Analyzer<'a, '_> {
                 .last()
                 .map(|e| self.resolve(e, bindings, depth + 1))
                 .unwrap_or_else(Value::scalar),
-            Expression::JSXElement(_) | Expression::JSXFragment(_) => {
-                Value::new(if self.root.contains_inclusive(e.span()) {
-                    Kind::Compiled
-                } else {
-                    Kind::RawJsx
-                })
-            }
+            Expression::JSXElement(_) | Expression::JSXFragment(_) => Value::new(Kind::Compiled),
             Expression::AssignmentExpression(n) => self.resolve(&n.right, bindings, depth + 1),
             Expression::AwaitExpression(_)
             | Expression::YieldExpression(_)
@@ -608,7 +571,6 @@ impl<'a> Analyzer<'a, '_> {
         if value.source.is_none() {
             value.source = Some((e.span(), vec![]));
         }
-        self.observe(e.span(), &value);
         value
     }
     fn member(&mut self, mut object: Value<'a>, name: &str, depth: usize) -> Value<'a> {
@@ -782,9 +744,7 @@ impl<'a> Analyzer<'a, '_> {
                         scopes: vec![call.span],
                         resolving: HashSet::new(),
                         checking: HashSet::new(),
-                        certificate: Certificate::default(),
                         error: None,
-                        root: call.span,
                         steps: 0,
                         slot_position: false,
                         auditing_ambient: true,
@@ -901,8 +861,7 @@ impl<'a> Analyzer<'a, '_> {
                 if root == "Object" && path.as_slice() == ["assign"] =>
             {
                 let mut value = arguments.first().cloned().unwrap_or_else(Value::data);
-                // The source object's fields have changed. Any later intrinsic
-                // guard must validate the completed call, not its initial target.
+                // An assignment changes the target fields; discard its previous shape.
                 value.kind = Kind::Data;
                 value.source = Some((span, vec![]));
                 value
@@ -1049,9 +1008,7 @@ impl<'a> Analyzer<'a, '_> {
             {
                 Value::new(Kind::Api(module.clone(), path.clone(), vec![]))
             }
-            Kind::Import(ref module, ref path) if self.trusted_import(module, path) => {
-                Value::data()
-            }
+            Kind::Import(..) => Value::data(),
             Kind::Global(ref root, _)
                 if [
                     "Math",
@@ -1078,13 +1035,12 @@ impl<'a> Analyzer<'a, '_> {
             }
             Kind::Member(..) => Value::data(),
             Kind::Compiled => Value::new(Kind::Compiled),
-            _ => Value::unknown("the result of an opaque call; declare its import contract"),
+            _ => Value::unknown("the result of an opaque call"),
         };
         value.reads.extend(&callee.reads);
         for argument in arguments {
             value.reads.extend(&argument.reads);
         }
-        self.observe(span, &value);
         value
     }
     fn framework(&self, module: &str) -> bool {
@@ -1095,22 +1051,9 @@ impl<'a> Analyzer<'a, '_> {
                     .is_some_and(|rest| rest.starts_with('/'))
         })
     }
-    fn trusted_import(&self, module: &str, path: &[String]) -> bool {
-        self.framework(module)
-            || module == "effect"
-            || module.starts_with("effect/")
-            || self
-                .options
-                .pure_imports
-                .get(module)
-                .is_some_and(|names| names.contains(&path.join(".")))
-    }
     fn check_value(&mut self, value: &Value<'a>, span: Span) {
         if self.phase != Phase::Render {
             return;
-        }
-        if matches!(value.kind, Kind::RawJsx) {
-            self.fail(Issue::invalid(span,"This capture contains uncompiled JSX outside a view. Export a compiled view, or declare a local template or slot."));
         }
         if let Kind::Unknown(reason) = &value.kind {
             self.fail(Issue::unknown(span, reason));
@@ -1152,7 +1095,6 @@ impl<'a> Analyzer<'a, '_> {
         if self.auditing_ambient {
             let opaque = match &value.kind {
                 Kind::Unknown(_) | Kind::Opaque => true,
-                Kind::Import(module, path) => !self.trusted_import(module, path),
                 Kind::Member(_, method) => !pure_method(method) && !mutator(method),
                 _ => false,
             };
@@ -1170,8 +1112,7 @@ impl<'a> Analyzer<'a, '_> {
         match value.kind.clone() {
             Kind::Function(function)=>{
                 if function.callable.asynchronous()&&phase==Phase::Event {self.fail(Issue::invalid(span,"Async work belongs in commands. Event handlers dispatch synchronously."));return;}
-                if self.index.uncompiled_jsx(function.callable.span())&&!self.root.contains_inclusive(function.callable.span()) {self.fail(Issue::invalid(span,"This capture contains uncompiled JSX outside a view. Export a compiled view, or declare a local template or slot."));return;}
-                if !self.checking.insert((function.callable.span(),phase)){self.fail(Issue::unknown(span,"recursive helper effects. Recursive JSX helpers are unsupported; use an iterative helper with explicit inputs."));return;}
+                if !self.checking.insert((function.callable.span(),phase)){self.fail(Issue::unknown(span,"recursive helper effects within the lint analysis. Review the helper for render effects."));return;}
                 let previous=(self.phase,self.bindings.clone(),self.receiver.clone());
                 self.phase=phase;self.bindings=self.arguments(&function,arguments,0);self.receiver=function.receiver.as_deref().cloned();self.scopes.push(function.callable.span());
                 match function.callable {Callable::Arrow(f)=>self.visit_arrow_function_body(&f.body),Callable::Function(f)=>{if let Some(body)=&f.body{self.visit_function_body(body);}}}
@@ -1179,7 +1120,7 @@ impl<'a> Analyzer<'a, '_> {
                 self.checking.remove(&(function.callable.span(),phase));
             }
             Kind::Union(values)=>for value in values {self.invoke(value,arguments,span,phase);},
-            Kind::Unknown(reason) if phase==Phase::Render=>self.fail(Issue::unknown(span,format!("the purity of this call ({reason}). Move effects to a command or declare an explicit import contract."))),
+            Kind::Unknown(reason) if phase==Phase::Render=>self.fail(Issue::unknown(span,format!("the target of this call ({reason}). Use a stable helper and pass immutable model inputs; run effects as commands."))),
             Kind::Api(module,path,callbacks)=>{
                 if path.first().is_some_and(|name|name=="collection") {
                     let mut input=Value::data();
@@ -1195,7 +1136,6 @@ impl<'a> Analyzer<'a, '_> {
                 if phase==Phase::Render&&(namespace.starts_with("Mutable")||(namespace=="DateTime"&&matches!(operation,"nowUnsafe"|"isFutureUnsafe"|"isPastUnsafe"))){self.fail(Issue::invalid(span,"Read or mutate ambient Effect state in a command or DOM host, then publish immutable data in the model."));return;}
                 if namespace.starts_with("Mutable")&&matches!(operation,"set"|"setAndGet"|"update"|"modify"|"remove"|"delete"|"clear"|"add")&& let Some(target)=arguments.first(){self.check_mutation(target,span,operation,phase);}
                 if phase==Phase::Render&&self.framework(&module)&&matches!(path.first().map(String::as_str),Some("mountView"|"modelOwner"|"observeBindings"|"inspectBindings"|"mountBindingInspector"|"observePrograms"|"uiRuntime"|"makeQueryCache"|"observeQuery"|"lifetime"|"projectionCache"|"sessionGroup"|"keyedTasks"|"program"|"queryResource"|"infiniteResource")){self.fail(Issue::invalid(span,"Create owned resources and perform mounting in a command, component owner, or DOM host."));return;}
-                if phase==Phase::Render&&!self.trusted_import(&module,&path){self.fail(Issue::unknown(span,format!("the imported call {} from {module:?} is pure. Add its exported name to pureImports after checking its implementation, or move the call to a command.",path.join("."))));return;}
                 if phase==Phase::Render&&((module=="effect"&&path.first().is_some_and(|p|p=="Effect")&&path.get(1).is_some_and(|p|p.starts_with("run")))||(module=="effect/Effect"&&path.first().is_some_and(|p|p.starts_with("run")))) {self.fail(Issue::invalid(span,"Run effects in a command or DOM host, then put results in the model."));return;}
                 for (position, argument) in arguments.iter().enumerate() {
                     let callback_phase = if (module == "effect" && path.first().is_some_and(|name| name == "Effect")) || module == "effect/Effect" {
@@ -1235,23 +1175,9 @@ impl<'a> Analyzer<'a, '_> {
                 }}
             }
             Kind::Member(receiver,method)=>{
-                if phase==Phase::Render&&self.slot_position&&!mutator(&method)&&!pure_method(&method)&&!value.reads.is_empty()
-                    && let Some((source,path))=&value.source
-                        && self.root.contains_inclusive(*source){
-                            let guards=self.certificate.guards.entry(*source).or_default();let guard=(path.clone(),"@slot".to_string());if !guards.contains(&guard){guards.push(guard);}return;
-                        }
+                if phase==Phase::Render&&self.slot_position&&!mutator(&method)&&!pure_method(&method)&&!value.reads.is_empty(){return;}
                 if mutator(&method){self.check_mutation(&receiver,span,&method,phase);if self.error.is_some(){return;}}
-                let compiled_list=method=="map"&&self.index.calls.iter().any(|call|call.span==span&&call.arguments.first().and_then(Argument::as_expression).is_some_and(|e|matches!(unwrap(e),Expression::ArrowFunctionExpression(f) if crate::analysis::contains_jsx_body(&f.body))));
-                if phase==Phase::Render && !self.auditing_ambient && !compiled_list && (mutator(&method)||pure_method(&method))
-                    && !matches!(receiver.kind,Kind::Native|Kind::Array(..)|Kind::Scalar(_)) {
-                        if let Some((source,path))=&receiver.source {
-                            if self.root.contains_inclusive(*source) {
-                                let guards=self.certificate.guards.entry(*source).or_default();
-                                let guard=(path.clone(),method.clone());if !guards.contains(&guard){guards.push(guard);}
-                            }else{self.fail(Issue::unknown(span,"the intrinsic receiver outside this view; pass it as an explicit helper argument"));}
-                        }else{self.fail(Issue::unknown(span,"the identity of this data operation"));}
-                    }
-                if !mutator(&method) && phase==Phase::Render&&!pure_method(&method){self.fail(Issue::unknown(span,format!("method {method} is pure. Use a known data operation or an imported helper with a purity contract.")));}
+                if !mutator(&method) && phase==Phase::Render&&!pure_method(&method){self.fail(Issue::unknown(span,format!("the target of method {method}. Use a stable helper with immutable model inputs.")));}
                 for argument in arguments{if argument.callable(){let mut input=Value::data().with_reads(&receiver);
                     if receiver.ownership==Ownership::Deep { input.kind=Kind::Native;input.ownership=Ownership::Deep; }
                     input.source=receiver.source.clone().map(|(span,mut path)|{path.push(None);(span,path)});
@@ -1627,8 +1553,7 @@ impl<'a> Visit<'a> for Analyzer<'a, '_> {
         }
         walk::walk_expression(self, e);
         if self.error.is_none() {
-            let value = self.expression_value(e);
-            self.observe(e.span(), &value);
+            self.expression_value(e);
         }
     }
     fn visit_function(&mut self, _: &Function<'a>, _: oxc::syntax::scope::ScopeFlags) {}
@@ -1675,28 +1600,6 @@ impl<'a> Visit<'a> for Analyzer<'a, '_> {
             if self.phase == Phase::Render && !self.local(symbol) {
                 let value = self.symbol(symbol, &self.bindings.clone(), 0);
                 self.check_value(&value, id.span);
-                if self
-                    .index
-                    .initializers
-                    .get(&symbol)
-                    .is_some_and(|e| self.index.uncompiled_jsx(e.span()))
-                {
-                    self.fail(Issue::invalid(id.span,"This capture contains uncompiled JSX outside a view. Export a compiled view, or declare a local template or slot."));
-                }
-            }
-            if self.phase == Phase::Render
-                && self.scopes.last() == Some(&self.root)
-                && self.local(symbol)
-                && !self.bindings.contains_key(&symbol)
-            {
-                let flags = self.index.scoping.symbol_flags(symbol);
-                if (flags.is_variable()
-                    && !flags.is_const_variable()
-                    && !flags.is_function_scoped_declaration())
-                    || self.index.scoping.symbol_is_mutated(symbol)
-                {
-                    self.fail(Issue::unknown(id.span,format!("Mutable capture {} is not a model dependency. Pass immutable data through the model.",id.name)));
-                }
             }
         } else if id.name != "Date" {
             self.check_value(

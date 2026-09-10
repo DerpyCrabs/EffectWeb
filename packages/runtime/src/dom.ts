@@ -1,20 +1,22 @@
-import { compiledSlots } from './slotIdentity.js';
 import attributeData from './dom-attributes.json' with { type: 'json' };
+import * as Effect from 'effect/Effect';
 import type { Snapshot } from './snapshot.js';
 
 import { validateIdentities } from './collection.js';
 import { runAll, reportError, reportSafely, type ReportError } from './errors.js';
 import { eventEffects } from './effectEvent.js';
 import { traceBinding, type BindingSource } from './diagnostics.js';
-import { shareData } from './sharing.js';
 import type { Rows } from './index.js';
 import type { Identity } from './collection.js';
 import { jsxComponent, type JSX } from './jsx.js';
 import type { DomMount } from './mount.js';
 import { Settlement } from './settlement.js';
-import { startMount } from './mount.js';
+import { prepareMount } from './mount.js';
 import type { Program, Send } from './program.js';
 type Dependencies = () => readonly unknown[];
+type BindingLocation = BindingSource | (() => BindingSource | undefined);
+const bindingLocation = (source: BindingLocation | undefined) =>
+  typeof source === 'function' ? source() : source;
 type Cleanup = () => void;
 type Build<M, E> = (scope: Scope<M, E>, parent: Node, before: Node | null) => void;
 const equal = (a: readonly unknown[], b: readonly unknown[]) =>
@@ -47,39 +49,22 @@ export class Scope<M, E> {
   readonly jobs: Cleanup[] = [];
   readonly cleanups: Cleanup[] = [];
   disposed = false;
-  private revision = 0;
   constructor(
     public value: M,
     readonly send: Send<E>,
     readonly report: ReportError = reportError,
     readonly settlement: Settlement = new Settlement(),
   ) {}
-  derive<A>(dependencies: Dependencies, compute: () => A, source?: BindingSource): () => A {
-    let previous: readonly unknown[] | undefined;
-    let value: A;
-    let revision = -1;
-    return () => {
-      if (revision === this.revision) return value;
-      const next = dependencies();
-      if (!previous || !equal(previous, next)) {
-        value = previous ? shareData(value, compute()) : compute();
-        traceBinding(source, previous, next, 'derive');
-        previous = next;
-      }
-      revision = this.revision;
-      return value;
-    };
-  }
-  watch(dependencies: Dependencies, apply: () => void, source?: BindingSource) {
+  watch(dependencies: Dependencies, apply: () => void, source?: BindingLocation) {
     let previous = dependencies();
     apply();
-    traceBinding(source, undefined, previous, 'binding');
+    traceBinding(bindingLocation(source), undefined, previous, 'binding');
     if (!previous.length) return;
     const run = () => {
       const next = dependencies();
       if (!equal(previous, next)) {
         apply();
-        traceBinding(source, previous, next, 'binding');
+        traceBinding(bindingLocation(source), previous, next, 'binding');
         previous = next;
       }
     };
@@ -89,7 +74,6 @@ export class Scope<M, E> {
     if (this.disposed) return;
     commitDom(() => {
       this.value = value;
-      this.revision++;
       for (const job of this.jobs) {
         if (this.disposed) break;
         try {
@@ -112,13 +96,13 @@ export interface View<M, E> extends JSX.ComponentType {
   readonly build: Build<M, E>;
 }
 
-/** Compiler marker for mounting a view with an explicit model and message dispatcher. */
+/** Mount a view with an explicit model and message dispatcher. */
 export const ViewBinding = /* @__PURE__ */ Object.assign(
   function ViewBinding<M, E>(
     this: never,
-    _props: { view: View<M, E>; model: NoInfer<M> | Snapshot<NoInfer<M>>; send: Send<NoInfer<E>> },
+    props: { view: View<M, E>; model: NoInfer<M> | Snapshot<NoInfer<M>>; send: Send<NoInfer<E>> },
   ): JSX.Element {
-    throw new Error('ViewBinding reached runtime without the EffectWeb JSX compiler');
+    return new SlotPlacement(viewContent(props.view), { model: props.model, send: props.send });
   },
   { [jsxComponent]: true as const },
 );
@@ -135,14 +119,13 @@ const contentBrand: unique symbol = Symbol('compiled content');
 export interface CompiledContent {
   readonly [contentBrand]: true;
 }
-/** A compiled template with a typed placement value, captured in its declaring view. */
+/** An ordinary render callback with a typed input. Invoke it to produce content. */
 export interface Slot<A = void> {
   (value: A | Snapshot<A>): JSX.Element;
-  readonly [contentBrand]: [A] extends [void] ? true : false;
 }
-/** Compiler marker: declare inside view(), or directly in a compiled component prop. */
-export function slot<A = void>(_render: (value: Snapshot<A>) => JSX.Element): Slot<A> {
-  throw new Error('EffectWeb slot reached runtime without the EffectWeb JSX compiler');
+/* @__NO_SIDE_EFFECTS__ */
+export function slot<A = void>(render: (value: Snapshot<A>) => JSX.Element): Slot<A> {
+  return render as Slot<A>;
 }
 type ContentDefinition = {
   mount(
@@ -169,63 +152,136 @@ function isContent(value: unknown): value is ContentValue {
     contentBrand in value
   );
 }
-/** Compiler output. Captures follow their declaring scope; placements own independent scopes. */
-export function compiledSlot<M, E, A>(owner: Scope<M, E>, build: Build<A, E>): Slot<A> {
-  const placements = new Set<Scope<A, E>>();
-  owner.jobs.push(() => {
-    for (const scope of placements) scope.set(scope.value);
+/** Evaluate ordinary synchronous JavaScript for each immutable model publication. */
+/* @__NO_SIDE_EFFECTS__ */
+export function view<M, E = never>(
+  render: (model: Snapshot<M>, send: Send<E>) => JSX.Element,
+): View<M, E> {
+  return compiled((scope, parent, before) => {
+    const read = () => render(scope.value as Snapshot<M>, scope.send);
+    text(scope, parent, before, () => [scope.value], read);
   });
-  owner.cleanups.push(() => {
-    for (const scope of placements) scope.dispose();
-    placements.clear();
-  });
-  const definition: ContentDefinition = {
+}
+/* @__NO_SIDE_EFFECTS__ */
+export function compiled<M, E>(build: Build<M, E>): View<M, E> {
+  const definition: View<M, E> = Object.assign(
+    (props: M | Snapshot<M>) =>
+      new SlotPlacement(viewContent(definition), { model: props, send: unboundSend }),
+    { build, [jsxComponent]: true as const },
+  );
+  return definition;
+}
+
+const viewDefinitions = new WeakMap<object, ContentDefinition>();
+function viewContent<M, E>(definition: View<M, E>): ContentDefinition {
+  let content = viewDefinitions.get(definition);
+  if (!content) {
+    content = contentDefinition<{ model: M; send: Send<E> }>((scope, parent, before) => {
+      const childScope = new Scope(
+        scope.value.model,
+        (message: E) => scope.value.send(message),
+        scope.report,
+        scope.settlement,
+      );
+      scope.cleanups.push(() => childScope.dispose());
+      definition.build(childScope, parent, before);
+      scope.jobs.push(() => childScope.set(scope.value.model));
+    });
+    viewDefinitions.set(definition, content);
+  }
+  return content;
+}
+
+function contentDefinition<A>(build: Build<A, never>): ContentDefinition {
+  return {
     mount(parent, before, value, report, settlement) {
-      if (owner.disposed) throw new Error('Cannot mount content after its declaring view disposed');
-      const scope = new Scope(value as A, owner.send, report, settlement);
+      const scope = new Scope(value as A, unboundSend, report, settlement);
       const fragment = buildFragment(parent);
       const range = markers(fragment, null);
       scope.cleanups.push(() => remove(range.start, range.end));
       try {
         build(scope, fragment, range.end);
-        parent.insertBefore(fragment, before);
-        placements.add(scope);
+        if (!scope.disposed) parent.insertBefore(fragment, before);
       } catch (error) {
         scope.dispose();
         throw error;
       }
-      return {
-        set(value) {
-          if (!Object.is(scope.value, value)) scope.set(value as A);
-        },
-        dispose() {
-          placements.delete(scope);
-          scope.dispose();
-        },
-      };
+      return { set: (value) => scope.set(value as A), dispose: () => scope.dispose() };
     },
   };
-  const slot = Object.assign((value: A): JSX.Element => new SlotPlacement(definition, value), {
-    [contentBrand]: true as const,
-    definition,
-  }) as unknown as Slot<A>;
-  compiledSlots.add(slot);
-  return slot;
 }
 
-/** This declaration is a compiler marker, never a component setup callback. */
-export function view<M, E = never>(
-  _render: (model: Snapshot<M>, send: Send<E>) => JSX.Element,
-): View<M, E> {
-  throw new Error('EffectWeb view reached runtime without the EffectWeb JSX compiler');
+type MarkupProps = Readonly<Record<string, unknown>> & { readonly children?: JSX.Element };
+type MarkupValue = {
+  readonly props: MarkupProps;
+  readonly sources?: Readonly<Record<string, BindingSource>> | undefined;
+};
+const markupDefinitions = new Map<string, ContentDefinition>();
+/** JSX factories preserve host identity by element type; source locations are metadata only. */
+export function markup(
+  tag: string,
+  sources?: Readonly<Record<string, BindingSource>>,
+): (props: MarkupProps) => JSX.Element {
+  let definition = markupDefinitions.get(tag);
+  if (!definition) {
+    definition = contentDefinition<MarkupValue>((scope, parent, before) => {
+      const node = element(parent, before, tag);
+      bindAttributes(
+        scope,
+        node,
+        () => [scope.value.props],
+        () => {
+          const { children: _children, ...attributes } = scope.value.props;
+          return attributes;
+        },
+        () => scope.value.sources,
+      );
+      text(
+        scope,
+        node,
+        null,
+        () => [scope.value.props.children],
+        () => scope.value.props.children,
+        () => scope.value.sources?.children,
+      );
+    });
+    markupDefinitions.set(tag, definition);
+  }
+  return (props) => new SlotPlacement(definition, { props, sources });
 }
-export function compiled<M, E>(build: Build<M, E>): View<M, E> {
-  return Object.assign(
-    () => {
-      throw new Error('Mount compiled views with mountView or inside another compiled view');
+
+export function renderComponent(
+  component: (props: never) => JSX.Element,
+  props: Readonly<Record<string, unknown>>,
+): JSX.Element {
+  return component(props as never);
+}
+
+type ListValue<A> = {
+  readonly rows: Rows<A> | readonly A[];
+  readonly render: (item: A, index: number) => JSX.Element;
+};
+const listDefinition = contentDefinition<ListValue<unknown>>((scope, parent, before) => {
+  each(
+    scope,
+    parent,
+    before,
+    () => scope.value.rows,
+    () => [scope.value.render],
+    true,
+    (row, parent, before) => {
+      // The explicit list operation owns callback evaluation and keyed row lifetimes.
+      const update = () => scope.value.render(row.value[0], row.value[1]);
+      text(row, parent, before, () => [row.value, scope.value.render], update);
     },
-    { build, [jsxComponent]: true as const },
   );
+});
+/** Preserve collection identity (or array reference identity) while rendering rows. */
+export function list<A>(
+  rows: Rows<A> | readonly A[],
+  render: (item: A, index: number) => JSX.Element,
+): JSX.Element {
+  return new SlotPlacement(listDefinition, { rows, render });
 }
 export interface PortalProps {
   readonly children?: JSX.Element;
@@ -317,14 +373,20 @@ export function mountView<M, E>(
     const { start, end } = markers(parent, null);
     const scope = new Scope(source.model(), source.send, options.onError);
     let unsubscribe = () => {};
+    let ready = false;
+    let latest = scope.value;
     try {
+      unsubscribe = source.subscribe((model) => {
+        latest = model;
+        if (ready) scope.set(model);
+      });
       const fragment = buildFragment(parent);
       definition.build(scope as unknown as Scope<M, E>, fragment, null);
       parent.insertBefore(fragment, end);
-      unsubscribe = source.subscribe((model) => scope.set(model));
+      ready = true;
+      if (!Object.is(latest, scope.value)) scope.set(latest);
     } catch (error) {
-      scope.dispose();
-      remove(start, end);
+      runAll([unsubscribe, () => scope.dispose(), () => remove(start, end)], scope.report);
       throw error;
     }
     const dispose = () => {
@@ -334,8 +396,10 @@ export function mountView<M, E>(
     return Object.assign(dispose, {
       dispose,
       close: () => {
-        dispose();
-        return scope.settlement.wait();
+        return Effect.suspend(() => {
+          dispose();
+          return scope.settlement.wait();
+        });
       },
     });
   });
@@ -436,12 +500,12 @@ export function bindAttribute<M, E>(
   name: string,
   dependencies: Dependencies,
   read: () => unknown,
-  source?: BindingSource,
+  source?: BindingLocation,
 ) {
   let previous = dependencies();
   let value = read();
   attribute(element, name, value);
-  traceBinding(source, undefined, previous, 'binding');
+  traceBinding(bindingLocation(source), undefined, previous, 'binding');
   if (!previous.length) return;
   // Keep the value cache in the dependency job itself, without an extra closure
   // for every row. Controlled input properties keep using ordinary watches.
@@ -453,7 +517,7 @@ export function bindAttribute<M, E>(
       attribute(element, name, nextValue);
       value = nextValue;
     }
-    traceBinding(source, previous, next, 'binding');
+    traceBinding(bindingLocation(source), previous, next, 'binding');
     previous = next;
   });
 }
@@ -467,7 +531,7 @@ export function bindControl<M, E>(
   name: string,
   dependencies: Dependencies,
   read: () => unknown,
-  source?: BindingSource,
+  source?: BindingLocation,
 ) {
   let composing = false;
   let deferred = false;
@@ -572,8 +636,8 @@ export function text<M, E>(
   parent: Node,
   before: Node | null,
   dependencies: Dependencies,
-  read: () => unknown,
-  source?: BindingSource,
+  read: () => JSX.Element,
+  source?: BindingLocation,
 ) {
   const node = document.createTextNode('');
   parent.insertBefore(node, before);
@@ -587,32 +651,33 @@ export function text<M, E>(
       let value = read();
       if (Array.isArray(value)) {
         validateContent(value);
-        value = { [contentBrand]: true, definition: arrayContent, value };
+        value = new SlotPlacement(arrayContent, value);
       }
       if (isContent(value)) {
-        node.data = '';
+        if (node.data !== '') node.data = '';
         if (content?.definition === value.definition) {
           content.mounted.set(value.value);
           return;
         }
-        content?.mounted.dispose();
+        const previous = content;
         content = undefined;
+        previous?.mounted.dispose();
+        if (scope.disposed) return;
         if (start) clear(start, node);
         else {
           start = document.createComment('');
           scope.cleanups.push(() => content?.mounted.dispose());
           node.parentNode!.insertBefore(start, node);
         }
-        content = {
-          definition: value.definition,
-          mounted: value.definition.mount(
-            node.parentNode!,
-            node,
-            value.value,
-            scope.report,
-            scope.settlement,
-          ),
-        };
+        const mounted = value.definition.mount(
+          node.parentNode!,
+          node,
+          value.value,
+          scope.report,
+          scope.settlement,
+        );
+        if (scope.disposed) mounted.dispose();
+        else content = { definition: value.definition, mounted };
         return;
       }
       if (value != null && typeof value === 'object')
@@ -649,29 +714,35 @@ function validateContent(value: unknown, active = new Set<readonly unknown[]>())
 
 const arrayContent: ContentDefinition = {
   mount: (_parent, before, value, report, settlement) =>
-    mountArray(report, before, value as readonly unknown[], settlement),
+    mountArray(report, before, value as readonly JSX.Element[], settlement),
 };
 
 /** Runtime content arrays are positional; domain lists retain the explicit collection contract. */
 function mountArray(
   report: ReportError,
   before: Node,
-  initial: readonly unknown[],
+  initial: readonly JSX.Element[],
   settlement: Settlement,
 ) {
-  const cells: Array<{ scope: Scope<unknown, never>; start: Comment; end: Comment }> = [];
+  const cells: Array<{ scope: Scope<JSX.Element, never>; start: Comment; end: Comment }> = [];
+  let disposed = false;
   const disposeCell = (cell: (typeof cells)[number]) => {
     cell.scope.dispose();
     remove(cell.start, cell.end);
   };
   const set = (input: unknown) => {
-    const values = input as readonly unknown[];
+    if (disposed) return;
+    const values = input as readonly JSX.Element[];
     validateContent(values);
-    while (cells.length > values.length) disposeCell(cells.pop()!);
+    while (cells.length > values.length) {
+      disposeCell(cells.pop()!);
+      if (disposed) return;
+    }
     for (let index = 0; index < values.length; index++) {
       const cell = cells[index];
       if (cell) {
         if (!Object.is(cell.scope.value, values[index])) cell.scope.set(values[index]);
+        if (disposed) return;
         continue;
       }
       const scope = new Scope(values[index], unboundSend, report, settlement);
@@ -685,6 +756,10 @@ function mountArray(
           () => [scope.value],
           () => scope.value,
         );
+        if (disposed) {
+          scope.dispose();
+          return;
+        }
         before.parentNode!.insertBefore(fragment, before);
         cells.push({ scope, ...range });
       } catch (error) {
@@ -694,6 +769,8 @@ function mountArray(
     }
   };
   const dispose = () => {
+    if (disposed) return;
+    disposed = true;
     for (const cell of cells.splice(0)) disposeCell(cell);
   };
   try {
@@ -709,7 +786,7 @@ export function event<M, E>(
   scope: Scope<M, E>,
   element: Element,
   name: string,
-  handler: (event: Event) => unknown,
+  handler: (event: Event) => JSX.EventResult,
 ) {
   let effects: ReturnType<typeof eventEffects> | undefined;
   const capture =
@@ -744,29 +821,27 @@ export function event<M, E>(
   });
 }
 
-/** One handler identity owns its requests, regardless of the JSX attribute spelling. */
+/** The event binding owns its requests; snapshot renders may replace its callback. */
 export function bindEvent<M, E>(
   scope: Scope<M, E>,
   element: Element,
   name: string,
   dependencies: Dependencies,
-  read: () => unknown,
+  read: () => ((event: Event) => JSX.EventResult) | undefined,
 ) {
-  let current: unknown;
+  let current: ReturnType<typeof read>;
   let owned: Scope<unknown, E> | undefined;
   scope.cleanups.push(() => owned?.dispose());
   scope.watch(dependencies, () => {
     const next = read();
-    if (next != null && typeof next !== 'function')
-      throw new TypeError(`Event ${name} must be a synchronous handler.`);
     if (Object.is(current, next)) return;
-    owned?.dispose();
-    owned = undefined;
     current = next;
-    if (typeof next === 'function') {
-      const handler: (input: Event) => unknown = next as (input: Event) => unknown;
+    if (!next) {
+      owned?.dispose();
+      owned = undefined;
+    } else if (!owned) {
       owned = new Scope(next, scope.send, scope.report, scope.settlement);
-      event(owned, element, name, handler);
+      event(owned, element, name, (event) => current?.(event));
     }
   });
 }
@@ -777,6 +852,7 @@ export function bindAttributes<M, E>(
   element: Element,
   dependencies: Dependencies,
   read: () => Readonly<Record<string, unknown>>,
+  sources?: () => Readonly<Record<string, BindingSource>> | undefined,
 ) {
   const bindings = new Map<string, Scope<unknown, E>>();
   let previous: Readonly<Record<string, unknown>> = {};
@@ -798,8 +874,6 @@ export function bindAttributes<M, E>(
         throw new Error(
           `Spread attribute ${name} is unsupported. Use collections, DOM hosts, or JSX children.`,
         );
-      if (isEvent(name) && next[name] != null && typeof next[name] !== 'function')
-        throw new Error(`Spread event ${name} must be a synchronous handler.`);
     }
     for (const name of Object.keys(previous)) {
       if (Object.hasOwn(next, name)) continue;
@@ -808,8 +882,16 @@ export function bindAttributes<M, E>(
       if (name !== 'use' && !isEvent(name)) attribute(element, name, undefined);
     }
     for (const [name, value] of Object.entries(next)) {
+      if (!Object.hasOwn(previous, name) || !Object.is(previous[name], value))
+        traceBinding(
+          sources?.()?.[name],
+          Object.hasOwn(previous, name) ? [previous[name]] : undefined,
+          [value],
+          'binding',
+        );
       if (name !== 'use' && !isEvent(name) && !isControl(name)) {
-        attribute(element, name, value);
+        if (!Object.hasOwn(previous, name) || !Object.is(previous[name], value))
+          attribute(element, name, value);
         continue;
       }
       let binding = bindings.get(name);
@@ -841,7 +923,7 @@ export function bindAttributes<M, E>(
           element,
           name,
           () => [owned.value],
-          () => owned.value,
+          () => owned.value as ((event: Event) => JSX.EventResult) | undefined,
         );
     }
     previous = next;
@@ -897,11 +979,12 @@ export function each<M, E, A>(
   const end = document.createComment('');
   parent.insertBefore(end, before);
   type Row = { start: Node; end: Node; scope: Scope<readonly [A, number], E> };
-  const rows = new Map<Identity, Row>();
+  const rows = new Map<A | Identity, Row>();
   let previousList: Rows<A> | readonly A[] | undefined;
   let previousOuter: readonly unknown[] = [];
-  let previousIdentities: readonly Identity[] = [];
+  let previousIdentities: readonly (A | Identity)[] = [];
   const update = () => {
+    if (scope.disposed) return;
     const target = end.parentNode!;
     const next = read();
     const nextOuter = outer();
@@ -922,7 +1005,10 @@ export function each<M, E, A>(
       target.firstChild === rows.get(previousIdentities[0]!)?.start &&
       target.lastChild === end
     ) {
-      for (const row of rows.values()) row.scope.dispose();
+      for (const row of rows.values()) {
+        row.scope.dispose();
+        if (scope.disposed) return;
+      }
       target.replaceChildren(end);
       rows.clear();
       previousList = next;
@@ -930,25 +1016,21 @@ export function each<M, E, A>(
       previousIdentities = [];
       return;
     }
-    const identities = validateIdentities(items, (item, index) => {
-      const key = collection ? collection.identity(item, index) : item;
-      if (typeof key !== 'string' && typeof key !== 'number')
-        throw new Error(
-          'Object lists need domain identity. Declare collection(identity) once; do not add JSX keys.',
-        );
-      return key;
-    });
+    const identities = validateIdentities(items, (item, index) =>
+      collection ? collection.identity(item, index) : item,
+    );
     const keep = new Set(identities);
     for (const [key, row] of rows) {
       if (keep.has(key)) continue;
       row.scope.dispose();
+      if (scope.disposed) return;
       remove(row.start, row.end);
       rows.delete(key);
     }
     for (let index = 0; index < items.length; index++) {
       const key = identities[index]!;
       const row = rows.get(key);
-      const item = row ? shareData(row.scope.value[0], items[index]!) : items[index]!;
+      const item = items[index]!;
       if (!row) {
         const fragment = buildFragment(target);
         const range = markers(fragment, null);
@@ -963,6 +1045,10 @@ export function each<M, E, A>(
         } catch (error) {
           child.dispose();
           throw error;
+        }
+        if (scope.disposed) {
+          child.dispose();
+          return;
         }
         // A single element is its own stable range. Keep markers for dynamic/multiple roots.
         const root = range.start.nextSibling;
@@ -983,6 +1069,7 @@ export function each<M, E, A>(
         (indexUsed && row.scope.value[1] !== index)
       ) {
         row.scope.set([item, index]);
+        if (scope.disposed) return;
       }
     }
     // Retained prefixes are already ordered. New tail rows were appended above and
@@ -1029,22 +1116,6 @@ export function each<M, E, A>(
     rows.clear();
   });
   update();
-}
-export function invoke<M, E>(
-  scope: Scope<M, E>,
-  parent: Node,
-  before: Node | null,
-  dependencies: Dependencies,
-  read: () => readonly unknown[],
-  build: Build<readonly unknown[], E>,
-) {
-  const child = new Scope(read(), scope.send, scope.report, scope.settlement);
-  scope.cleanups.push(() => child.dispose());
-  build(child, parent, before);
-  scope.watch(dependencies, () => {
-    const next = read();
-    if (!equal(child.value, next)) child.set(next);
-  });
 }
 export function child<M, E, C, F>(
   scope: Scope<M, E>,
@@ -1124,7 +1195,7 @@ export function attach<M, E, T extends Element>(
   read: () => DomMount<NoInfer<T>> | undefined,
 ) {
   let generation = 0;
-  let active: ReturnType<typeof startMount<T>> | undefined;
+  let active: ReturnType<typeof prepareMount<T>> | undefined;
   scope.cleanups.push(() => {
     generation++;
     active?.dispose();
@@ -1141,10 +1212,13 @@ export function attach<M, E, T extends Element>(
       if (!scope.disposed && token === generation) {
         const finished = scope.settlement.begin();
         try {
-          const acquired = startMount(element, mount, scope.report);
-          acquired.closed.then(finished, finished);
+          const acquired = prepareMount(element, mount, scope.report);
+          Effect.runFork(acquired.closed).addObserver(finished);
           if (scope.disposed || token !== generation) acquired.dispose();
-          else active = acquired;
+          else {
+            active = acquired;
+            acquired.start();
+          }
         } catch (error) {
           finished();
           reportSafely(scope.report, error);
@@ -1265,4 +1339,3 @@ export function template(build: string | ((parent: Node, before: Node | null) =>
 export function literal(parent: Node, before: Node | null, value: string) {
   parent.insertBefore((parent.ownerDocument ?? document).createTextNode(value), before);
 }
-export { intrinsic } from './intrinsic.js';

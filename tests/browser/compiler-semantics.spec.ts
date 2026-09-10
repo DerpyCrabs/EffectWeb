@@ -5,7 +5,7 @@ async function execute(page: Page, development: boolean, body: string) {
   await page.goto('/');
   const runtime = new URL('/tests/fixtures/compilerSemanticsRuntime.ts', page.url()).href;
   const result = compile(
-    `import {view,modelOwner,mountView} from ${JSON.stringify(runtime)}; ${body}`,
+    `import {Effect,view,modelOwner,mountView} from ${JSON.stringify(runtime)}; ${body}`,
     'compiler-semantics.tsx',
     { importSource: runtime, runtimeModule: runtime, development },
   );
@@ -17,7 +17,7 @@ async function execute(page: Page, development: boolean, body: string) {
 }
 
 for (const development of [true, false]) {
-  test(`destructured values retain identity across reads, child props and events (development=${development})`, async ({
+  test(`destructured values share a render frame and are fresh on the next render (development=${development})`, async ({
     page,
   }) => {
     const result = await execute(
@@ -46,13 +46,13 @@ for (const development of [true, false]) {
           owner.patch({input:{next:true}});
           const replaced=host.querySelector('span').textContent;
           return {initial,picked,replaced,sameButton:button===host.querySelector('button')};
-        }finally{await unmount.close();await owner.close();host.remove();}
+        }finally{await Effect.runPromise(unmount.close());await Effect.runPromise(owner.close());host.remove();}
       }
     `,
     );
     expect(result).toEqual({
       initial: { rest: 'same', default: 'same', array: 'same', linked: 'same', child: 'same' },
-      picked: 'picked',
+      picked: 'idle',
       replaced: 'idle',
       sameButton: true,
     });
@@ -76,7 +76,7 @@ for (const development of [true, false]) {
           owner.patch({key:'b'});values.push(host.textContent);
           owner.patch({input:{b:'changed'}});values.push(host.textContent);
           return values;
-        }finally{await unmount.close();await owner.close();host.remove();}
+        }finally{await Effect.runPromise(unmount.close());await Effect.runPromise(owner.close());host.remove();}
       }
     `,
     );
@@ -110,7 +110,7 @@ for (const development of [true, false]) {
             expression:host.querySelector('footer').textContent,once:host.querySelector('summary').textContent};
           owner.patch({prefix:'updated:'});
           return {...result,updated:host.querySelector('main>div').textContent};
-        }finally{await unmount.close();await owner.close();host.remove();}
+        }finally{await Effect.runPromise(unmount.close());await Effect.runPromise(owner.close());host.remove();}
       }
     `,
     );

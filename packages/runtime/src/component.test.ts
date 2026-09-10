@@ -50,7 +50,7 @@ for (const kind of ['component', 'programView'] as const) {
     await Promise.resolve();
     scope.dispose();
     let settled = false;
-    const closing = scope.settlement.wait().then(() => {
+    const closing = Effect.runPromise(scope.settlement.wait()).then(() => {
       settled = true;
     });
     await Promise.resolve();
@@ -103,7 +103,7 @@ for (const kind of ['component', 'programView'] as const) {
     send(2);
     scope.dispose();
     let settled = false;
-    const closing = scope.settlement.wait().then(() => {
+    const closing = Effect.runPromise(scope.settlement.wait()).then(() => {
       settled = true;
     });
     await Promise.resolve();
@@ -136,7 +136,7 @@ it('joins commands started through the task builder', async () => {
   start();
   scope.dispose();
   let settled = false;
-  const closing = scope.settlement.wait().then(() => {
+  const closing = Effect.runPromise(scope.settlement.wait()).then(() => {
     settled = true;
   });
   await Promise.resolve();
@@ -145,8 +145,8 @@ it('joins commands started through the task builder', async () => {
   await closing;
 });
 
-it('finishes settlement when a program close throws or rejects, while reporting it', async () => {
-  for (const mode of ['throw', 'reject'] as const) {
+it('finishes settlement when a program close throws or fails, while reporting it', async () => {
+  for (const mode of ['throw', 'fail'] as const) {
     const error = new Error(mode);
     const report = vi.fn();
     const definition = programView({
@@ -157,7 +157,7 @@ it('finishes settlement when a program close throws or rejects, while reporting 
         dispose: () => {},
         close: () => {
           if (mode === 'throw') throw error;
-          return Promise.reject(error);
+          return Effect.fail(error);
         },
       }),
       receive: () => {},
@@ -166,7 +166,7 @@ it('finishes settlement when a program close throws or rejects, while reporting 
     const scope = new Scope<unknown, never>(undefined, () => {}, report);
     definition.build(scope, parent, null);
     scope.dispose();
-    await scope.settlement.wait();
+    await Effect.runPromise(scope.settlement.wait());
     expect(report).toHaveBeenCalledTimes(1);
   }
 });
@@ -208,7 +208,7 @@ it('closes model-owner sources and their dependencies after the last command fin
   scope.dispose();
   expect(order).toEqual([]);
   release();
-  await scope.settlement.wait();
+  await Effect.runPromise(scope.settlement.wait());
   expect(order).toEqual(['finalizer', 'dependency']);
 });
 
@@ -232,7 +232,7 @@ it('releases a program when its subscription reentrantly disposes the parent', a
     view: compiled<number, never>(build),
   });
   definition.build(scope, parent, null);
-  await scope.settlement.wait();
+  await Effect.runPromise(scope.settlement.wait());
   expect(dispose).toHaveBeenCalledTimes(1);
   expect(unsubscribe).toHaveBeenCalledTimes(1);
   expect(build).not.toHaveBeenCalled();
@@ -253,6 +253,6 @@ it('releases a source acquired during parent disposal', async () => {
     }),
   });
   definition.build(scope, parent, null);
-  await scope.settlement.wait();
+  await Effect.runPromise(scope.settlement.wait());
   expect(dispose).toHaveBeenCalledTimes(1);
 });

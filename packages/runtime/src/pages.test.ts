@@ -67,7 +67,7 @@ it('isolates pagination definitions composed into the same parent program', asyn
   });
   try {
     source.send({ type: 'Init' });
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(available(source.model().left.result)?.items).toEqual([{ id: 1 }]);
     expect(available(source.model().right.result)?.items).toEqual([{ id: 2 }]);
     expect(source.model().left.result.waiting).toBe(false);
@@ -267,7 +267,7 @@ it('owns controller pagination and reconciles unchanged inputs without another p
     load: () => Effect.succeed(page([1], 2)),
   });
   const source = definition.create({ id: 'one' });
-  await source.awaitIdle();
+  await Effect.runPromise(source.awaitIdle());
   let publications = 0;
   source.subscribe(() => {
     publications++;

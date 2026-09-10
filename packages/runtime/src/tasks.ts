@@ -1,6 +1,7 @@
 import type { Snapshot } from './snapshot.js';
 import type { ModelOwner, TaskPolicy } from './owner.js';
-import { Effect, Option } from 'effect';
+import * as Effect from 'effect/Effect';
+import * as Option from 'effect/Option';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { programView } from './component.js';
 import type { View } from './dom.js';

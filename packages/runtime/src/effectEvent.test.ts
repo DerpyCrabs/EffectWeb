@@ -2,8 +2,9 @@ import { Cause, Effect } from 'effect';
 import { expect, it } from 'vitest';
 import { event, Scope } from './dom.js';
 import { effectEvent } from './effectEvent.js';
+import type { JSX } from './jsx.js';
 
-function listener(handler: (event: Event) => unknown) {
+function listener(handler: (event: Event) => JSX.EventResult) {
   const errors: unknown[] = [];
   const scope = new Scope(
     {},
@@ -156,29 +157,7 @@ it('interrupts a fiber even when it disposes the scope during its synchronous st
   expect(mounted.errors).toEqual([]);
 });
 
-it('diagnoses an unowned Effect without silently running it', () => {
-  let ran = false;
-  const mounted = listener(() =>
-    Effect.sync(() => {
-      ran = true;
-    }),
-  );
-  mounted.click();
-  expect(ran).toBe(false);
-  expect(String(mounted.errors[0])).toContain('effectEvent');
-  mounted.scope.dispose();
-});
-
-it('diagnoses an unowned Promise and observes its rejection', async () => {
-  const problem = new Error('rejected');
-  const mounted = listener(() => Promise.reject(problem));
-  mounted.click();
-  expect(String(mounted.errors[0])).toContain('fromPromise');
-  await expect.poll(() => mounted.errors[1]).toBe(problem);
-  mounted.scope.dispose();
-});
-
-it('spread handlers retain active work on unrelated updates and interrupt it on replacement or removal', async () => {
+it('spread handlers retain work across callback changes and interrupt it on a replacement request or removal', async () => {
   const { bindAttributes } = await import('./dom.js');
   const first = pending();
   const second = pending();
@@ -198,8 +177,9 @@ it('spread handlers retain active work on unrelated updates and interrupt it on 
   scope.set({ onClick: handler });
   expect(first.canceled()).toBe(false);
   scope.set({ onClick: nextHandler });
-  await expect.poll(first.canceled).toBe(true);
+  expect(first.canceled()).toBe(false);
   click();
+  await expect.poll(first.canceled).toBe(true);
   await expect.poll(second.started).toBe(true);
   scope.set({});
   await expect.poll(second.canceled).toBe(true);
@@ -231,7 +211,7 @@ it('joins replaced and active event finalizers when the owning scope closes', as
   mounted.click();
   mounted.scope.dispose();
   let settled = false;
-  const closing = mounted.scope.settlement.wait().then(() => {
+  const closing = Effect.runPromise(mounted.scope.settlement.wait()).then(() => {
     settled = true;
   });
   await Promise.resolve();
@@ -246,7 +226,22 @@ it('accounts for event disposal during synchronous acquisition', async () => {
     effectEvent('replace', () => Effect.sync(() => mounted.scope.dispose())),
   );
   mounted.click();
-  await mounted.scope.settlement.wait();
+  await Effect.runPromise(mounted.scope.settlement.wait());
   expect(mounted.scope.disposed).toBe(true);
   expect(mounted.errors).toEqual([]);
+});
+
+it('reports finalizer defects from replaced and removed event work before settlement', async () => {
+  const problem = new Error('event cleanup failed');
+  const mounted = listener(
+    effectEvent('replace', () => Effect.never.pipe(Effect.ensuring(Effect.die(problem)))),
+  );
+  mounted.click();
+  mounted.click();
+  mounted.scope.dispose();
+  await Effect.runPromise(mounted.scope.settlement.wait());
+  expect(mounted.errors.map((cause) => Cause.squash(cause as Cause.Cause<unknown>))).toEqual([
+    problem,
+    problem,
+  ]);
 });

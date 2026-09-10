@@ -102,5 +102,12 @@ it('rejects duplicate identities at construction and on unchanged share fast pat
   ]) {
     expect(operation).toThrow('indices 0 and 1');
   }
-  expect(() => domain.from([{ id: undefined as unknown as number }])).toThrow('at index 0');
+});
+
+it('validates identities for sparse-array positions as well as present elements', async () => {
+  const { collection } = await import('./collection.js');
+  const domain = collection<undefined>(() => 'same');
+  const sparse: undefined[] = [];
+  sparse.length = 2;
+  expect(() => domain.from(sparse)).toThrow('indices 0 and 1');
 });

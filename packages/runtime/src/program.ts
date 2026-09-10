@@ -1,7 +1,11 @@
 import { protectSnapshot, type Snapshot } from './snapshot.js';
 import { reportError, reportSafely } from './errors.js';
 import { traceProgram, nextProgramId, hasProgramObservers } from './diagnostics.js';
-import { Cause, Effect, Fiber, Option, Stream } from 'effect';
+import * as Cause from 'effect/Cause';
+import * as Effect from 'effect/Effect';
+import * as Fiber from 'effect/Fiber';
+import * as Option from 'effect/Option';
+import * as Stream from 'effect/Stream';
 
 export type Send<Message> = (message: Message) => void;
 /** queue retains FIFO requests; latest-queued retains only the newest pending request. */
@@ -11,7 +15,6 @@ declare const slotType: unique symbol;
 /** Stable operation identity. Equal diagnostic names never share cancellation. */
 export type CommandSlot = symbol & { readonly [slotType]: true };
 export const commandSlot = (name: string): CommandSlot => Symbol(name) as CommandSlot;
-const taskPolicies: readonly string[] = ['replace', 'drop', 'parallel', 'queue', 'latest-queued'];
 
 /** A slot owns either one completion or a stream of progress/events, canceled together. */
 export type Command<Message, R = never> = {
@@ -97,14 +100,14 @@ export interface Program<Model, Message> {
   readonly send: Send<Message>;
   readonly subscribe: (listener: (model: Snapshot<Model>) => void) => () => void;
   readonly dispose: () => void;
-  readonly close?: () => Promise<void>;
+  readonly close?: () => Effect.Effect<void, unknown>;
 }
 export interface RunningProgram<Model, Message> extends Program<Model, Message> {
   /** Wait for interrupted work and its finalizers as well as admitted work. */
-  readonly awaitStopped: () => Promise<void>;
-  readonly close: () => Promise<void>;
+  readonly awaitStopped: () => Effect.Effect<void>;
+  readonly close: () => Effect.Effect<void>;
   readonly activeSlots: () => readonly CommandSlot[];
-  readonly awaitIdle: (slot?: CommandSlot) => Promise<void>;
+  readonly awaitIdle: (slot?: CommandSlot) => Effect.Effect<void>;
 }
 
 export function program<Model, Message>(options: {
@@ -159,13 +162,19 @@ export function program<Model, Message>(options: {
   const stopped = new Set<() => void>();
   const notifyStopped = () => {
     if (live.size || running.size || draining) return;
-    for (const done of stopped) done();
+    const completed = [...stopped];
     stopped.clear();
+    for (const done of completed) done();
   };
-  const awaitStopped = () =>
-    live.size === 0 && running.size === 0 && !draining
-      ? Promise.resolve()
-      : new Promise<void>((done) => stopped.add(done));
+  const awaitStopped = (): Effect.Effect<void> =>
+    Effect.callback((resume) => {
+      if (live.size === 0 && running.size === 0 && !draining) return resume(Effect.void);
+      const done = () => resume(Effect.void);
+      stopped.add(done);
+      return Effect.sync(() => {
+        stopped.delete(done);
+      });
+    });
   let disposed = false;
   let draining = false;
   const queue: Array<{ message: Message; slot?: CommandSlot }> = [];
@@ -233,8 +242,12 @@ export function program<Model, Message>(options: {
     task.fiber = fiber;
     fiber.addObserver((exit) => {
       live.delete(task);
-      notifyStopped();
-      if (!valid()) return;
+      if (!valid()) {
+        if (exit._tag === 'Failure' && !Cause.hasInterruptsOnly(exit.cause))
+          reportSafely(options.onDefect ?? reportError, exit.cause);
+        notifyStopped();
+        return;
+      }
       group.active.delete(task);
       if (!group.active.size && !group.pending.length) running.delete(command.slot);
       trace(exit._tag === 'Success' ? 'complete' : 'defect', command.slot);
@@ -273,12 +286,6 @@ export function program<Model, Message>(options: {
         }
         const { message } = queue.shift()!;
         const transition = options.update(current as Snapshot<Model>, message);
-        for (const command of transition.commands ?? []) {
-          if (typeof command.slot !== 'symbol' || !taskPolicies.includes(command.policy))
-            throw new TypeError(
-              'Commands require a commandSlot() token and an explicit concurrency policy.',
-            );
-        }
         trace('update', undefined, message);
         for (const slot of transition.cancel ?? []) cancel(slot);
         const next = protectSnapshot(transition.model) as Model;
@@ -342,18 +349,23 @@ export function program<Model, Message>(options: {
   };
   return {
     awaitStopped,
-    close: () => {
-      dispose();
-      return awaitStopped();
-    },
+    close: () =>
+      Effect.suspend(() => {
+        dispose();
+        return awaitStopped();
+      }),
     model: () => current as Snapshot<Model>,
     activeSlots: () => [...running.keys()],
     awaitIdle: (slot) =>
-      disposed || (!draining && (slot ? !running.has(slot) : running.size === 0))
-        ? Promise.resolve()
-        : new Promise((done) => {
-            waiters.add({ slot, done });
-          }),
+      Effect.callback((resume) => {
+        if (disposed || (!draining && (slot ? !running.has(slot) : running.size === 0)))
+          return resume(Effect.void);
+        const waiter = { slot, done: () => resume(Effect.void) };
+        waiters.add(waiter);
+        return Effect.sync(() => {
+          waiters.delete(waiter);
+        });
+      }),
     send,
     subscribe(listener) {
       if (disposed) return () => {};

@@ -37,7 +37,7 @@ it('lifts field validation, edits and cancellation without disturbing another fi
   expect(a.pending()).toBe(0);
   expect(b.pending()).toBe(1);
   b.succeed('Taken');
-  await source.awaitIdle();
+  await Effect.runPromise(source.awaitIdle());
   expect(source.model().a).toMatchObject({ draft: 'edited', validation: 'idle' });
   expect(source.model().b).toMatchObject({
     draft: 'second',
@@ -46,7 +46,7 @@ it('lifts field validation, edits and cancellation without disturbing another fi
   });
   expect(source.model().untouched).toBe(untouched);
   expect(Object.isFrozen(source.model().a)).toBe(true);
-  await source.close();
+  await Effect.runPromise(source.close());
 });
 
 it('lifts effect and stream outcomes while preserving action-only commands', async () => {
@@ -71,10 +71,10 @@ it('lifts effect and stream outcomes while preserving action-only commands', asy
         : { model: { values: [...model.values, message.value] } },
   });
   source.send({ type: 'Start' });
-  await source.awaitIdle();
+  await Effect.runPromise(source.awaitIdle());
   expect(source.model().values).toEqual([1, 2, 3, 4]);
   expect(sideEffect).toHaveBeenCalledTimes(1);
-  await source.close();
+  await Effect.runPromise(source.close());
 });
 
 it('retains slot identity, concurrency and discard delivery through lifting', async () => {
@@ -106,9 +106,9 @@ it('retains slot identity, concurrency and discard delivery through lifting', as
   source.send('Queue');
   expect(request.pending()).toBe(1);
   source.send('Cancel');
-  await source.awaitIdle();
+  await Effect.runPromise(source.awaitIdle());
   expect(request.pending()).toBe(0);
   expect(discarded).toHaveBeenCalledWith('Cancelled');
   expect(source.model()).toBe(0);
-  await source.close();
+  await Effect.runPromise(source.close());
 });

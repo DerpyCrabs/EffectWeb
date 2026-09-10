@@ -24,24 +24,24 @@ it('coalesces per key, captures inputs and drains independently with typed outco
   const skipped = tasks.submit('a', { version: 2 });
   const last = tasks.submit('a', { version: 3 });
   const other = tasks.submit('b', { version: 4 });
-  expect(await skipped.outcome).toEqual({ _tag: 'Superseded' });
-  await tasks.drain('b');
-  expect(await other.outcome).toEqual({ _tag: 'Success', value: 4 });
+  expect(await Effect.runPromise(skipped.outcome)).toEqual({ _tag: 'Superseded' });
+  await Effect.runPromise(tasks.drain('b'));
+  expect(await Effect.runPromise(other.outcome)).toEqual({ _tag: 'Success', value: 4 });
   let drained = false;
-  const drain = tasks.drain('a').then(() => {
+  const drain = Effect.runPromise(tasks.drain('a')).then(() => {
     drained = true;
   });
   await Promise.resolve();
   expect(drained).toBe(false);
   release();
   await drain;
-  expect(await first.outcome).toEqual({ _tag: 'Success', value: 1 });
-  expect(await last.outcome).toEqual({ _tag: 'Success', value: 3 });
+  expect(await Effect.runPromise(first.outcome)).toEqual({ _tag: 'Success', value: 1 });
+  expect(await Effect.runPromise(last.outcome)).toEqual({ _tag: 'Success', value: 3 });
   expect(seen).toEqual(['a:1', 'b:4', 'a:3']);
-  await owner.close();
+  await Effect.runPromise(owner.close());
 });
 
-it('settles dropped, canceled queued and failed work without rejecting handle promises', async () => {
+it('settles dropped, canceled queued and failed work through the outcome Effect', async () => {
   const owner = modelOwner({});
   const dropped = keyedTasks(owner, {
     name: 'drop',
@@ -49,20 +49,20 @@ it('settles dropped, canceled queued and failed work without rejecting handle pr
     run: (_key: string, _input: number) => Effect.never,
   });
   const active = dropped.submit('a', 1);
-  expect(await dropped.submit('a', 2).outcome).toEqual({ _tag: 'Dropped' });
+  expect(await Effect.runPromise(dropped.submit('a', 2).outcome)).toEqual({ _tag: 'Dropped' });
   dropped.cancel('a');
-  expect(await active.outcome).toEqual({ _tag: 'Cancelled' });
+  expect(await Effect.runPromise(active.outcome)).toEqual({ _tag: 'Cancelled' });
   const queued = keyedTasks(owner, {
     name: 'queue',
     policy: 'queue',
     run: (_key: string, value: number) => (value === 0 ? Effect.fail('typed') : Effect.never),
   });
-  expect((await queued.submit('b', 0).outcome)._tag).toBe('Failure');
+  expect((await Effect.runPromise(queued.submit('b', 0).outcome))._tag).toBe('Failure');
   const one = queued.submit('a', 1),
     two = queued.submit('a', 2);
-  await owner.close();
-  expect(await one.outcome).toEqual({ _tag: 'Cancelled' });
-  expect(await two.outcome).toEqual({ _tag: 'Cancelled' });
+  await Effect.runPromise(owner.close());
+  expect(await Effect.runPromise(one.outcome)).toEqual({ _tag: 'Cancelled' });
+  expect(await Effect.runPromise(two.outcome)).toEqual({ _tag: 'Cancelled' });
 });
 
 it.each(['replace', 'parallel'] as const)(
@@ -83,19 +83,22 @@ it.each(['replace', 'parallel'] as const)(
     });
     const first = tasks.submit('a', 0);
     const second = tasks.submit('a', 1);
-    expect(await second.outcome).toEqual({ _tag: 'Success', value: 1 });
+    expect(await Effect.runPromise(second.outcome)).toEqual({ _tag: 'Success', value: 1 });
     tasks.cancel('a');
     let drained = false;
-    const pending = tasks.drain('a').then(() => {
+    const pending = Effect.runPromise(tasks.drain('a')).then(() => {
       drained = true;
     });
     await Promise.resolve();
     expect(drained).toBe(false);
     release();
     await pending;
-    expect(await first.outcome).toEqual({ _tag: 'Cancelled' });
-    expect(await tasks.submit('a', 2).outcome).toEqual({ _tag: 'Success', value: 2 });
-    await owner.close();
+    expect(await Effect.runPromise(first.outcome)).toEqual({ _tag: 'Cancelled' });
+    expect(await Effect.runPromise(tasks.submit('a', 2).outcome)).toEqual({
+      _tag: 'Success',
+      value: 2,
+    });
+    await Effect.runPromise(owner.close());
   },
 );
 
@@ -122,9 +125,9 @@ it('reads the current service revision when a captured queued document starts', 
   const second = tasks.submit('a', document);
   expect(Object.isFrozen(document)).toBe(true);
   release();
-  await tasks.drain('a');
+  await Effect.runPromise(tasks.drain('a'));
   expect(seen).toEqual([0, 1]);
-  expect(await first.outcome).toEqual({ _tag: 'Success', value: 1 });
-  expect(await second.outcome).toEqual({ _tag: 'Success', value: 2 });
-  await owner.close();
+  expect(await Effect.runPromise(first.outcome)).toEqual({ _tag: 'Success', value: 1 });
+  expect(await Effect.runPromise(second.outcome)).toEqual({ _tag: 'Success', value: 2 });
+  await Effect.runPromise(owner.close());
 });

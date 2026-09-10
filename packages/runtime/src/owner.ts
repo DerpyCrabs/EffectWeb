@@ -1,5 +1,7 @@
 import { protectSnapshot, type Snapshot } from './snapshot.js';
-import { Effect } from 'effect';
+import * as Cause from 'effect/Cause';
+import * as Effect from 'effect/Effect';
+import * as Exit from 'effect/Exit';
 import {
   program,
   type Command,
@@ -12,9 +14,13 @@ import { runAll, reportError, type ReportError } from './errors.js';
 import type { UiRuntime } from './runtime.js';
 
 export type { TaskPolicy } from './program.js';
+interface OwnedResource {
+  dispose(): void;
+  close?(): Effect.Effect<void, unknown>;
+}
 export interface DisposableOwner {
   readonly disposed: boolean;
-  readonly own: <A extends { dispose(): void }>(resource: A) => A;
+  readonly own: <A extends OwnedResource>(resource: A) => A;
 }
 export interface ModelOwner<Model extends object, R = never> extends DisposableOwner {
   readonly source: Program<Model, never>;
@@ -41,9 +47,9 @@ export interface ModelOwner<Model extends object, R = never> extends DisposableO
   ) => void;
   readonly cancel: (slot: CommandSlot) => void;
   readonly isRunning: (slot: CommandSlot) => boolean;
-  readonly awaitIdle: (slot?: CommandSlot) => Promise<void>;
+  readonly awaitIdle: (slot?: CommandSlot) => Effect.Effect<void>;
   /** Interrupt and join work before closing owned dependencies in reverse order. */
-  readonly close: () => Promise<void>;
+  readonly close: () => Effect.Effect<void, AggregateError>;
   readonly dispose: () => void;
 }
 
@@ -72,8 +78,8 @@ export function modelOwner<Model extends object, R>(
   type Batch = readonly Operation[];
   let disposed = false;
   let staged: { model: Model; operations: Operation[] } | undefined;
-  const cleanups: Array<{ dispose(): void; close?(): Promise<void> }> = [];
-  let closing: Promise<void> | undefined;
+  const cleanups: OwnedResource[] = [];
+  let resourcesDisposed = false;
   const source = program<Model, Batch>({
     initial,
     ...options,
@@ -121,40 +127,39 @@ export function modelOwner<Model extends object, R>(
     if (disposed) return;
     disposed = true;
     source.dispose();
+    resourcesDisposed = true;
     runAll(
-      cleanups
-        .splice(0)
-        .reverse()
-        .map((resource) => () => resource.dispose()),
+      [...cleanups].reverse().map((resource) => () => resource.dispose()),
       options.onDefect ?? reportError,
     );
   };
-  const close = () => {
-    if (closing) return closing;
-    disposed = true;
-    const resources = cleanups.splice(0).reverse();
-    let finish!: () => void;
-    let fail!: (error: unknown) => void;
-    closing = new Promise<void>((resolve, reject) => {
-      finish = resolve;
-      fail = reject;
-    });
-    const closeResources = async () => {
-      await source.close();
-      const errors: unknown[] = [];
-      for (const resource of resources) {
-        try {
-          if (resource.close) await resource.close();
-          else resource.dispose();
-        } catch (error) {
-          errors.push(error);
-        }
-      }
-      if (errors.length) throw new AggregateError(errors, 'Owner cleanup failed.');
-    };
-    closeResources().then(finish, fail);
-    return closing;
-  };
+  const closing = Effect.runSync(
+    Effect.cached(
+      Effect.uninterruptible(
+        Effect.gen(function* () {
+          disposed = true;
+          const resources = cleanups.splice(0).reverse();
+          yield* source.close();
+          const errors: unknown[] = [];
+          for (const resource of resources) {
+            const exit = yield* Effect.exit(
+              Effect.suspend(() =>
+                resource.close
+                  ? resource.close()
+                  : resourcesDisposed
+                    ? Effect.void
+                    : Effect.sync(() => resource.dispose()),
+              ),
+            );
+            if (Exit.isFailure(exit)) errors.push(Cause.squash(exit.cause));
+          }
+          if (errors.length)
+            return yield* Effect.fail(new AggregateError(errors, 'Owner cleanup failed.'));
+        }),
+      ),
+    ),
+  );
+  const close = () => closing;
   return {
     source: { model: source.model, send: source.send, subscribe: source.subscribe, dispose, close },
     read,
@@ -187,15 +192,6 @@ export function modelOwner<Model extends object, R>(
       staged = batch;
       try {
         const result = work();
-        if (
-          result &&
-          (typeof result === 'object' || typeof result === 'function') &&
-          'then' in result &&
-          typeof result.then === 'function'
-        )
-          throw new TypeError(
-            'Model transactions must be synchronous. Run async work as an owned Effect.',
-          );
         staged = parent;
         if (!disposed) {
           if (parent) {

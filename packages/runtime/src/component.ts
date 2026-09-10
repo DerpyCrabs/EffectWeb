@@ -1,4 +1,6 @@
 import type { Snapshot } from './snapshot.js';
+import * as Cause from 'effect/Cause';
+import * as Effect from 'effect/Effect';
 import type { View } from './dom.js';
 import { compiled, Scope, viewRegion } from './dom.js';
 import type { Program, Transition } from './program.js';
@@ -142,9 +144,9 @@ function closeProgram<M, E>(scope: Scope<unknown, never>, source: Program<M, E>)
   const finish = scope.settlement.begin();
   try {
     if (source.close) {
-      source.close().then(finish, (error: unknown) => {
+      Effect.runFork(source.close()).addObserver((exit) => {
         finish();
-        reportSafely(scope.report, error);
+        if (exit._tag === 'Failure') reportSafely(scope.report, Cause.squash(exit.cause));
       });
     } else {
       source.dispose();

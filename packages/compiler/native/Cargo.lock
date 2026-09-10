@@ -92,6 +92,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd8e701084c37e7ef62d3f9e453b618130cbc0ef3573847785952a3ac3f746bf"
 
 [[package]]
+name = "effectweb_compiler"
+version = "0.4.0"
+dependencies = [
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "oxc",
+ "oxc_sourcemap",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "either"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -819,19 +832,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "effectweb_compiler"
-version = "0.3.1"
-dependencies = [
- "napi",
- "napi-build",
- "napi-derive",
- "oxc",
- "oxc_sourcemap",
- "serde",
- "serde_json",
 ]
 
 [[package]]

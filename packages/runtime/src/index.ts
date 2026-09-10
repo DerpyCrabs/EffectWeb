@@ -6,7 +6,7 @@ export { patchModel } from './state.js';
 export { defineActions, type ActionMessage } from './actions.js';
 export { taskComponent, taskControls, type TaskModel, type TaskMessage } from './task.js';
 export { effectEvent } from './effectEvent.js';
-export { mountView, view, ViewBinding, type View } from './dom.js';
+export { mountView, view, list, ViewBinding, type View } from './dom.js';
 export { lazyView, type LazyViewOptions } from './lazy.js';
 export type { JSX } from './jsx.js';
 export { Portal, domBinding, domMount, type DomMount, type PortalProps } from './mount.js';

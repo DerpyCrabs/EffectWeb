@@ -50,7 +50,7 @@ describe('named owned tasks', () => {
     controls.run('required', 'required payload');
     controls.run('noInput');
     controls.run('modelOnly');
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(source.model().tasks.optional).toMatchObject({ _tag: 'Success', value: undefined });
     expect(value(source.model().tasks.defaulted)).toBe('default');
     expect(value(source.model().tasks.required)).toBe('required payload');
@@ -59,11 +59,11 @@ describe('named owned tasks', () => {
 
     controls.run('optional', 'optional payload');
     controls.run('defaulted', 'defaulted payload');
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(value(source.model().tasks.optional)).toBe('optional payload');
     expect(value(source.model().tasks.defaulted)).toBe('defaulted payload');
     controls.run('defaulted', undefined);
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(value(source.model().tasks.defaulted)).toBe('default');
     expect(calls).toEqual([
       ['optional', undefined],
@@ -105,15 +105,15 @@ describe('named owned tasks', () => {
     actions.patch({ text: 'edited' });
     actions.run('save', '?');
     actions.run('preview');
-    await driver.awaitSlot(definition.slot('preview'));
+    await Effect.runPromise(driver.awaitSlot(definition.slot('preview')));
     expect(value(driver.model().tasks.preview)).toBe('EDITED');
     expect(saved).toEqual(['one!']);
     pending.fail('offline');
-    await driver.awaitSlot(definition.slot('save'));
+    await Effect.runPromise(driver.awaitSlot(definition.slot('save')));
     expect(AsyncResult.isFailure(driver.model().tasks.save)).toBe(true);
     actions.run('save', '?');
     pending.succeed(42);
-    await driver.awaitSlot(definition.slot('save'));
+    await Effect.runPromise(driver.awaitSlot(definition.slot('save')));
     expect(value(driver.model().tasks.save)).toBe(42);
     expect(saved).toEqual(['one!', 'edited?']);
     driver.dispose();
@@ -134,19 +134,19 @@ describe('named owned tasks', () => {
     const source = definition.create({ entity: 'first' });
     const actions = definition.controls(source.send);
     actions.run('save', 'saved');
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     actions.run('save', 'slow');
     expect(source.model().tasks.save.waiting).toBe(true);
     actions.cancel('save');
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(source.model().tasks.save.waiting).toBe(false);
     expect(value(source.model().tasks.save)).toBe('saved');
     expect(slow.canceled()).toBe(1);
     actions.run('preview');
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     actions.run('save', 'slow');
     actions.run('save', 'replacement');
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(value(source.model().tasks.save)).toBe('replacement');
     expect(slow.canceled()).toBe(2);
     definition.receive(source, { entity: 'second' });
@@ -177,7 +177,7 @@ describe('named owned tasks', () => {
       const actions = definition.controls(source.send);
       actions.patch({ text: 'draft' });
       actions.run('save');
-      await source.awaitIdle();
+      await Effect.runPromise(source.awaitIdle());
       expect(AsyncResult.isFailure(source.model().tasks.save)).toBe(true);
       definition.receive(source, { id: 'first' });
       expect(source.model().text).toBe('draft');
@@ -236,7 +236,7 @@ it('binds controller tasks with lazy arguments, shared slots, parallel work and 
   actions.upload('two');
   expect(calls).toEqual(['first', 'one', 'two']);
   app.dispose();
-  await app.awaitIdle();
+  await Effect.runPromise(app.awaitIdle());
   actions.send('after disposal');
   expect(calls).not.toContain('after disposal');
   expect(app.isRunning(commandGeneration)).toBe(false);

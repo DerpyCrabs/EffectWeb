@@ -28,7 +28,7 @@ it.each(['queue', 'latest-queued'] as const)(
     actions.save('second');
     actions.save('third');
     let idle = false;
-    const wait = app.awaitIdle().then(() => {
+    const wait = Effect.runPromise(app.awaitIdle()).then(() => {
       idle = true;
     });
     expect(calls).toEqual(['first']);
@@ -59,7 +59,7 @@ it.each(['failure', 'defect'] as const)('advances queued writes after a %s', asy
   app.run(commandSave, Effect.sync(completed), 'queue');
   if (kind === 'failure') pending.fail('offline');
   else pending.die('broken');
-  await app.awaitIdle();
+  await Effect.runPromise(app.awaitIdle());
   expect(report).toHaveBeenCalledOnce();
   expect(completed).toHaveBeenCalledOnce();
   app.dispose();
@@ -85,7 +85,7 @@ it.each(['cancel', 'dispose', 'replace'] as const)(
         'replace',
       );
     resume(Effect.void);
-    await app.awaitIdle();
+    await Effect.runPromise(app.awaitIdle());
     expect(queued).not.toHaveBeenCalled();
     expect(app.read().value).toBe(action === 'replace' ? 'new' : '');
     app.dispose();
@@ -126,7 +126,7 @@ it.each(['queue', 'latest-queued'] as const)(
       expect(source.model().tasks.save.waiting).toBe(true);
       pending.succeed('latest');
     }
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(source.model().tasks.save.waiting).toBe(false);
     expect(source.model().text).toBe('four');
     source.dispose();
@@ -149,7 +149,7 @@ it.each(['reset', 'identity', 'dispose'] as const)(
     if (action === 'reset') actions.reset('save');
     else if (action === 'identity') definition.receive(source, { id: 'two' });
     else source.dispose();
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(calls).toHaveBeenCalledOnce();
     if (action !== 'dispose') expect(AsyncResult.isInitial(source.model().tasks.save)).toBe(true);
     source.dispose();
@@ -168,7 +168,7 @@ it('retains the preceding successful write when a queued write fails', async () 
   pending.succeed('first saved');
   await vi.waitFor(() => expect(pending.pending()).toBe(1));
   pending.fail('offline');
-  await source.awaitIdle();
+  await Effect.runPromise(source.awaitIdle());
   const result = source.model().tasks.save;
   expect(AsyncResult.isFailure(result)).toBe(true);
   expect(AsyncResult.value(result)).toMatchObject({ _tag: 'Some', value: 'first saved' });
@@ -188,7 +188,7 @@ it('admits batch queue policies before starting work and drains large synchronou
         'queue',
       );
   });
-  await app.awaitIdle();
+  await Effect.runPromise(app.awaitIdle());
   expect(count).toBe(2000);
   const calls: number[] = [];
   app.transaction(() => {
@@ -201,7 +201,7 @@ it('admits batch queue policies before starting work and drains large synchronou
         'latest-queued',
       );
   });
-  await app.awaitIdle();
+  await Effect.runPromise(app.awaitIdle());
   expect(calls).toEqual([0, 9]);
   app.dispose();
 });
@@ -239,7 +239,7 @@ it('preserves queue policy through service provisioning and command mapping', as
   await vi.waitFor(() => expect(source.model()).toBe('saved:one'));
   expect(pending.pending()).toBe(1);
   pending.succeed('two');
-  await source.awaitIdle();
+  await Effect.runPromise(source.awaitIdle());
   expect(source.model()).toBe('saved:two');
   source.dispose();
 });
@@ -279,7 +279,7 @@ it('suppresses synchronous completion messages already queued behind reset or re
     const seen: string[] = [];
     source.subscribe((model) => seen.push(model));
     source.send('run');
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(seen).not.toContain('stale');
     expect(source.model()).toBe(action === 'cancel' ? 'canceled' : 'fresh');
     source.dispose();
@@ -298,7 +298,7 @@ it('waits for all parallel work in a shared slot before starting queued work', a
   await Promise.resolve();
   expect(queued).not.toHaveBeenCalled();
   second.succeed(undefined);
-  await app.awaitIdle();
+  await Effect.runPromise(app.awaitIdle());
   expect(queued).toHaveBeenCalledOnce();
   app.dispose();
 });
@@ -359,11 +359,11 @@ it.each(['queue', 'latest-queued'] as const)(
         });
         source.subscribe((model) => {
           seen.push(model);
-          waiters.push(source.awaitIdle(commandSave));
+          waiters.push(Effect.runPromise(source.awaitIdle(commandSave)));
           if (origin === 'subscriber' && model === 'first') source.send(action);
         });
         source.send('run');
-        await Promise.all([...waiters, source.awaitIdle()]);
+        await Promise.all([...waiters, Effect.runPromise(source.awaitIdle())]);
         expect(calls).toEqual(action === 'cancel' ? ['first'] : ['first', 'fresh']);
         expect(seen).not.toContain('second');
         expect(source.model()).toBe(action === 'cancel' ? 'canceled' : 'fresh');
@@ -390,7 +390,7 @@ it('releases deferred queued work when its completion reducer throws', async () 
     },
   });
   expect(() => source.send('run')).toThrow('completion reducer');
-  await source.awaitIdle();
+  await Effect.runPromise(source.awaitIdle());
   expect(queued).not.toHaveBeenCalled();
   expect(source.activeSlots()).toEqual([]);
   source.dispose();
@@ -419,7 +419,7 @@ it('latest-queued replaces pending work submitted by a synchronous completion su
     if (model === 'first') source.send('latest');
   });
   source.send('run');
-  await source.awaitIdle();
+  await Effect.runPromise(source.awaitIdle());
   expect(calls).toEqual(['first', 'newest']);
   expect(source.model()).toBe('newest');
   source.dispose();
@@ -445,7 +445,7 @@ it('captures queued argument references and lets callers submit an owned immutab
   tasks.save(draft);
   draft.text = 'edited later';
   gate.succeed(undefined);
-  await owner.awaitIdle();
+  await Effect.runPromise(owner.awaitIdle());
   expect(seen).toEqual(['accepted', 'edited later']);
   owner.dispose();
 });

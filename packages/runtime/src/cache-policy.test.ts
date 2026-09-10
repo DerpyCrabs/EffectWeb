@@ -137,7 +137,7 @@ it('close joins canceled request finalizers before an owned dependency closes', 
   observer.select(true);
   observer.dispose();
   let closed = false;
-  const close = cache.close().then(() => {
+  const close = Effect.runPromise(cache.close()).then(() => {
     closed = true;
   });
   await Promise.resolve();
@@ -176,7 +176,7 @@ it('a canceled uninterruptible load cannot overwrite a newer cached success', as
   await vi.waitFor(() => expect(finished).toBe(true));
   expect(cache.getQueryData(definition, true)).toBe('new');
   observer.dispose();
-  await cache.close();
+  await Effect.runPromise(cache.close());
 });
 
 it('retains successes across observers until the configured retention expires', async () => {
@@ -213,9 +213,9 @@ it.each(['cancel', 'remove', 'reset', 'close'] as const)(
     if (action === 'cancel') cache.cancelQuery(definition, true);
     else if (action === 'remove') cache.removeQuery(definition, true);
     else if (action === 'reset') cache.resetResources();
-    else await cache.close();
+    else await Effect.runPromise(cache.close());
     expect((await result)._tag).toBe('Failure');
-    await cache.close();
+    await Effect.runPromise(cache.close());
   },
 );
 

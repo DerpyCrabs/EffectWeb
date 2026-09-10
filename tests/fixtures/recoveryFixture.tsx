@@ -1,4 +1,4 @@
-import { Effect } from 'effect';
+import { Cause, Effect } from 'effect';
 import {
   component,
   slot,
@@ -153,8 +153,8 @@ export function mountIdentityFixture(
     events: () => [...events],
     oldSend: () => sources[0]?.send({ count: 99 }),
     close: async () => {
-      await unmount.close();
-      await owner.close();
+      await Effect.runPromise(unmount.close());
+      await Effect.runPromise(owner.close());
     },
   };
 }
@@ -271,8 +271,8 @@ export function mountRecoveryFixture(parent: HTMLElement, initialBroken = false,
     }),
     release,
     close: async () => {
-      await unmount.close();
-      await source.close();
+      await Effect.runPromise(unmount.close());
+      await Effect.runPromise(source.close());
       closed = true;
     },
   };
@@ -319,8 +319,8 @@ export function mountDefectFixture(parent: HTMLElement, kind: 'host' | 'event' |
   return {
     state: () => ({ errors, events }),
     close: async () => {
-      await stop.close();
-      await owner.close();
+      await Effect.runPromise(stop.close());
+      await Effect.runPromise(owner.close());
     },
   };
 }
@@ -342,13 +342,14 @@ export async function staleBoundaryCleanupFixture() {
       const source = program<Props, never>({ initial: props, update: (model) => ({ model }) });
       return {
         ...source,
-        close: async () => {
-          await source.close();
-          if (props.id === 'a') {
-            await gate;
-            throw new Error('old cleanup');
-          }
-        },
+        close: () =>
+          Effect.gen(function* () {
+            yield* source.close();
+            if (props.id === 'a') {
+              yield* Effect.promise(() => gate);
+              return yield* Effect.fail(new Error('old cleanup'));
+            }
+          }),
       };
     },
     receive: () => {},
@@ -376,8 +377,8 @@ export async function staleBoundaryCleanupFixture() {
     content: host.querySelector('[data-stale-content]')?.textContent,
     fallback: Boolean(host.querySelector('[data-stale-fallback]')),
   };
-  await stop.close();
-  await owner.close();
+  await Effect.runPromise(stop.close());
+  await Effect.runPromise(owner.close());
   host.remove();
   return result;
 }
@@ -404,16 +405,34 @@ export async function lazyCloseFixture() {
   const source = modelOwner<Props>({ id: 'a', label: 'first' });
   const stop = mountView(host, Lazy, source.source);
   let closed = false;
-  const closing = stop.close().then(() => {
+  const closing = Effect.runPromise(stop.close()).then(() => {
     closed = true;
   });
   await Promise.resolve();
   const waiting = !closed;
   release();
   await closing;
-  await source.close();
+  await Effect.runPromise(source.close());
   host.remove();
   return { waiting, finalized };
+}
+
+export async function lazyFinalizerFailureFixture() {
+  const { lazyView } = await import('effectweb');
+  const host = document.createElement('div');
+  const errors: string[] = [];
+  const Lazy = lazyView<Props>(() =>
+    Effect.never.pipe(Effect.ensuring(Effect.die(new Error('lazy cleanup failed')))),
+  );
+  const source = modelOwner<Props>({ id: 'a', label: 'first' });
+  const stop = mountView(host, Lazy, source.source, {
+    onError: (cause) => {
+      errors.push(String(Cause.squash(cause as Cause.Cause<unknown>)));
+    },
+  });
+  await Effect.runPromise(stop.close());
+  await Effect.runPromise(source.close());
+  return { errors, children: host.childNodes.length };
 }
 
 export async function slotBoundaryFixture() {
@@ -454,8 +473,8 @@ export async function slotBoundaryFixture() {
     failed: Boolean(host.querySelector('[data-slot-fallback]')),
     detached: !host.querySelector('[data-slot-content]'),
   };
-  await stop.close();
-  await owner.close();
+  await Effect.runPromise(stop.close());
+  await Effect.runPromise(owner.close());
   host.remove();
   return result;
 }

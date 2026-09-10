@@ -37,6 +37,24 @@ it('builds a consumer without a TypeScript project configuration', async () => {
   await expect(buildConsumer(consumer())).resolves.toBeDefined();
 });
 
+it('builds ordinary helper imports and their renamed replacements without plugin configuration', async () => {
+  const root = consumer();
+  for (const [file, name] of [
+    ['format', 'formatLabel'],
+    ['renamed', 'displayLabel'],
+  ]) {
+    writeFileSync(
+      join(root, `${file}.ts`),
+      `export const ${name} = (value: string) => value.toUpperCase();`,
+    );
+    writeFileSync(
+      join(root, 'app.tsx'),
+      `import {view} from 'effectweb'; import {${name}} from './${file}'; export const App=view((model:{label:string})=><b>{${name}(model.label)}</b>);`,
+    );
+    await expect(buildConsumer(root)).resolves.toBeDefined();
+  }
+});
+
 it('leaves project settings and unrelated type errors to the consumer tooling', async () => {
   const root = consumer({
     compilerOptions: { strict: false, noUncheckedIndexedAccess: false },
@@ -46,13 +64,13 @@ it('leaves project settings and unrelated type errors to the consumer tooling', 
   await expect(buildConsumer(root)).resolves.toBeDefined();
 });
 
-it('still rejects invalid EffectWeb view code without project-level checks', async () => {
+it('rejects unsupported JSX syntax without project-level checks', async () => {
   const root = consumer();
   writeFileSync(
     join(root, 'app.tsx'),
-    "import { view } from 'effectweb'; export const Bad = view((model: { items: number[] }) => <b>{model.items.sort().length}</b>);",
+    "import { view } from 'effectweb'; export const Bad = view((model: { items: number[] }) => <b key={1}>{model.items.length}</b>);",
   );
-  await expect(buildConsumer(root)).rejects.toThrow(/mutating method sort/u);
+  await expect(buildConsumer(root)).rejects.toThrow(/JSX attribute key/u);
 });
 
 it('compiles JavaScript JSX view markers before a downstream JSX plugin sees them', async () => {
@@ -75,6 +93,6 @@ it('compiles JavaScript JSX view markers before a downstream JSX plugin sees the
   const chunks = (Array.isArray(output) ? output : [output])
     .flatMap((result) => ('output' in result ? result.output : []))
     .filter((item) => item.type === 'chunk');
-  expect(chunks.map((chunk) => chunk.code).join('\n')).toContain('compiled');
+  expect(chunks.map((chunk) => chunk.code).join('\n')).toContain('markup');
   expect(chunks.map((chunk) => chunk.code).join('\n')).not.toContain('jsx-runtime');
 });

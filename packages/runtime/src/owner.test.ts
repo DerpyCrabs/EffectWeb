@@ -77,7 +77,7 @@ it('owns replace, drop and parallel work and cancels the whole named group', asy
   await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(2));
   expect(owner.isRunning(commandLoad)).toBe(true);
   owner.cancel(commandLoad);
-  await owner.awaitIdle();
+  await Effect.runPromise(owner.awaitIdle());
   await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(3));
   expect(owner.isRunning(commandLoad)).toBe(false);
   owner.dispose();
@@ -105,7 +105,7 @@ it('resolves task policies within a batch before executing commands and publishe
     owner.cancel(commandCanceled);
     owner.patch({ count: 5 });
   });
-  await owner.awaitIdle();
+  await Effect.runPromise(owner.awaitIdle());
   expect(ran).toEqual([5]);
   owner.dispose();
 });
@@ -143,10 +143,10 @@ it('provides application services and reports failures without retaining a busy 
     Effect.flatMap(Value, (value) => Effect.sync(() => owner.patch(value))),
     'replace',
   );
-  await owner.awaitIdle();
+  await Effect.runPromise(owner.awaitIdle());
   expect(owner.read().count).toBe(42);
   owner.run(commandFail, Effect.fail('offline'), 'replace');
-  await owner.awaitIdle();
+  await Effect.runPromise(owner.awaitIdle());
   expect(onDefect).toHaveBeenCalledOnce();
   expect(owner.isRunning(commandFail)).toBe(false);
   owner.dispose();

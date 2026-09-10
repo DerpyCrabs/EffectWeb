@@ -45,8 +45,7 @@ test('inspector shows source dependencies, counts and change reasons; label asso
   expect(result.updatedAssociation).toBe('after');
   expect(result.initialTitleCount).toBe(1);
   expect(result.row).toContain('fixed + model.title');
-  expect(result.row).toContain('Changed: model.title');
-  expect(result.row).not.toContain('Changed: fixed');
+  expect(result.row).toContain('Changed: fixed + model.title');
   expect(result.counts).toEqual(['0', '2']);
   expect(result.cleared).toBe(0);
   expect(result.removed).toBe(0);

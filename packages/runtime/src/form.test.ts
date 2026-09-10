@@ -130,7 +130,7 @@ describe('immutable fields', () => {
     expect(checks).toBe(0);
     source.send({ type: 'Change', draft: '2' });
     source.send({ type: 'Validate' });
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(source.model().validation).toBe('invalid');
     expect(source.model().error).toContain('offline');
     expect(checks).toBe(1);
@@ -145,7 +145,7 @@ describe('immutable fields', () => {
     });
     const broken = program({ initial: defective.init('1'), update: defective.update });
     broken.send({ type: 'Validate' });
-    await broken.awaitIdle();
+    await Effect.runPromise(broken.awaitIdle());
     expect(broken.model().error).toBe('Validation is unavailable. Try again.');
     broken.dispose();
   });
@@ -206,11 +206,11 @@ describe('immutable fields', () => {
     source.send({ type: 'Change', draft: 'new' });
     await Effect.runPromise(Deferred.succeed(replies.get('old')!, 'Taken'));
     await Effect.runPromise(Deferred.succeed(replies.get('new')!, undefined));
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(source.model()).toMatchObject({ draft: 'new', validation: 'valid', error: undefined });
     source.send({ type: 'Change', draft: 'reset' });
     source.send({ type: 'Reset' });
-    await source.awaitIdle();
+    await Effect.runPromise(source.awaitIdle());
     expect(source.model()).toMatchObject({ draft: '', validation: 'idle' });
     source.send({ type: 'Change', draft: 'dispose' });
     source.dispose();

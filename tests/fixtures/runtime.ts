@@ -5,6 +5,10 @@ export {
   element,
   event,
   compiled,
+  attach,
+  renderComponent,
+  view,
+  markup,
   text,
   branch,
   mountView,
@@ -13,3 +17,5 @@ export {
   literal,
 } from 'effectweb/dom';
 export * from 'effectweb/program';
+
+export { domBinding, entities, list, sequence } from 'effectweb';

@@ -1,4 +1,4 @@
-import { Effect } from 'effect';
+import { Cause, Effect } from 'effect';
 import { expect, it } from 'vitest';
 import { attach, Scope } from './dom.js';
 import { domMount } from './mount.js';
@@ -63,7 +63,7 @@ it('accounts for close requested before reentrant DOM acquisition returns its fi
   let closing!: Promise<void>;
   const binding = domMount(() => {
     scope.dispose();
-    closing = scope.settlement.wait();
+    closing = Effect.runPromise(scope.settlement.wait());
     return Effect.never.pipe(Effect.ensuring(Effect.promise(() => gate)));
   });
   attach(
@@ -85,4 +85,27 @@ it('accounts for close requested before reentrant DOM acquisition returns its fi
   release();
   await closing;
   expect(closed).toBe(true);
+});
+
+it('reports an interrupted DOM finalizer defect before its scope settles', async () => {
+  const errors: unknown[] = [];
+  const problem = new Error('DOM cleanup failed');
+  const scope = new Scope(
+    {},
+    () => {},
+    (cause) => {
+      errors.push(Cause.squash(cause as Cause.Cause<unknown>));
+    },
+  );
+  const binding = domMount(() => Effect.never.pipe(Effect.ensuring(Effect.die(problem))));
+  attach(
+    scope,
+    new EventTarget() as Element,
+    () => [],
+    () => binding,
+  );
+  await Promise.resolve();
+  scope.dispose();
+  await Effect.runPromise(scope.settlement.wait());
+  expect(errors).toEqual([problem]);
 });

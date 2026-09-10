@@ -69,7 +69,7 @@ it('carries declared services through actions to their owning runtime', async ()
     ActionMessage<typeof actions>
   >({ initial: { value: 0 }, update: actions.update });
   actions.bind(source.send).Load();
-  await source.awaitIdle();
+  await Effect.runPromise(source.awaitIdle());
   expect(source.model().value).toBe(42);
   source.dispose();
   const typingOnly = () => {

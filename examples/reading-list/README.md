@@ -10,7 +10,7 @@ npm run check:browser
 npm run build:example
 ```
 
-`app.tsx` owns immutable state and messages. The collection declares entry identity once. `main.tsx` adapts the IndexedDB library's Promise interface to Effect; `memoryStorage.ts` implements the same storage contract synchronously. No view changes are needed to switch adapters.
+`app.tsx` owns immutable state and messages. The collection declares entry identity once, and `list(...)` preserves it while filtering and editing. `main.tsx` adapts the IndexedDB library's Promise interface to Effect; `memoryStorage.ts` implements the same storage contract synchronously. No view changes are needed to switch adapters.
 
 Failed saves keep the edited list visible and offer Retry. Replacement saves cancel the previous caller. The IndexedDB adapter checks cancellation before starting a write; an already-started transaction finishes in database order. This example has one tab's local state and does not implement concurrent editing across tabs.
 

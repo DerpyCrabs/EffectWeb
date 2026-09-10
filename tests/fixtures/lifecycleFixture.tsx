@@ -25,11 +25,12 @@ export async function lifecycleFixture() {
         ),
       );
     });
+  const portalBinding = binding('portal');
   const Root = view((model: { version: number }) => (
     <section>
       {model.version >= 0 ? <div use={binding(`nested:${model.version}`)} /> : null}
       <Portal mount={portal}>
-        <div use={binding('portal')} />
+        <div use={portalBinding} />
       </Portal>
     </section>
   ));
@@ -38,7 +39,7 @@ export async function lifecycleFixture() {
   owner.patch({ version: 1 });
   await Promise.resolve();
   let closed = false;
-  const closing = unmount.close().then(() => {
+  const closing = Effect.runPromise(unmount.close()).then(() => {
     closed = true;
   });
   await Promise.resolve();

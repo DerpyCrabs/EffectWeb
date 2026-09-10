@@ -1,6 +1,8 @@
 import { Settlement } from './settlement.js';
 import { protectSnapshot, type Snapshot } from './snapshot.js';
-import { Deferred, Effect, Option } from 'effect';
+import * as Deferred from 'effect/Deferred';
+import * as Effect from 'effect/Effect';
+import * as Option from 'effect/Option';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import * as Atom from 'effect/unstable/reactivity/Atom';
 import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
@@ -64,7 +66,7 @@ function createQueryCache<R>(
   const identities = new WeakMap<object, number>();
   let disposed = false;
   const settlement = new Settlement();
-  let closing: Promise<void> | undefined;
+  let closing: Effect.Effect<void> | undefined;
   let nextId = 0;
   let nextRevision = 0;
   const identity = (definition: object) => {
@@ -377,8 +379,10 @@ function createQueryCache<R>(
     },
     close() {
       if (!closing) {
-        cache.dispose();
-        closing = settlement.wait();
+        closing = Effect.suspend(() => {
+          cache.dispose();
+          return settlement.wait();
+        });
       }
       return closing;
     },
@@ -456,6 +460,6 @@ export interface QueryCache<R = never> {
   onReset(listener: () => void): () => void;
   resetResources(): void;
   /** Interrupt every request and wait for its finalizers, including previously canceled requests. */
-  close(): Promise<void>;
+  close(): Effect.Effect<void>;
   dispose(): void;
 }

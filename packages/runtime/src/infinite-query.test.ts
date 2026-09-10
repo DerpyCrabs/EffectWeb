@@ -125,7 +125,7 @@ it('merges concurrent retries of different pages and coalesces retries of the sa
   ]);
   first.dispose();
   second.dispose();
-  await cache.close();
+  await Effect.runPromise(cache.close());
 });
 
 it('does not append an older page after an external refresh or after reset and reseeding the same key', async () => {
@@ -166,7 +166,7 @@ it('does not append an older page after an external refresh or after reset and r
     [99],
   ]);
   observer.dispose();
-  await cache.close();
+  await Effect.runPromise(cache.close());
 });
 
 it('supports first-page refresh explicitly and validates seed ranges and cursors', async () => {
@@ -200,5 +200,5 @@ it('supports first-page refresh explicitly and validates seed ranges and cursors
   ).toThrow('unique');
   expect((await Effect.runPromiseExit(observer.retryPage(9)))._tag).toBe('Failure');
   observer.dispose();
-  await cache.close();
+  await Effect.runPromise(cache.close());
 });

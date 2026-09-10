@@ -1,31 +1,25 @@
-import { diagnose, type CompilerOptions, type Diagnostic } from './compile.js';
+import { diagnose, lint, type CompilerOptions, type Diagnostic } from './compile.js';
 import { isCompilerFile } from './files.js';
 
 type Source = { text: string };
 type Context = {
   filename: string;
   sourceCode: Source;
-  options: readonly Pick<CompilerOptions, 'importSource' | 'pureImports'>[];
+  options: readonly Pick<CompilerOptions, 'importSource'>[];
   report: (diagnostic: { loc: { line: number; column: number }; message: string }) => void;
 };
 const results = new WeakMap<
   Source,
   { text: string; diagnostics: Map<string, readonly Diagnostic[]> }
 >();
-function rule(category: Diagnostic['category'] | 'errors') {
+function rule(category: Diagnostic['category'] | 'errors' | 'render-safety') {
   return {
     meta: {
       type: category !== 'performance' ? ('problem' as const) : ('suggestion' as const),
       schema: [
         {
           type: 'object',
-          properties: {
-            importSource: { type: 'string' },
-            pureImports: {
-              type: 'object',
-              additionalProperties: { type: 'array', items: { type: 'string' } },
-            },
-          },
+          properties: { importSource: { type: 'string' } },
           additionalProperties: false,
         },
       ],
@@ -35,20 +29,21 @@ function rule(category: Diagnostic['category'] | 'errors') {
         Program() {
           if (!isCompilerFile(context.filename)) return;
           const importSource = context.options[0]?.importSource ?? 'effectweb';
-          const pureImports = context.options[0]?.pureImports;
           let cached = results.get(context.sourceCode);
           if (!cached || cached.text !== context.sourceCode.text) {
             cached = { text: context.sourceCode.text, diagnostics: new Map() };
             results.set(context.sourceCode, cached);
           }
-          const key = `${context.filename}\0${importSource}\0${JSON.stringify(pureImports)}`;
+          const heuristic = category === 'render-safety' || category === 'unprovable-dependency';
+          const key = `${context.filename}\0${importSource}\0${heuristic}`;
           let diagnostics = cached.diagnostics.get(key);
           if (!diagnostics) {
             try {
-              diagnostics = diagnose(context.sourceCode.text, context.filename, {
-                importSource,
-                ...(pureImports ? { pureImports } : {}),
-              });
+              diagnostics = (heuristic ? lint : diagnose)(
+                context.sourceCode.text,
+                context.filename,
+                { importSource },
+              );
             } catch (error) {
               // Parser failures and unavailable native binaries must not silently pass lint.
               diagnostics = [
@@ -69,11 +64,13 @@ function rule(category: Diagnostic['category'] | 'errors') {
           }
           for (const diagnostic of diagnostics) {
             const selected =
-              category === 'unprovable-dependency'
-                ? diagnostic.code === 'EW2002' || diagnostic.code === 'EW1000'
-                : category === 'errors'
-                  ? diagnostic.severity === 'error'
-                  : diagnostic.category === category;
+              category === 'render-safety'
+                ? ['EW1000', 'EW1003', 'EW2001'].includes(diagnostic.code)
+                : category === 'unprovable-dependency'
+                  ? diagnostic.code === 'EW2002' || diagnostic.code === 'EW1000'
+                  : category === 'errors'
+                    ? diagnostic.severity === 'error'
+                    : diagnostic.category === category;
             if (!selected) continue;
             context.report({
               loc: { line: diagnostic.line, column: diagnostic.column - 1 },
@@ -89,7 +86,7 @@ export default {
   meta: { name: 'effectweb' },
   rules: {
     'valid-view': rule('errors'),
-    'whole-model-dependency': rule('performance'),
+    'render-safety': rule('render-safety'),
     'query-key': rule('unprovable-dependency'),
   },
 };

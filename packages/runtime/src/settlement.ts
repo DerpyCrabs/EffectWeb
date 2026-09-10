@@ -1,7 +1,7 @@
 /** Internal completion accounting, including reentrant acquisition before a fiber is available. */
 export class Settlement {
   private pending = 0;
-  private waiters: Array<() => void> = [];
+  private waiters = new Set<() => void>();
   begin(): () => void {
     this.pending++;
     let finished = false;
@@ -9,14 +9,20 @@ export class Settlement {
       if (finished) return;
       finished = true;
       if (--this.pending) return;
-      for (const done of this.waiters) done();
-      this.waiters.length = 0;
+      const waiters = [...this.waiters];
+      this.waiters.clear();
+      for (const done of waiters) done();
     };
   }
-  wait(): Promise<void> {
-    return new Promise((done) => {
-      if (this.pending) this.waiters.push(done);
-      else done();
+  wait(): Effect.Effect<void> {
+    return Effect.callback((resume) => {
+      if (!this.pending) return resume(Effect.void);
+      const done = () => resume(Effect.void);
+      this.waiters.add(done);
+      return Effect.sync(() => {
+        this.waiters.delete(done);
+      });
     });
   }
 }
+import * as Effect from 'effect/Effect';

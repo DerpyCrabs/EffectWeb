@@ -15,12 +15,6 @@ export interface CompilerOptions {
   importSource?: string;
   runtimeModule?: string;
   development?: boolean;
-  /**
-   * Audited render calls, keyed by import specifier and exported member path.
-   * These contracts promise immutable inputs, no observable effects or ambient
-   * reads, and no eager execution of unchecked callbacks. They do not load source.
-   */
-  pureImports?: Readonly<Record<string, readonly string[]>>;
   onDiagnostic?: (diagnostic: Diagnostic) => void;
 }
 export interface CompilerResult {
@@ -42,11 +36,31 @@ export function compile(
   return result;
 }
 
-/** Run the same view analysis as compilation, collecting one error per invalid view. */
+/** Collect compiler syntax diagnostics without emitting code. */
 export function diagnose(
   source: string,
   filename: string,
   options: Omit<CompilerOptions, 'onDiagnostic'> = {},
+): readonly Diagnostic[] {
+  return diagnostics(source, filename, options, false);
+}
+
+export type LintOptions = Pick<CompilerOptions, 'importSource'>;
+
+/** Optional heuristic lint checks. These never participate in compilation. */
+export function lint(
+  source: string,
+  filename: string,
+  options: LintOptions = {},
+): readonly Diagnostic[] {
+  return diagnostics(source, filename, options, true);
+}
+
+function diagnostics(
+  source: string,
+  filename: string,
+  options: Omit<CompilerOptions, 'onDiagnostic'>,
+  lint: boolean,
 ): readonly Diagnostic[] {
   return (
     JSON.parse(
@@ -58,6 +72,7 @@ export function diagnose(
           ...options,
           development: true,
           diagnosticsOnly: true,
+          lint,
         }),
       ),
     ) as CompilerResult

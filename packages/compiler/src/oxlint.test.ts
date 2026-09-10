@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compile, diagnose } from './compile.js';
+import { compile, diagnose, lint } from './compile.js';
 import plugin from './oxlint.js';
 
 const source = `import { view as render } from 'effectweb';
@@ -10,7 +10,7 @@ const C = render(model => { const x = Math.random(); return <p>{x}</p>; });`;
 it('reports JSX errors in JavaScript files supported by the compiler', () => {
   const text = `import {view} from 'effectweb'; const App=view(model=><p>{model.count++}</p>);`;
   const reports: { message: string }[] = [];
-  plugin.rules['valid-view']
+  plugin.rules['render-safety']
     .create({
       filename: 'view.jsx',
       sourceCode: { text },
@@ -20,33 +20,35 @@ it('reports JSX errors in JavaScript files supported by the compiler', () => {
     .Program();
   expect(reports).toHaveLength(1);
   expect(reports[0]!.message).toContain('mutate');
-  expect(() => compile(text, 'view.jsx')).toThrow('mutate');
+  expect(() => compile(text, 'view.jsx')).not.toThrow();
+  expect(diagnose(text, 'view.jsx')).toEqual([]);
 });
 
-it('uses the same import contracts as compilation and invalidates cached diagnostics when they change', () => {
+it('accepts ordinary helper imports with the default lint and compiler options', () => {
   const text = `import {view} from 'effectweb';import {format} from './format';view(m=><p>{format(m.value)}</p>);`;
-  for (const pureImports of [undefined, { './format': ['format'] }, undefined]) {
+  for (const rule of ['valid-view', 'query-key'] as const) {
     const reports: unknown[] = [];
-    plugin.rules['valid-view']
+    plugin.rules[rule]
       .create({
         filename: 'contracts.tsx',
         sourceCode: { text },
-        options: pureImports ? [{ pureImports }] : [],
+        options: [],
         report: (report) => reports.push(report),
       })
       .Program();
-    expect(reports).toHaveLength(pureImports ? 0 : 1);
+    expect(reports).toEqual([]);
   }
+  expect(diagnose(text, 'contracts.tsx')).toEqual([]);
 });
 
-describe('compiler diagnostics in lint', () => {
+describe('optional render-safety lint', () => {
   it('rejects computed mutations while accepting a copied-array derivation', () => {
     const text = `import { view } from 'effectweb';
 const Safe = view(model => <p>{[...model.items].sort().join(',')}</p>);
 const Bad = view(model => <p>{model.items["sort"]().join(',')}</p>);
 const Random = view(model => <p>{Math["random"]()}</p>);`;
     const reports: { loc: { line: number }; message: string }[] = [];
-    plugin.rules['valid-view']
+    plugin.rules['render-safety']
       .create({
         filename: 'arrays.tsx',
         sourceCode: { text },
@@ -59,54 +61,38 @@ const Random = view(model => <p>{Math["random"]()}</p>);`;
     expect(reports[1]!.message).toContain('randomness');
   });
 
-  it('uses compiler errors, continues to later views, and keeps valid views silent', () => {
-    const diagnostics = diagnose(source, 'views.tsx');
+  it('reports lint findings in later views without affecting compilation', () => {
+    const diagnostics = lint(source, 'views.tsx');
     expect(diagnostics).toHaveLength(2);
     expect(diagnostics.map((d) => [d.line, d.severity])).toEqual([
       [2, 'error'],
       [4, 'error'],
     ]);
-    expect(() => compile(source, 'views.tsx')).toThrow(diagnostics[0]!.message);
+    expect(() => compile(source, 'views.tsx')).not.toThrow();
+    expect(diagnose(source, 'views.tsx')).toEqual([]);
   });
 
-  it('recovers from lowering failures before checking later views', () => {
-    const text = `import { view } from 'effectweb';
-const Recursive=view(model => { const again=() => <div>{again()}</div>; return again(); });
-const Good=view(model => <div><span>valid</span></div>);
-const Bad=view(model => <ui.Button />);`;
-    const diagnostics = diagnose(text, 'recovery.tsx');
-    expect(diagnostics).toHaveLength(2);
-    expect(diagnostics[0]!.message).toContain('Recursive JSX');
-    expect(diagnostics[1]!.line).toBe(4);
-    expect(diagnostics[1]!.message).toContain('namespace or member');
+  it('collects JSX syntax failures in later expressions', () => {
+    const text = `import {view} from 'effectweb';
+const A=view(model=><p key={model.id}/>);
+const B=view(model=><ui.Button/>);
+const C=view(model=><p ref={model.ref}/>);`;
+    expect(diagnose(text, 'syntax.tsx').map((d) => [d.line, d.code])).toEqual([
+      [2, 'EW1001'],
+      [4, 'EW1001'],
+    ]);
   });
 
   it('reports UTF-16 columns at the failing expression', () => {
     const source = `import { view } from 'effectweb'; const face = '😀'; const A=view(model => { const x=model.items.sort(); return <p>{x}</p>; });`;
-    const diagnostic = diagnose(source, 'unicode.tsx')[0]!;
+    const diagnostic = lint(source, 'unicode.tsx')[0]!;
     expect(diagnostic.column).toBe(source.indexOf('model.items.sort()') + 1);
   });
 
-  it('supports custom imports and separates errors from performance advice', () => {
-    const text = `import { view } from './ui';const format=model=>model.title; const A=view(model => <p>{format(model)}</p>);`;
-    expect(diagnose(text, 'custom.tsx')).toEqual([]);
-    expect(diagnose(text, 'custom.tsx', { importSource: './ui' })).toEqual([
-      expect.objectContaining({
-        severity: 'warning',
-        message: expect.stringContaining('whole model') as unknown,
-      }),
-    ]);
-    const reports: { message: string }[] = [];
-    const context = {
-      filename: 'custom.tsx',
-      sourceCode: { text },
-      options: [{ importSource: './ui' }],
-      report: (d: { message: string }) => reports.push(d),
-    };
-    plugin.rules['valid-view'].create(context).Program();
-    expect(reports).toEqual([]);
-    plugin.rules['whole-model-dependency'].create(context).Program();
-    expect(reports).toHaveLength(1);
+  it('supports configured imports without advising against normal whole-model rendering', () => {
+    const text = `import {view} from './ui';const format=model=>model.title;const A=view(model=><p>{format(model)}</p>);`;
+    expect(diagnose(text, 'custom.tsx', { importSource: './ui' })).toEqual([]);
+    expect(lint(text, 'custom.tsx', { importSource: './ui' })).toEqual([]);
   });
 
   it('does not reuse diagnostics after an editor changes a file', () => {
@@ -117,10 +103,10 @@ const Bad=view(model => <ui.Button />);`;
       options: [],
       report: (d: (typeof reports)[number]) => reports.push(d),
     };
-    plugin.rules['valid-view'].create(context).Program();
+    plugin.rules['render-safety'].create(context).Program();
     expect(reports.map((d) => d.loc.line)).toEqual([2, 4]);
     reports.length = 0;
-    plugin.rules['valid-view']
+    plugin.rules['render-safety']
       .create({
         ...context,
         sourceCode: {
@@ -130,7 +116,7 @@ const Bad=view(model => <ui.Button />);`;
       .Program();
     expect(reports).toEqual([]);
     context.sourceCode.text = `import {view} from 'effectweb'; const A=view(model => <p>{model.title}</p>);`;
-    plugin.rules['valid-view'].create(context).Program();
+    plugin.rules['render-safety'].create(context).Program();
     expect(reports).toEqual([]);
   });
 
@@ -139,7 +125,7 @@ const Bad=view(model => <ui.Button />);`;
       diagnose(`function view(f) { return f; } const A=view(model => {model.x++;});`, 'other.tsx'),
     ).toEqual([]);
     const reports: unknown[] = [];
-    plugin.rules['valid-view']
+    plugin.rules['render-safety']
       .create({
         filename: 'other.js',
         sourceCode: { text: source },
@@ -151,19 +137,12 @@ const Bad=view(model => <ui.Button />);`;
   });
 });
 
-it.each([
-  `const A = view(model => <>{([{id: 'a'}] as const).map(item => <p>{item.id}</p>)}</>);`,
-  `const A = view(model => <>{[{id: 'a'}].map(item => <p>{item.id}</p>)}</>);`,
-  `type Item = {id: string}; type Model = {items: readonly Item[]}; const A = view<Model>(model => <>{model.items.map(item => <p>{item.id}</p>)}</>);`,
-  `interface Item {id: string} interface Model {items: ReadonlyArray<Item>} const A = view((model: Model) => <>{model.items.filter(item => item.id).map(item => <p>{item.id}</p>)}</>);`,
-  `const A = view(model => { const items: {id: string}[] = model.items; return <>{items.map(item => <p>{item.id}</p>)}</>; });`,
-])('rejects statically known raw object lists: %s', (body) => {
-  const text = `import {view} from 'effectweb'; ${body}`;
-  const diagnostic = diagnose(text, 'identity.tsx')[0]!;
-  expect(diagnostic).toMatchObject({ code: 'EW1002', category: 'correctness', severity: 'error' });
-  expect(diagnostic.remedy).toContain('entities(items)');
-  expect(diagnostic.remedy).toContain('sequence(items)');
-  expect(() => compile(text, 'identity.tsx')).toThrow('[EW1002]');
+it('keeps list identity explicit without classifying ordinary map calls', () => {
+  const text = `import {view,list,entities} from 'effectweb';
+  const A=view(model=><>{model.items.map(item=><b>{item.id}</b>)}</>);
+  const B=view(model=><>{list(entities(model.items),item=><b>{item.id}</b>)}</>);`;
+  expect(lint(text, 'identity.tsx')).toEqual([]);
+  expect(diagnose(text, 'identity.tsx')).toEqual([]);
 });
 
 it('accepts explicit collections, primitive lists, and unproven imported types', () => {
@@ -174,20 +153,14 @@ it('accepts explicit collections, primitive lists, and unproven imported types',
   expect(diagnose(text, 'explicit.tsx')).toEqual([]);
 });
 
-it('gives mutable captures and performance advice distinct actionable categories', () => {
+it('reports mutable captures without inferring render dependencies', () => {
   const text = `import {view} from 'effectweb';const format=model=>model.title; let outside = 1; const A = view(model => <p>{outside}</p>); const B = view(model => <p>{format(model)}</p>);`;
-  expect(diagnose(text, 'categories.tsx')).toEqual([
+  expect(lint(text, 'categories.tsx')).toEqual([
     expect.objectContaining({
       code: 'EW2001',
       category: 'unprovable-dependency',
       severity: 'error',
       remedy: expect.stringContaining('model') as unknown,
-    }),
-    expect.objectContaining({
-      code: 'EW3001',
-      category: 'performance',
-      severity: 'warning',
-      remedy: expect.stringContaining('fields') as unknown,
     }),
   ]);
 });
@@ -197,9 +170,9 @@ it.each([
   `key: args => args.account, load: args => api(args.account, args.page)`,
   `key: () => 'fixed', load: args => api(args.page)`,
   `key: ({account: owner}) => [owner], load: ({page: cursor}) => api(cursor)`,
-])('rejects legacy query projections through native analysis and TS lint', (definition) => {
+])('reports legacy query projections through optional lint', (definition) => {
   const text = `import {query as defineQuery} from 'effectweb'; const q = defineQuery({name: 'page', ${definition}});`;
-  expect(diagnose(text, 'queries.ts')[0]).toMatchObject({
+  expect(lint(text, 'queries.ts')[0]).toMatchObject({
     code: 'EW2002',
     severity: 'error',
     remedy: expect.stringContaining('every request argument') as unknown,
@@ -223,13 +196,13 @@ it.each([
   `key: ({account, ...rest}) => [account, rest], load: args => api(args.page)`,
 ])('rejects projections even when their completeness is unprovable: %s', (definition) => {
   expect(
-    diagnose(`import {query} from 'effectweb'; const q = query({${definition}});`, 'queries.ts')[0],
+    lint(`import {query} from 'effectweb'; const q = query({${definition}});`, 'queries.ts')[0],
   ).toMatchObject({ code: 'EW2002', severity: 'error' });
 });
 
 it('accepts complete automatic request identity', () => {
   expect(
-    diagnose(
+    lint(
       `import {query} from 'effectweb'; const q = query({load: args => api(args.filter.status)});`,
       'queries.ts',
     ),
@@ -239,13 +212,11 @@ it('accepts complete automatic request identity', () => {
 it('recognizes query subpath imports without treating unrelated query functions as framework calls', () => {
   const definition = `{key: args => args.account, load: args => api(args.page)}`;
   expect(
-    diagnose(
-      `import {query} from 'effectweb/query'; const q = query(${definition});`,
-      'queries.ts',
-    )[0]?.code,
+    lint(`import {query} from 'effectweb/query'; const q = query(${definition});`, 'queries.ts')[0]
+      ?.code,
   ).toBe('EW2002');
   expect(
-    diagnose(`import {query} from './other'; const q = query(${definition});`, 'queries.ts'),
+    lint(`import {query} from './other'; const q = query(${definition});`, 'queries.ts'),
   ).toEqual([]);
 });
 
@@ -264,7 +235,7 @@ it('surfaces parser or native-analysis failures when query-key is used on TypeSc
 
 it('checks scalar views in .ts through the same correctness rule', () => {
   const reports: { message: string }[] = [];
-  plugin.rules['valid-view']
+  plugin.rules['render-safety']
     .create({
       filename: 'scalar.ts',
       options: [],

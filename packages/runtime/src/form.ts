@@ -1,4 +1,5 @@
-import type { Cause, Effect } from 'effect';
+import type * as Cause from 'effect/Cause';
+import type * as Effect from 'effect/Effect';
 import { commandSlot, effectCommand, type Transition } from './program.js';
 import type { Snapshot } from './snapshot.js';
 import type { EffectEventRequest } from './effectEvent.js';

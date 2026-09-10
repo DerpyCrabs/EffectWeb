@@ -1,4 +1,4 @@
-import type { Effect } from 'effect';
+import type * as Effect from 'effect/Effect';
 import { registerQuery, type QueryDefinition } from './query-internals.js';
 
 /** Canonical data identity: plain objects, dense arrays, and finite scalar values. */
@@ -93,10 +93,6 @@ export function query<A, E = never, R = never>(
 export function query<Args, A, E = never, R = never>(
   definition: Definition<Args, A, E, R>,
 ): Query<Args, A, E, R> {
-  if ('key' in definition)
-    throw new TypeError(
-      'Query identity includes all arguments. Remove key and provide services through the Effect environment.',
-    );
   const staleTime = definition.staleTime ?? Infinity;
   if (Number.isNaN(staleTime) || staleTime < 0)
     throw new RangeError('Query staleTime must be nonnegative.');

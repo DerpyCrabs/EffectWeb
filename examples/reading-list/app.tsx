@@ -1,3 +1,4 @@
+import { list as renderList } from 'effectweb';
 import { commandSlot } from 'effectweb';
 import { Cause, Context, Effect } from 'effect';
 import { collection, effectCommand, mountView, view, type Command } from 'effectweb';
@@ -108,7 +109,7 @@ const List = view<Model, Message>((model, send) => {
         </aside>
       ) : null}
       <ul>
-        {visible.map((entry) => (
+        {renderList(visible, (entry) => (
           <li data-entry-id={entry.id}>
             <label>
               <input

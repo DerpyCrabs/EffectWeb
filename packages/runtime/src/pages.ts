@@ -1,7 +1,8 @@
 import { commandSlot } from './program.js';
 import type { Snapshot } from './snapshot.js';
 import { shareData } from './sharing.js';
-import { Cause, Option } from 'effect';
+import * as Cause from 'effect/Cause';
+import * as Option from 'effect/Option';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import type { UiLoad, UiPage } from './load.js';
 import {

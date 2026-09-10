@@ -1,6 +1,9 @@
 import type { Snapshot } from './snapshot.js';
 import { reportError, reportSafely, type ReportError } from './errors.js';
-import { Effect, Fiber } from 'effect';
+import * as Cause from 'effect/Cause';
+import * as Deferred from 'effect/Deferred';
+import * as Effect from 'effect/Effect';
+import * as Fiber from 'effect/Fiber';
 import { defaultUiRuntime, type UiRuntime } from './runtime.js';
 export { Portal, type PortalProps } from './dom.js';
 type Work<R = never> =
@@ -43,26 +46,25 @@ export function domBinding<T extends Element, A, R = never>(
     },
   };
 }
-export function startMount<T extends Element>(
+/** Allocate the lifetime before acquisition so reentrant publications can update or close it. */
+export function prepareMount<T extends Element>(
   element: T,
   mount: DomMount<T>,
   report: ReportError = reportError,
 ) {
   let data = mount.data;
-  const work = mount.acquire(element, () => data);
-  const fiber = Effect.isEffect(work) ? Effect.runFork(work) : undefined;
+  let work: Work | undefined;
+  let fiber: Fiber.Fiber<never, unknown> | undefined;
+  let started = false;
   let disposed = false;
-  let finish!: () => void;
-  const closed = new Promise<void>((resolve) => {
-    finish = resolve;
-  });
-  fiber?.addObserver((exit) => {
-    if (exit._tag === 'Failure' && !disposed) reportSafely(report, exit.cause);
-    finish();
-  });
-  const dispose = () => {
-    if (disposed) return;
-    disposed = true;
+  let released = false;
+  let changedDuringSetup = false;
+  const completed = Deferred.makeUnsafe<void>();
+  const closed = Deferred.await(completed);
+  const finish = () => Deferred.doneUnsafe(completed, Effect.void);
+  const release = () => {
+    if (released || work === undefined || (Effect.isEffect(work) && !fiber)) return;
+    released = true;
     if (fiber) Effect.runFork(Fiber.interrupt(fiber));
     else {
       try {
@@ -73,18 +75,57 @@ export function startMount<T extends Element>(
       }
     }
   };
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    if (!started) finish();
+    else release();
+  };
   return {
     closed,
-    close() {
-      dispose();
-      return closed;
+    start() {
+      if (started || disposed) return;
+      started = true;
+      try {
+        work = mount.acquire(element, () => data);
+        if (Effect.isEffect(work)) {
+          fiber = Effect.runFork(work);
+          fiber.addObserver((exit) => {
+            if (exit._tag === 'Failure' && (!disposed || !Cause.hasInterruptsOnly(exit.cause)))
+              reportSafely(report, exit.cause);
+            finish();
+          });
+        }
+        if (disposed) release();
+        else if (changedDuringSetup && !fiber && typeof work === 'object' && 'update' in work)
+          work.update?.();
+      } catch (error) {
+        dispose();
+        if (work === undefined) finish();
+        throw error;
+      }
     },
+    close: () =>
+      Effect.suspend(() => {
+        dispose();
+        return closed;
+      }),
     update(next: DomMount<T>) {
-      if (next.identity !== mount.identity) return false;
+      if (disposed || next.identity !== mount.identity) return false;
       data = next.data;
-      if (!fiber && typeof work === 'object' && 'update' in work) work.update?.();
+      if (started && work === undefined) changedDuringSetup = true;
+      else if (!fiber && typeof work === 'object' && work && 'update' in work) work.update?.();
       return true;
     },
     dispose,
   };
+}
+export function startMount<T extends Element>(
+  element: T,
+  mount: DomMount<T>,
+  report: ReportError = reportError,
+) {
+  const lifetime = prepareMount(element, mount, report);
+  lifetime.start();
+  return lifetime;
 }

@@ -1,5 +1,11 @@
 import { expect, it } from 'vitest';
-import { compile, diagnose } from './compile.js';
+import { compile, lint } from './compile.js';
+
+const checkRender = (source: string, filename: string) => {
+  const errors = lint(source, filename).filter((issue) => issue.severity === 'error');
+  if (errors.length) throw new Error(errors.map((issue) => issue.message).join('\n'));
+  return compile(source, filename);
+};
 
 const source = (body: string) => `import { view } from 'effectweb'; ${body}`;
 
@@ -14,8 +20,10 @@ it.each([
   `const helpers={read:()=>Date.now()}; view(m=><p>{helpers.read()}</p>);`,
   `const counter={value:0}; const helpers={read(){return ++counter.value}}; view(m=><p>{helpers.read()}</p>);`,
 ])('checks captures and purity through a same-file object helper: %s', (body) => {
-  expect(() => compile(source(body), 'helpers.tsx')).toThrow(/Mutable capture|Read Date|mutate/u);
-  expect(diagnose(source(body), 'helpers.tsx')).toEqual([
+  expect(() => checkRender(source(body), 'helpers.tsx')).toThrow(
+    /Mutable capture|Read Date|mutate/u,
+  );
+  expect(lint(source(body), 'helpers.tsx')).toEqual([
     expect.objectContaining({ severity: 'error' }),
   ]);
 });
@@ -27,8 +35,8 @@ it.each([
   `const actions={run:()=>window.alert('clicked')}; view(m=><button onClick={actions.run}/>);`,
   `const helpers={read:(value)=>value, action:()=>window.alert('clicked')}; view(m=><p>{helpers.read(m.label)}</p>);`,
 ])('keeps pure object helpers and deferred callbacks usable: %s', (body) => {
-  expect(diagnose(source(body), 'pure-helpers.tsx')).toEqual([]);
-  expect(compile(source(body), 'pure-helpers.tsx').code).toContain('.compiled(');
+  expect(lint(source(body), 'pure-helpers.tsx')).toEqual([]);
+  expect(checkRender(source(body), 'pure-helpers.tsx').code).toContain('.markup(');
 });
 
 it.each([
@@ -38,8 +46,8 @@ it.each([
   `import * as HashMap from 'effect/HashMap'; const Maps=HashMap; view(m=><p>{Maps.size(Maps.set(m.map,'key',1))}</p>);`,
   `const helpers={set:(value)=>value+1}; view(m=><p>{helpers.set(m.count)}</p>);`,
 ])('allows proven pure operations whose names also name native mutators: %s', (body) => {
-  expect(diagnose(source(body), 'pure-operations.tsx')).toEqual([]);
-  expect(compile(source(body), 'pure-operations.tsx').code).toContain('.compiled(');
+  expect(lint(source(body), 'pure-operations.tsx')).toEqual([]);
+  expect(checkRender(source(body), 'pure-operations.tsx').code).toContain('.markup(');
 });
 
 it.each([
@@ -51,7 +59,7 @@ it.each([
   `const {random}=Math; view(m=><p>{random()}</p>);`,
   `const math=Math; view(m=><p>{math.random()}</p>);`,
 ])('rejects builtin effects through direct calls and immutable aliases: %s', (body) => {
-  expect(() => compile(source(body), 'builtin-effects.tsx')).toThrow(/mutat|randomness/u);
+  expect(() => checkRender(source(body), 'builtin-effects.tsx')).toThrow(/mutat|randomness/u);
 });
 
 it.each([
@@ -60,7 +68,7 @@ it.each([
   `const Object={assign:(input)=>input}; view(m=><p>{Object.assign(m).value}</p>);`,
   `const Math={random:(input)=>input}; view(m=><p>{Math.random(m.value)}</p>);`,
 ])('allows owned copies and unrelated shadowed builtin names: %s', (body) => {
-  expect(diagnose(source(body), 'owned-copies.tsx')).toEqual([]);
+  expect(lint(source(body), 'owned-copies.tsx')).toEqual([]);
 });
 
 it.each([
@@ -68,22 +76,38 @@ it.each([
   `const heading=<h1>Title</h1>; const alias=heading; view(m=><main>{alias}</main>);`,
   `const heading=()=> <h1>Title</h1>; view(m=><main>{heading()}</main>);`,
   `const headings={get title(){return <h1>Title</h1>}}; view(m=><main>{headings.title}</main>);`,
-])('reports uncompiled external JSX captured by a view: %s', (body) => {
+])('allows JSX values and helpers declared outside a view: %s', (body) => {
   const text = source(body);
-  expect(diagnose(text, 'external-jsx.tsx')).toEqual([
-    expect.objectContaining({
-      severity: 'error',
-      message: expect.stringMatching(/JSX.*outside|uncompiled JSX/u) as unknown,
-      remedy: expect.stringMatching(/view|slot/u) as unknown,
-    }),
-  ]);
-  expect(() => compile(text, 'external-jsx.tsx')).toThrow(/JSX.*outside|uncompiled JSX/u);
+  expect(lint(text, 'external-jsx.tsx')).toEqual([]);
+  expect(checkRender(text, 'external-jsx.tsx').code).not.toContain('<h1>');
 });
 
-it('leaves unrelated JSX islands and exported compiled views alone', () => {
+it('checks render effects inside ordinary JSX helpers', () => {
+  expect(
+    lint(
+      source(`const heading=()=> <h1>{Date.now()}</h1>; view(m=><main>{heading()}</main>);`),
+      'external-jsx.tsx',
+    ),
+  ).toEqual([
+    expect.objectContaining({ message: expect.stringContaining('Read Date') as unknown }),
+  ]);
+});
+
+it('allows render-local counters without treating them as snapshot dependencies', () => {
+  expect(
+    lint(
+      source(
+        `view(m=>{let total=0; for(const item of m.items) total+=item; return <p>{total}</p>;});`,
+      ),
+      'locals.tsx',
+    ),
+  ).toEqual([]);
+});
+
+it('lowers all JSX in an EffectWeb module without classifying function ownership', () => {
   const text = source(`const Other=()=> <h1>Other framework</h1>;
     const Heading=view(m=><h1>{m.title}</h1>);
     const App=view(m=><main><Heading title={m.title}/></main>);`);
-  expect(diagnose(text, 'islands.tsx')).toEqual([]);
-  expect(compile(text, 'islands.tsx').code).toContain('<h1>Other framework</h1>');
+  expect(lint(text, 'islands.tsx')).toEqual([]);
+  expect(checkRender(text, 'islands.tsx').code).not.toContain('<h1>');
 });

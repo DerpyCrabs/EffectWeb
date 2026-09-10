@@ -37,13 +37,12 @@ for (const [name, data] of canonical) {
   const width = 'size' in data ? data.size : data.width;
   const height = 'size' in data ? data.size : data.height;
   const source = `import { view } from 'effectweb';
-import { withIconAttributes } from '../attributes.js';
-const Geometry = view((props, _send) => <svg>
+import { iconAttributes } from '../attributes.js';
+const Icon = view((props, _send) => <svg {...iconAttributes(props, ${JSON.stringify(names)}, ${width}, ${height})}>
 {props.title ? <title>{props.title}</title> : null}
 ${geometry(data.node)}
 {props.children}
 </svg>);
-const Icon = withIconAttributes(Geometry, ${JSON.stringify(names)}, ${width}, ${height});
 export default Icon;`;
   const result = JSON.parse(
     compile(
@@ -52,7 +51,7 @@ export default Icon;`;
       JSON.stringify({ importSource: 'effectweb', runtimeModule: 'effectweb/dom' }),
     ),
   );
-  if (result.diagnostics.length || !result.code.includes('_ew_dom.compiled'))
+  if (result.diagnostics.length || !result.code.includes('_ew_dom.markup'))
     throw new Error(`Icon was not compiled: ${name}: ${JSON.stringify(result.diagnostics)}`);
   const output = ts.transpileModule(result.code, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
@@ -107,7 +106,7 @@ const registry = [...slugs]
   .join(',\n');
 writeFileSync(
   `${directory}/dynamic.js`,
-  `import { Effect } from 'effect';
+  `import * as Effect from 'effect/Effect';
 export const dynamicIconImports = Object.freeze({${registry}});
 export const iconNames = Object.freeze(Object.keys(dynamicIconImports));
 export const isIconName = name => Object.hasOwn(dynamicIconImports, name);

@@ -1,4 +1,4 @@
-import type { Effect } from 'effect';
+import type * as Effect from 'effect/Effect';
 import type { Snapshot } from './snapshot.js';
 import type { Query, QueryGroup } from './query.js';
 
