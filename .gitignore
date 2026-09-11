@@ -8,3 +8,4 @@ packages/compiler/native/*.tmp
 test-results/
 playwright-report/
 dist-benchmark/
+benchmarks/results/

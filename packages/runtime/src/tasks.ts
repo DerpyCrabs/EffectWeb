@@ -1,6 +1,7 @@
 import type { Snapshot } from './snapshot.js';
 import type { ModelOwner, TaskPolicy } from './owner.js';
 import * as Effect from 'effect/Effect';
+import type * as Scope from 'effect/Scope';
 import * as Option from 'effect/Option';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { programView } from './component.js';
@@ -18,7 +19,7 @@ import { patchModel } from './state.js';
 
 export interface TaskDefinition<Model, Input, A, E, R = never> {
   readonly policy: Exclude<TaskPolicy, 'parallel'>;
-  readonly run: (model: Snapshot<Model>, input: Input) => Effect.Effect<A, E, R>;
+  readonly run: (model: Snapshot<Model>, input: Input) => Effect.Effect<A, E, R | Scope.Scope>;
   /** Domain identity, compared after fields or props change. Resets this slot only. */
   readonly identity?: (model: Snapshot<Model>) => unknown;
 }
@@ -77,7 +78,9 @@ interface ControllerTask<R> {
   readonly slot?: CommandSlot;
 }
 export function defineTasks<
-  Owner extends Pick<ModelOwner<object>, 'run'>,
+  Owner extends {
+    readonly run: (slot: CommandSlot, effect: Effect.Effect<never>, policy: TaskPolicy) => void;
+  },
   T extends Record<string, ControllerTask<Effect.Services<Parameters<Owner['run']>[1]>>>,
 >(
   owner: Owner,
@@ -108,7 +111,7 @@ export function defineTasks<Props, State extends object, R>(
     }
     return actions;
   }
-  return taskBuilder(definition, definition.runtime ?? (defaultUiRuntime as UiRuntime<R>));
+  return taskBuilder(definition, definition.runtime);
 }
 
 function stopWaiting<A, E>(result: AsyncResult.AsyncResult<A, E>): AsyncResult.AsyncResult<A, E> {
@@ -119,7 +122,7 @@ function stopWaiting<A, E>(result: AsyncResult.AsyncResult<A, E>): AsyncResult.A
 }
 function taskBuilder<Props, State extends object, R>(
   definition: Init<Props, State>,
-  runtime: UiRuntime<R>,
+  runtime: UiRuntime<R> | undefined,
 ) {
   type Base = State & { readonly props: Props };
   return {
@@ -160,9 +163,14 @@ function taskBuilder<Props, State extends object, R>(
         return { model, cancel };
       };
       const owners = new WeakMap<RunningProgram<Model, Message>, RunningProgram<Model, Internal>>();
-      const create = (props: Props | Snapshot<Props>): RunningProgram<Model, Message> => {
+      const create = (
+        props: Props | Snapshot<Props>,
+        ownerRuntime: UiRuntime<never> = defaultUiRuntime,
+      ): RunningProgram<Model, Message> => {
+        const execution = runtime ?? (ownerRuntime as UiRuntime<R>);
         const source: RunningProgram<Model, Internal> = program<Model, Internal>({
           initial: init(props as Snapshot<Props>),
+          runtime: ownerRuntime,
           ...(definition.name ? { name: definition.name } : {}),
           update: (snapshot, message) => {
             // Internal immutable reconstruction retains the declared domain types.
@@ -196,7 +204,7 @@ function taskBuilder<Props, State extends object, R>(
                       ...effectCommand(
                         slot(message.task),
                         () =>
-                          runtime.provide(
+                          execution.provideScoped(
                             task.run(snapshot as unknown as Snapshot<Base>, message.input as never),
                           ),
                         {

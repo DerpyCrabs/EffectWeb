@@ -2,6 +2,8 @@ import { Settlement } from './settlement.js';
 import { protectSnapshot, type Snapshot } from './snapshot.js';
 import * as Deferred from 'effect/Deferred';
 import * as Effect from 'effect/Effect';
+import * as Scope from 'effect/Scope';
+import * as Exit from 'effect/Exit';
 import * as Option from 'effect/Option';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import * as Atom from 'effect/unstable/reactivity/Atom';
@@ -9,16 +11,17 @@ import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
 
 import { loadEffect, type UiLoad } from './load.js';
 import { shareData } from './sharing.js';
-import { encodeQueryKey, type Query, type QueryGroup } from './query.js';
+import { encodeQueryArguments, type Query, type QueryGroup } from './query.js';
 import { registerCache } from './cache-internals.js';
 import { queryDefinition } from './query-internals.js';
-import type { UiRuntime } from './runtime.js';
+import { defaultUiRuntime, makeUiRuntime, type UiRuntime } from './runtime.js';
+import { reportError, reportSafely } from './errors.js';
 export { loadEffect, type UiLoad } from './load.js';
 export { shareValue } from './share.js';
 
 interface ResourceEntry {
   atom: Atom.Writable<AsyncResult.AsyncResult<unknown, unknown>, unknown>;
-  load: () => UiLoad<unknown>;
+  load: () => UiLoad<unknown, unknown, Scope.Scope>;
   loadedAt?: number;
   query?: object;
   args?: unknown;
@@ -56,6 +59,7 @@ function createQueryCache<R>(
   if (!Number.isFinite(retention) || retention < 0)
     throw new RangeError('Query retention must be finite and nonnegative.');
   const registry = AtomRegistry.make({ defaultIdleTTL: retention });
+  const clock = (runtime ?? defaultUiRuntime).clock;
   const cancelValue = Symbol('cancel');
   const removeValue = Symbol('remove');
   const generation = Atom.keepAlive(Atom.make(0));
@@ -79,7 +83,7 @@ function createQueryCache<R>(
   };
   const acquire = <A, E>(
     key: string,
-    load: () => Effect.Effect<A, E>,
+    load: () => Effect.Effect<A, E, Scope.Scope>,
     share: (previous: Snapshot<A>, next: A | Snapshot<A>) => A | Snapshot<A> = (previous, next) =>
       shareData(previous, next as Snapshot<A>),
   ) => {
@@ -94,8 +98,29 @@ function createQueryCache<R>(
         next.revision = ++nextRevision;
         next.canceled = false;
         const revision = next.revision;
+        const scope = Scope.makeUnsafe();
+        const completed = Deferred.makeUnsafe<void>();
+        const finish = settlement.begin();
+        let started = false;
+        let stopping = false;
+        get.addFinalizer(() => {
+          stopping = true;
+          // The atom interrupts its load first. Join acquisition and its ensuring
+          // finalizers before closing resources, including late acquisitions.
+          Effect.runFork(
+            Effect.uninterruptible(
+              Effect.gen(function* () {
+                if (started) yield* Deferred.await(completed);
+                yield* Scope.close(scope, Exit.void);
+              }),
+            ).pipe(Effect.ensuring(Effect.sync(finish))),
+          ).addObserver((exit) => {
+            if (Exit.isFailure(exit)) reportSafely(reportError, exit.cause);
+          });
+        });
         return Effect.suspend(() => {
-          const finish = settlement.begin();
+          if (stopping) return Effect.interrupt;
+          started = true;
           return loadEffect(() => next.load()).pipe(
             Effect.map((value) => {
               const shared = Option.isSome(previous)
@@ -105,7 +130,18 @@ function createQueryCache<R>(
               if (!disposed && revision === next.revision) remember(next, snapshot);
               return snapshot;
             }),
-            Effect.ensuring(Effect.sync(finish)),
+            Scope.provide(scope),
+            Effect.onExit((exit) =>
+              (Exit.isFailure(exit) ? Scope.close(scope, exit) : Effect.void).pipe(
+                Effect.ensuring(
+                  Effect.sync(() => {
+                    Deferred.doneUnsafe(completed, Effect.void);
+                    // Successful loads retain their resources with the atom entry.
+                    if (Exit.isFailure(exit)) finish();
+                  }),
+                ),
+              ),
+            ),
           );
         });
       });
@@ -152,7 +188,7 @@ function createQueryCache<R>(
     return { entry, atom: entry.atom as Atom.Atom<AsyncResult.AsyncResult<Snapshot<A>, E>> };
   };
   const remember = (entry: ResourceEntry, value: unknown) => {
-    entry.loadedAt = Date.now();
+    entry.loadedAt = clock.currentTimeMillisUnsafe();
     const node = registry.getNodes().get(entry.atom);
     if (node) values.set(node, { value });
   };
@@ -163,10 +199,12 @@ function createQueryCache<R>(
   const checkWritable = () => {
     if (disposed) throw new Error('Cannot write to a disposed query cache.');
   };
-  const queryKey = <Args, A, E>(definition: Query<Args, A, E, R>, args: Args | Snapshot<Args>) =>
-    `query:${identity(definition)}:${encodeQueryKey(args as import('./query.js').QueryKey)}`;
+  const queryKey = <Args, A, E>(
+    definition: Query<Args, A, E, R | Scope.Scope>,
+    args: Args | Snapshot<Args>,
+  ) => `query:${identity(definition)}:${encodeQueryArguments(definition, args)}`;
   const acquireQuery = <Args, A, E>(
-    definition: Query<Args, A, E, R>,
+    definition: Query<Args, A, E, R | Scope.Scope>,
     args: Args | Snapshot<Args>,
   ) => {
     const config = queryDefinition(definition);
@@ -182,7 +220,9 @@ function createQueryCache<R>(
               | undefined,
           ),
         );
-        return runtime ? runtime.provide(effect) : (effect as Effect.Effect<A, E>);
+        return runtime
+          ? runtime.provideScoped(effect)
+          : (effect as Effect.Effect<A, E, Scope.Scope>);
       },
       config.share,
     );
@@ -197,7 +237,7 @@ function createQueryCache<R>(
     registry.refresh(entry.atom);
   };
   const selectQuery = <Args, A, E>(
-    definition: Query<Args, A, E, R>,
+    definition: Query<Args, A, E, R | Scope.Scope>,
     args: Args | Snapshot<Args>,
   ) => {
     const { entry, atom, config } = acquireQuery(definition, args);
@@ -205,7 +245,7 @@ function createQueryCache<R>(
     if (
       registry.getNodes().has(atom) &&
       entry.loadedAt !== undefined &&
-      Date.now() - entry.loadedAt >= config.staleTime
+      clock.currentTimeMillisUnsafe() - entry.loadedAt >= config.staleTime
     ) {
       const current = registry.get(atom);
       if (!current.waiting) refresh(entry);
@@ -238,7 +278,7 @@ function createQueryCache<R>(
   const cache: QueryCache<R> = {
     batch: Atom.batch,
     getQueryData<Args, A, E>(
-      definition: Query<Args, A, E, R>,
+      definition: Query<Args, A, E, R | Scope.Scope>,
       args: Args | Snapshot<Args>,
     ): Snapshot<A> | undefined {
       return previousValue(resources.get(queryKey(definition, args)))?.value as
@@ -246,7 +286,7 @@ function createQueryCache<R>(
         | undefined;
     },
     invalidateWhere<Args, A, E>(
-      definition: Query<Args, A, E, R>,
+      definition: Query<Args, A, E, R | Scope.Scope>,
       predicate: (args: Snapshot<Args>) => boolean,
     ) {
       const selected = [...resources.values()].filter(
@@ -288,7 +328,7 @@ function createQueryCache<R>(
       });
     },
     prefetch<Args, A, E>(
-      definition: Query<Args, A, E, R>,
+      definition: Query<Args, A, E, R | Scope.Scope>,
       args: Args | Snapshot<Args>,
       options?: { readonly refresh?: boolean },
     ): Effect.Effect<Snapshot<A>, E> {
@@ -320,7 +360,7 @@ function createQueryCache<R>(
       });
     },
     setQueryData<Args, A, E>(
-      definition: Query<Args, A, E, R>,
+      definition: Query<Args, A, E, R | Scope.Scope>,
       args: Args | Snapshot<Args>,
       value: A | Snapshot<A>,
     ): Snapshot<A> {
@@ -339,7 +379,7 @@ function createQueryCache<R>(
       return snapshot;
     },
     updateQueryData<Args, A, E>(
-      definition: Query<Args, A, E, R>,
+      definition: Query<Args, A, E, R | Scope.Scope>,
       args: Args | Snapshot<Args>,
       update: (previous: Snapshot<A>) => A | Snapshot<A> | undefined,
     ): Snapshot<A> | undefined {
@@ -352,7 +392,7 @@ function createQueryCache<R>(
       return next === undefined ? undefined : cache.setQueryData(definition, args, next);
     },
     invalidateQuery<Args, A, E>(
-      definition: Query<Args, A, E, R>,
+      definition: Query<Args, A, E, R | Scope.Scope>,
       ...selected: [] | [Args | Snapshot<Args>]
     ) {
       if (selected.length) {
@@ -409,36 +449,48 @@ function createQueryCache<R>(
   return Object.freeze(cache);
 }
 
+/** Capture application services and clock, and close the cache with the current Effect scope. */
+export const scopedQueryCache = <R = never>(
+  options: QueryCacheOptions = {},
+): Effect.Effect<QueryCache<R>, never, R | Scope.Scope> =>
+  Effect.gen(function* () {
+    const runtime = yield* makeUiRuntime<R>();
+    return yield* Effect.acquireRelease(
+      Effect.sync(() => makeQueryCache(runtime, options)),
+      (cache) => cache.close(),
+    );
+  });
+
 /** A cache owns one registry and the query resources published through it. */
 export interface QueryCache<R = never> {
   batch(work: () => void): void;
   getQueryData<Args, A, E>(
-    definition: Query<Args, A, E, R>,
+    definition: Query<Args, A, E, R | Scope.Scope>,
     args: NoInfer<Args> | Snapshot<NoInfer<Args>>,
   ): Snapshot<A> | undefined;
   invalidateWhere<Args, A, E>(
-    definition: Query<Args, A, E, R>,
+    definition: Query<Args, A, E, R | Scope.Scope>,
     predicate: (args: Snapshot<Args>) => boolean,
   ): void;
   invalidateGroup(group: QueryGroup): void;
   /** Cancel requests while retaining the last success. Explicit refresh restarts them. */
   cancelQuery<Args, A, E>(
-    definition: Query<Args, A, E, R>,
+    definition: Query<Args, A, E, R | Scope.Scope>,
     ...selected: [] | [NoInfer<Args> | Snapshot<NoInfer<Args>>]
   ): void;
   /** Clear cached data and cancel requests; a subsequent selection or refresh reloads. */
   removeQuery<Args, A, E>(
-    definition: Query<Args, A, E, R>,
+    definition: Query<Args, A, E, R | Scope.Scope>,
     ...selected: [] | [NoInfer<Args> | Snapshot<NoInfer<Args>>]
   ): void;
   prefetch<Args, A, E>(
-    definition: Query<Args, A, E, R>,
+    definition: Query<Args, A, E, R | Scope.Scope>,
     args: NoInfer<Args> | Snapshot<NoInfer<Args>>,
     options?: { readonly refresh?: boolean },
   ): Effect.Effect<Snapshot<A>, E>;
   /** Publish a protected success, including undefined, and supersede any pending load for this key. */
   setQueryData<Args, A, E>(
-    definition: Query<Args, A, E, R>,
+    definition: Query<Args, A, E, R | Scope.Scope>,
     args: NoInfer<Args> | Snapshot<NoInfer<Args>>,
     value: NoInfer<A> | Snapshot<NoInfer<A>>,
   ): Snapshot<A>;
@@ -448,18 +500,18 @@ export interface QueryCache<R = never> {
    * Updaters run synchronously on readonly data; a throw leaves the cached value unchanged.
    */
   updateQueryData<Args, A, E>(
-    definition: Query<Args, A, E, R>,
+    definition: Query<Args, A, E, R | Scope.Scope>,
     args: NoInfer<Args> | Snapshot<NoInfer<Args>>,
     update: (previous: Snapshot<A>) => NoInfer<A> | Snapshot<NoInfer<A>> | undefined,
   ): Snapshot<A> | undefined;
   invalidateQuery<Args, A, E>(
-    definition: Query<Args, A, E, R>,
+    definition: Query<Args, A, E, R | Scope.Scope>,
     ...selected: [] | [NoInfer<Args> | Snapshot<NoInfer<Args>>]
   ): void;
   /** Observe account resets without exposing registry mutation. */
   onReset(listener: () => void): () => void;
   resetResources(): void;
-  /** Interrupt every request and wait for its finalizers, including previously canceled requests. */
+  /** Release retained acquisitions and join all load/resource finalizers, including canceled or evicted entries. */
   close(): Effect.Effect<void>;
   dispose(): void;
 }

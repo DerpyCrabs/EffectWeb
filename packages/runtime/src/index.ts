@@ -1,15 +1,48 @@
 export type { Snapshot, SnapshotOpaque, snapshotOpaque } from './snapshot.js';
-export { modelOwner, type ModelOwner, type DisposableOwner, type TaskPolicy } from './owner.js';
+export {
+  modelOwner,
+  makeModelOwner,
+  type ModelOwner,
+  type DisposableOwner,
+  type TaskPolicy,
+} from './owner.js';
 export { collection, entities, sequence, type Rows, type Collection } from './collection.js';
 export { component, localComponent, programView } from './component.js';
 export { patchModel } from './state.js';
 export { defineActions, type ActionMessage } from './actions.js';
 export { taskComponent, taskControls, type TaskModel, type TaskMessage } from './task.js';
-export { effectEvent } from './effectEvent.js';
-export { mountView, view, list, ViewBinding, type View } from './dom.js';
+export { effectEvent, makeEffectHandler } from './effectEvent.js';
+export {
+  mountView,
+  view,
+  list,
+  listView,
+  memoView,
+  observe,
+  ViewBinding,
+  type View,
+  type Mounted,
+} from './dom.js';
+export { mount } from './render.js';
+export {
+  mapSource,
+  fromStream,
+  fromSubscriptionRef,
+  fromAtom,
+  projectionSource,
+  type Source,
+} from './source.js';
 export { lazyView, type LazyViewOptions } from './lazy.js';
 export type { JSX } from './jsx.js';
-export { Portal, domBinding, domMount, type DomMount, type PortalProps } from './mount.js';
+export {
+  Portal,
+  domBinding,
+  domMount,
+  makeDomMount,
+  makeDomBinding,
+  type DomMount,
+  type PortalProps,
+} from './mount.js';
 export {
   pages,
   type PagesMessage,
@@ -20,6 +53,7 @@ export {
 } from './pages.js';
 export {
   program,
+  makeProgram,
   mapTransition,
   actionCommand,
   effectCommand,
@@ -70,10 +104,22 @@ export {
   type TasksMessage,
   type TaskResults,
 } from './tasks.js';
-export { uiRuntime, type UiRuntime } from './runtime.js';
-export { query, queryGroup, type Query, type QueryKey, type QueryGroup } from './query.js';
+export { uiRuntime, makeUiRuntime, type UiRuntime } from './runtime.js';
+export {
+  query,
+  queryGroup,
+  type Query,
+  type QueryKey,
+  type QueryGroup,
+  type QueryEncoding,
+} from './query.js';
 
-export { makeQueryCache, type QueryCache, type QueryCacheOptions } from './cache.js';
+export {
+  makeQueryCache,
+  scopedQueryCache,
+  type QueryCache,
+  type QueryCacheOptions,
+} from './cache.js';
 export {
   queryResource,
   type QueryResource,

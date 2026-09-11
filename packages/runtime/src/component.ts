@@ -44,9 +44,10 @@ export function component<Props, Model extends { readonly props: Props }, Messag
     view: View<Model, Message>;
   } & ([R] extends [never] ? { runtime?: UiRuntime<R> } : { runtime: UiRuntime<R> }),
 ): View<Props, never> {
-  const runtime = definition.runtime ?? (defaultUiRuntime as UiRuntime<R>);
   return identify(
     compiled<Props, never>((scope, parent, before) => {
+      const ownerRuntime = scope.settlement.runtime ?? defaultUiRuntime;
+      const runtime = definition.runtime ?? (ownerRuntime as UiRuntime<R>);
       type Envelope = { type: 'Input'; props: Props } | { type: 'Message'; message: Message };
       const wrap = (next: Transition<Model, Message, R>): Transition<Model, Envelope> => ({
         model: next.model,
@@ -65,6 +66,7 @@ export function component<Props, Model extends { readonly props: Props }, Messag
       const source = program<Model, Envelope>({
         initial: definition.init(scope.value as Snapshot<Props>),
         onDefect: scope.report,
+        runtime: ownerRuntime,
         update: (model, envelope) =>
           wrap(
             envelope.type === 'Input'
@@ -109,13 +111,19 @@ export function component<Props, Model extends { readonly props: Props }, Messag
 /** Mount an existing program without introducing a second state owner. */
 export function programView<Props, Model, Message>(definition: {
   identity?: (props: Snapshot<Props>) => unknown;
-  create: (props: Snapshot<Props>) => import('./program').Program<Model, Message>;
+  create: (
+    props: Snapshot<Props>,
+    runtime: UiRuntime<never>,
+  ) => import('./program').Program<Model, Message>;
   receive: (source: import('./program').Program<Model, Message>, props: Snapshot<Props>) => void;
   view: View<Model, Message>;
 }): View<Props, never> {
   return identify(
     compiled<Props, never>((scope, parent, before) => {
-      const source = definition.create(scope.value as Snapshot<Props>);
+      const source = definition.create(
+        scope.value as Snapshot<Props>,
+        scope.settlement.runtime ?? defaultUiRuntime,
+      );
       if (scope.disposed) {
         closeProgram(scope, source);
         return;

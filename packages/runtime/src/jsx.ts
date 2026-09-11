@@ -4,6 +4,8 @@ import type { SnapshotOpaque } from './snapshot.js';
 import type { EffectEventRequest } from './effectEvent.js';
 import type { CompiledContent } from './dom.js';
 import type { DomMount } from './mount.js';
+import type * as Effect from 'effect/Effect';
+import type * as Scope from 'effect/Scope';
 /** Nominal eligibility for compiled JSX components and compiler primitives. */
 export const jsxComponent: unique symbol = Symbol('effectweb.component');
 /** JSX is a compiler input. No renderer library owns its types. */
@@ -22,7 +24,11 @@ export namespace JSX {
     | undefined
     | CompiledContent
     | ElementArray;
-  export type EventResult = void | boolean | EffectEventRequest;
+  export type EventResult =
+    | void
+    | boolean
+    | EffectEventRequest
+    | Effect.Effect<unknown, unknown, Scope.Scope>;
   export type EventHandler<T, E extends Event> = (
     event: E & { currentTarget: T; target: EventTarget & globalThis.Element },
   ) => EventResult;

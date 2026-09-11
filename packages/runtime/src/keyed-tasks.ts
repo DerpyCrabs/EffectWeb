@@ -1,6 +1,7 @@
 import * as Cause from 'effect/Cause';
 import * as Deferred from 'effect/Deferred';
 import * as Effect from 'effect/Effect';
+import type * as Scope from 'effect/Scope';
 import * as Exit from 'effect/Exit';
 import { commandSlot, program, type Command, type TaskPolicy } from './program.js';
 import type { DisposableOwner } from './owner.js';
@@ -21,9 +22,11 @@ export function keyedTasks<Key, Input, A, E = never, R = never>(
   definition: {
     readonly name: string;
     readonly policy: TaskPolicy;
-    readonly run: (key: Key, input: Snapshot<Input>) => Effect.Effect<A, E, R>;
+    readonly run: (key: Key, input: Snapshot<Input>) => Effect.Effect<A, E, R | Scope.Scope>;
   },
-  ...provided: [R] extends [never] ? [runtime?: UiRuntime<R>] : [runtime: UiRuntime<R>]
+  ...provided: [Exclude<R, Scope.Scope>] extends [never]
+    ? [runtime?: UiRuntime<R>]
+    : [runtime: UiRuntime<R>]
 ) {
   const runtime = provided[0] ?? (defaultUiRuntime as UiRuntime<R>);
   type Entry = { source: ReturnType<typeof makeSource>; version: number; retiring: boolean };
@@ -92,8 +95,10 @@ export function keyedTasks<Key, Input, A, E = never, R = never>(
       });
       const action = Effect.uninterruptibleMask((restore) =>
         restore(
-          Effect.suspend(() => definition.run(key, captured)).pipe(
-            Effect.map((value) => protectSnapshot(value) as Snapshot<A>),
+          Effect.scoped(
+            Effect.suspend(() => definition.run(key, captured)).pipe(
+              Effect.map((value) => protectSnapshot(value) as Snapshot<A>),
+            ),
           ),
         ).pipe(
           Effect.exit,
@@ -114,7 +119,7 @@ export function keyedTasks<Key, Input, A, E = never, R = never>(
         command: {
           slot,
           policy: definition.policy,
-          action: runtime.provide(action),
+          action: runtime.provideScoped(action),
           onDiscard: (_tag) => settle({ _tag }),
         },
       });

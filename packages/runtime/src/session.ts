@@ -1,6 +1,7 @@
+import type * as Scope from 'effect/Scope';
 import type { Snapshot } from './snapshot.js';
 import { runAll, reportError, reportSafely } from './errors.js';
-import { encodeQueryKey, type Query } from './query.js';
+import { encodeQueryArguments, type Query } from './query.js';
 import type { DisposableOwner } from './owner.js';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import * as Atom from 'effect/unstable/reactivity/Atom';
@@ -49,7 +50,7 @@ export interface QueryResource<Args, A, E = never> {
  */
 export function queryResource<Args, A, E, R>(
   context: { cache: QueryCache<R>; changed?: () => void },
-  definition: Query<Args, A, E, NoInfer<R>>,
+  definition: Query<Args, A, E, NoInfer<R> | Scope.Scope>,
 ): QueryResource<Args, A, E> {
   const internal = cacheInternals(context.cache);
   let key: string | undefined;
@@ -121,11 +122,12 @@ export function queryResource<Args, A, E, R>(
     select(args: Args | Snapshot<Args> | undefined) {
       if (disposed || internal.disposed()) return;
       const nextGeneration = internal.registry.get(internal.generation);
-      const nextKey =
-        args === undefined ? undefined : encodeQueryKey(args as import('./query.js').QueryKey);
+      const nextKey = args === undefined ? undefined : encodeQueryArguments(definition, args);
       if (nextKey === key && nextGeneration === generation) return;
       const selected = ++revision;
       disconnect();
+      // Releasing the previous query can run finalizers that select or dispose again.
+      if (disposed || selected !== revision) return;
       key = nextKey;
       generation = nextGeneration;
       const nextAtom = args === undefined ? undefined : internal.query(definition, args);
@@ -181,7 +183,7 @@ export function queryResource<Args, A, E, R>(
 export function observeQuery<Args, A, E, R>(
   owner: DisposableOwner,
   cache: QueryCache<R>,
-  definition: Query<Args, A, E, NoInfer<R>>,
+  definition: Query<Args, A, E, NoInfer<R> | Scope.Scope>,
   changed: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void,
 ): QueryResource<Args, A, E> {
   const resource = queryResource({ cache }, definition);

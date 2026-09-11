@@ -2,6 +2,7 @@ import { protectSnapshot, type Snapshot } from './snapshot.js';
 import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
+import type * as Scope from 'effect/Scope';
 import {
   program,
   type Command,
@@ -11,7 +12,7 @@ import {
 } from './program.js';
 import { patchModel } from './state.js';
 import { runAll, reportError, type ReportError } from './errors.js';
-import type { UiRuntime } from './runtime.js';
+import { makeUiRuntime, type UiRuntime } from './runtime.js';
 
 export type { TaskPolicy } from './program.js';
 interface OwnedResource {
@@ -42,7 +43,7 @@ export interface ModelOwner<Model extends object, R = never> extends DisposableO
   ) => A;
   readonly run: (
     slot: CommandSlot,
-    effect: Effect.Effect<unknown, unknown, R>,
+    effect: Effect.Effect<unknown, unknown, R | Scope.Scope>,
     policy: TaskPolicy,
   ) => void;
   readonly cancel: (slot: CommandSlot) => void;
@@ -71,7 +72,7 @@ export function modelOwner<Model extends object, R>(
     | {
         type: 'Run';
         slot: CommandSlot;
-        effect: Effect.Effect<unknown, unknown, R>;
+        effect: Effect.Effect<unknown, unknown, R | Scope.Scope>;
         policy: TaskPolicy;
       }
     | { type: 'Cancel'; slot: CommandSlot };
@@ -82,7 +83,16 @@ export function modelOwner<Model extends object, R>(
   let resourcesDisposed = false;
   const source = program<Model, Batch>({
     initial,
-    ...options,
+    ...(options.name ? { name: options.name } : {}),
+    ...(options.onDefect ? { onDefect: options.onDefect } : {}),
+    ...(options.runtime
+      ? {
+          runtime: {
+            runFork: <A, E>(effect: Effect.Effect<A, E, Scope.Scope>) =>
+              options.runtime!.runFork(effect),
+          },
+        }
+      : {}),
     update(snapshot, operations) {
       let model = snapshot as Model;
       const single = operations.length === 1 ? operations[0] : undefined;
@@ -220,3 +230,16 @@ export function modelOwner<Model extends object, R>(
     dispose,
   };
 }
+
+/** Construct an owner using the current services and release it with the current Effect scope. */
+export const makeModelOwner = <Model extends object, R = never>(
+  initial: Model,
+  options: Options = {},
+): Effect.Effect<ModelOwner<Model, R>, never, R | Scope.Scope> =>
+  Effect.gen(function* () {
+    const runtime = yield* makeUiRuntime<R>();
+    return yield* Effect.acquireRelease(
+      Effect.sync(() => modelOwner(initial, { ...options, runtime })),
+      (owner) => owner.close().pipe(Effect.orDie),
+    );
+  });

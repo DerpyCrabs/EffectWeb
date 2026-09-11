@@ -4,6 +4,32 @@ import { event, Scope } from './dom.js';
 import { effectEvent } from './effectEvent.js';
 import type { JSX } from './jsx.js';
 
+it('owns every directly returned Effect and releases acquired resources on listener removal', async () => {
+  let started = 0;
+  let released = 0;
+  const mounted = listener(() =>
+    Effect.gen(function* () {
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          started++;
+        }),
+        () =>
+          Effect.sync(() => {
+            released++;
+          }),
+      );
+      return yield* Effect.never;
+    }),
+  );
+  mounted.click();
+  mounted.click();
+  expect(started).toBe(2);
+  mounted.scope.dispose();
+  await Effect.runPromise(mounted.scope.settlement.wait());
+  expect(released).toBe(2);
+  expect(mounted.errors).toEqual([]);
+});
+
 function listener(handler: (event: Event) => JSX.EventResult) {
   const errors: unknown[] = [];
   const scope = new Scope(

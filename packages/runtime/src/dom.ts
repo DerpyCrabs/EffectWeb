@@ -1,6 +1,7 @@
 import attributeData from './dom-attributes.json' with { type: 'json' };
 import * as Effect from 'effect/Effect';
-import type { Snapshot } from './snapshot.js';
+import * as Exit from 'effect/Exit';
+import { protectSnapshot, type Snapshot } from './snapshot.js';
 
 import { validateIdentities } from './collection.js';
 import { runAll, reportError, reportSafely, type ReportError } from './errors.js';
@@ -12,7 +13,9 @@ import { jsxComponent, type JSX } from './jsx.js';
 import type { DomMount } from './mount.js';
 import { Settlement } from './settlement.js';
 import { prepareMount } from './mount.js';
-import type { Program, Send } from './program.js';
+import type { Send } from './program.js';
+import type { Source } from './source.js';
+import type { UiRuntime } from './runtime.js';
 type Dependencies = () => readonly unknown[];
 type BindingLocation = BindingSource | (() => BindingSource | undefined);
 const bindingLocation = (source: BindingLocation | undefined) =>
@@ -108,7 +111,7 @@ export const ViewBinding = /* @__PURE__ */ Object.assign(
 );
 
 /** Untyped callers get an actionable failure instead of silently losing child messages. */
-export function unboundSend(_message: never): never {
+export function unboundSend(_message: unknown): never {
   throw new Error(
     'This view needs a dispatcher. Mount it through ViewBinding with model and send.',
   );
@@ -170,6 +173,21 @@ export function compiled<M, E>(build: Build<M, E>): View<M, E> {
     { build, [jsxComponent]: true as const },
   );
   return definition;
+}
+
+/** Skip a view only under the caller's explicit equality contract. */
+export function memoView<M, E>(
+  definition: View<M, E>,
+  equals: (previous: Snapshot<M>, next: Snapshot<M>) => boolean,
+): View<M, E> {
+  return compiled((scope, parent, before) => {
+    const child = new Scope(scope.value, scope.send, scope.report, scope.settlement);
+    scope.cleanups.push(() => child.dispose());
+    definition.build(child, parent, before);
+    scope.jobs.push(() => {
+      if (!equals(child.value as Snapshot<M>, scope.value as Snapshot<M>)) child.set(scope.value);
+    });
+  });
 }
 
 const viewDefinitions = new WeakMap<object, ContentDefinition>();
@@ -283,6 +301,97 @@ export function list<A>(
 ): JSX.Element {
   return new SlotPlacement(listDefinition, { rows, render });
 }
+
+/**
+ * Define keyed row projection once. Every dependency is passed as an explicit input;
+ * only changed projected props enter the row view's renderer.
+ */
+export function listView<A, Input, Props, Message = never>(options: {
+  readonly project: (item: A, index: number, input: Input) => Props | Snapshot<Props>;
+  readonly view: View<Props, Message>;
+  readonly equals?: (previous: Snapshot<Props>, next: Snapshot<Props>) => boolean;
+}) {
+  type Value = { rows: Rows<A> | readonly A[]; input: Input; send: Send<Message> };
+  const equals = options.equals ?? Object.is;
+  const definition = contentDefinition<Value>((scope, parent, before) => {
+    each(
+      scope,
+      parent,
+      before,
+      () => scope.value.rows,
+      () => [scope.value.input, scope.value.send],
+      true,
+      (row, parent, before) => {
+        const model = () =>
+          protectSnapshot(options.project(row.value[0], row.value[1], scope.value.input)) as Props;
+        const child = new Scope(
+          model(),
+          (message: Message) => scope.value.send(message),
+          scope.report,
+          scope.settlement,
+        );
+        row.cleanups.push(() => child.dispose());
+        options.view.build(child, parent, before);
+        row.jobs.push(() => {
+          const next = model();
+          if (!equals(child.value as Snapshot<Props>, next as Snapshot<Props>)) child.set(next);
+        });
+      },
+    );
+  });
+  return (
+    rows: Rows<A> | readonly A[],
+    input: Input,
+    ...dispatch: [Message] extends [never] ? [send?: Send<Message>] : [send: Send<Message>]
+  ): JSX.Element =>
+    new SlotPlacement(definition, { rows, input, send: dispatch[0] ?? unboundSend });
+}
+
+type Observation = { source: Source<unknown>; render: (value: unknown) => JSX.Element };
+const observationDefinition = contentDefinition<Observation>((scope, parent, before) => {
+  let unsubscribe = () => {};
+  let source = scope.value.source;
+  const child = new Scope(source.model(), unboundSend, scope.report, scope.settlement);
+  scope.cleanups.push(
+    () => child.dispose(),
+    () => unsubscribe(),
+  );
+  text(
+    child,
+    parent,
+    before,
+    () => [child.value, scope.value.render],
+    () => scope.value.render(child.value),
+  );
+  const connect = () => {
+    if (scope.disposed) return;
+    const current = source;
+    const release = current.subscribe((value) => {
+      if (!scope.disposed && source === current) child.set(value);
+    });
+    if (scope.disposed || source !== current) release();
+    else {
+      unsubscribe = release;
+      child.set(current.model());
+    }
+  };
+  connect();
+  scope.jobs.push(() => {
+    if (source !== scope.value.source) {
+      unsubscribe();
+      source = scope.value.source;
+      connect();
+    } else child.set(source.model());
+  });
+});
+
+/** Render a declared source in its own subscribed region. No dependencies are inferred. */
+export function observe<A>(
+  source: Source<A>,
+  render: (value: Snapshot<A>) => JSX.Element,
+): JSX.Element {
+  return new SlotPlacement(observationDefinition, { source, render });
+}
 export interface PortalProps {
   readonly children?: JSX.Element;
   readonly mount?: Element | undefined;
@@ -363,15 +472,60 @@ function buildFragment(parent: Node): DocumentFragment {
   return fragment;
 }
 
+export interface MountOptions {
+  readonly onError?: ReportError;
+  readonly runtime?: UiRuntime<never>;
+}
+export interface Mounted {
+  (): void;
+  readonly dispose: () => void;
+  readonly close: () => Effect.Effect<void>;
+}
 export function mountView<M, E>(
   parent: Node,
   definition: View<M, E>,
-  source: Program<M, E>,
-  options: { onError?: ReportError } = {},
-) {
+  source: Source<M> & { readonly send: Send<E> },
+  options?: MountOptions,
+): Mounted;
+export function mountView<M>(
+  parent: Node,
+  definition: View<M, never>,
+  source: Source<M>,
+  options?: MountOptions,
+): Mounted;
+export function mountView<M, E>(
+  parent: Node,
+  definition: View<M, E>,
+  source: Source<M>,
+  options: MountOptions & { readonly send: Send<E> },
+): Mounted;
+export function mountView<M, E>(
+  parent: Node,
+  definition: View<M, E>,
+  source: Source<M> & { readonly send?: Send<E> },
+  options: MountOptions & { readonly send?: Send<E> } = {},
+): Mounted {
+  return mountViewWithSettlement(
+    parent,
+    definition,
+    source,
+    { ...options, send: options.send ?? source.send ?? (unboundSend as Send<E>) },
+    new Settlement(options.runtime),
+  );
+}
+
+/** Internal mounting boundary. Its owner retains completion accounting if construction fails. */
+export function mountViewWithSettlement<M, E>(
+  parent: Node,
+  definition: View<M, E>,
+  source: Source<M>,
+  options: { readonly send: Send<E>; readonly onError?: ReportError },
+  settlement: Settlement,
+): Mounted {
   return commitDom(() => {
+    const initial = source.model();
     const { start, end } = markers(parent, null);
-    const scope = new Scope(source.model(), source.send, options.onError);
+    const scope = new Scope(initial, options.send, options.onError, settlement);
     let unsubscribe = () => {};
     let ready = false;
     let latest = scope.value;
@@ -386,12 +540,20 @@ export function mountView<M, E>(
       ready = true;
       if (!Object.is(latest, scope.value)) scope.set(latest);
     } catch (error) {
+      settlement.exit = Exit.die(error);
       runAll([unsubscribe, () => scope.dispose(), () => remove(start, end)], scope.report);
       throw error;
     }
+    let disposed = false;
     const dispose = () => {
-      if (scope.disposed) return;
-      runAll([unsubscribe, () => scope.dispose(), () => remove(start, end)], scope.report);
+      if (disposed) return;
+      disposed = true;
+      const finish = settlement.begin();
+      try {
+        runAll([unsubscribe, () => scope.dispose(), () => remove(start, end)], scope.report);
+      } finally {
+        finish();
+      }
     };
     return Object.assign(dispose, {
       dispose,
@@ -1198,7 +1360,7 @@ export function attach<M, E, T extends Element>(
   let active: ReturnType<typeof prepareMount<T>> | undefined;
   scope.cleanups.push(() => {
     generation++;
-    active?.dispose();
+    active?.dispose(scope.settlement.exit);
     active = undefined;
   });
   scope.watch(dependencies, () => {
@@ -1212,7 +1374,7 @@ export function attach<M, E, T extends Element>(
       if (!scope.disposed && token === generation) {
         const finished = scope.settlement.begin();
         try {
-          const acquired = prepareMount(element, mount, scope.report);
+          const acquired = prepareMount(element, mount, scope.report, scope.settlement.runtime);
           Effect.runFork(acquired.closed).addObserver(finished);
           if (scope.disposed || token !== generation) acquired.dispose();
           else {

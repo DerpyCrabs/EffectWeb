@@ -1,5 +1,6 @@
 import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
+import type * as Scope from 'effect/Scope';
 import * as Fiber from 'effect/Fiber';
 import { child, compiled, viewRegion, type View } from './dom.js';
 import { reportSafely } from './errors.js';
@@ -15,8 +16,8 @@ export interface LazyViewOptions<Model, Message, E> {
  * Unresolved placements own independent requests; unmount interrupts their work.
  */
 export function lazyView<Model, Message = never, E = never, R = never>(
-  load: () => Effect.Effect<View<Model, Message>, E, R>,
-  ...provided: [R] extends [never]
+  load: () => Effect.Effect<View<Model, Message>, E, R | Scope.Scope>,
+  ...provided: [Exclude<R, Scope.Scope>] extends [never]
     ? [
         options?: LazyViewOptions<NoInfer<Model>, NoInfer<Message>, NoInfer<E>> & {
           readonly runtime?: UiRuntime<R>;
@@ -29,9 +30,10 @@ export function lazyView<Model, Message = never, E = never, R = never>(
       ]
 ): View<Model, Message> {
   const options = provided[0];
-  const runtime = options?.runtime ?? (defaultUiRuntime as UiRuntime<R>);
   let loaded: View<Model, Message> | undefined;
   return compiled((scope, parent, before) => {
+    const ownerRuntime = scope.settlement.runtime ?? defaultUiRuntime;
+    const runtime = options?.runtime ?? (ownerRuntime as UiRuntime<R>);
     const render = viewRegion(scope, parent, before);
     if (loaded) {
       render(loaded);
@@ -46,7 +48,7 @@ export function lazyView<Model, Message = never, E = never, R = never>(
     if (scope.disposed) return;
     const finished = scope.settlement.begin();
     try {
-      fiber = Effect.runFork(runtime.provide(Effect.suspend(load)));
+      fiber = ownerRuntime.runFork(runtime.provideScoped(Effect.suspend(load)));
     } catch (error) {
       finished();
       throw error;

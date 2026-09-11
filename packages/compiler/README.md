@@ -50,4 +50,4 @@ Diagnostics include `code`, `category`, `severity`, source `file`/`line`/`column
 }
 ```
 
-Remove `effectweb/render-safety` when heuristic advice is not wanted. TypeScript checks props, snapshots, and Effect service/error contracts; the compiler does not load or check the consumer's TypeScript project. See the [0.4.0 migration guide](https://github.com/DerpyCrabs/EffectWeb/blob/main/docs/migration-0.4.0.md) for list and lifecycle changes.
+Remove `effectweb/render-safety` when heuristic advice is not wanted. TypeScript checks props, snapshots, and Effect service/error contracts; the compiler does not load or check the consumer's TypeScript project.

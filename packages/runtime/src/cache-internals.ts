@@ -1,3 +1,4 @@
+import type * as Scope from 'effect/Scope';
 import type * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import type * as Atom from 'effect/unstable/reactivity/Atom';
 import type * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
@@ -9,14 +10,14 @@ export interface CacheInternals<R> {
   refresh(atom: Atom.Atom<unknown>): void;
   readonly disposed: () => boolean;
   revision<Args, A, E>(
-    definition: Query<Args, A, E, R>,
+    definition: Query<Args, A, E, R | Scope.Scope>,
     args: Args | Snapshot<Args>,
   ): number | undefined;
   retain(atom: Atom.Atom<unknown>): () => void;
   readonly registry: AtomRegistry.AtomRegistry;
   readonly generation: Atom.Writable<number>;
   query<Args, A, E>(
-    definition: Query<Args, A, E, R>,
+    definition: Query<Args, A, E, R | Scope.Scope>,
     args: Args | Snapshot<Args>,
   ): Atom.Atom<AsyncResult.AsyncResult<Snapshot<A>, E>>;
 }

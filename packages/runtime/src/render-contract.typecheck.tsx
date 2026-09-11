@@ -35,7 +35,7 @@ export function renderContractTypes() {
     // @ts-expect-error DOM content uses the same JSX contract as the authoring API.
     () => ({ arbitrary: 'object' }),
   );
-  // @ts-expect-error Compiler primitives keep the same owned event contract.
+  // A listener owns direct Effects, including their resource scopes.
   event(scope, button, 'onClick', () => Effect.void);
   bindEvent(
     scope,
@@ -45,7 +45,6 @@ export function renderContractTypes() {
     // @ts-expect-error A listener factory cannot return a Promise callback.
     () => async () => {},
   );
-  // @ts-expect-error Event execution requires a request constructed by effectEvent.
   eventEffects(() => {}).accept(Effect.void);
   // @ts-expect-error Effects need an owner and cannot be rendered as values.
   const effectValue: JSX.Element = Effect.succeed('text');
@@ -59,7 +58,6 @@ export function renderContractTypes() {
   // @ts-expect-error JSX handlers preserve the event contract for inline async callbacks.
   const asyncEvent = <button onClick={async () => {}} />;
   const attrs = { onClick: () => Effect.void };
-  // @ts-expect-error Spreads preserve the same owned-work requirement.
   const effectSpread = <button {...attrs} />;
   void [effectValue, promiseValue, asyncView, effectView, asyncEvent, effectSpread];
 }

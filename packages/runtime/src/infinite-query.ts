@@ -1,7 +1,9 @@
 import * as Effect from 'effect/Effect';
+import type * as Scope from 'effect/Scope';
 import {
   query,
   encodeQueryKey,
+  encodeQueryArguments,
   type Query,
   type QueryKey,
   type QueryArgs,
@@ -21,37 +23,58 @@ export interface InfiniteQuery<Args, A, Param, E = never, R = never> {
   readonly page: Query<{ args: Args; param: Param }, A, E, R>;
   readonly maxPages: number;
   readonly next: (value: Snapshot<A>, param: Snapshot<Param>) => Param | undefined;
+  readonly paramKey: (param: Param | Snapshot<Param> | undefined) => string;
 }
 /** Shared pages with explicit cursor identity. Refresh preserves retained page parameters by default. */
 export function infiniteQuery<Args, A, Param, E = never, R = never>(
   definition: {
     readonly name: string;
     readonly initial: Param;
-    readonly load: (args: Snapshot<Args>, param: Snapshot<Param>) => Effect.Effect<A, E, R>;
+    readonly load: (
+      args: Snapshot<Args>,
+      param: Snapshot<Param>,
+    ) => Effect.Effect<A, E, R | Scope.Scope>;
     readonly next: (value: Snapshot<A>, param: Snapshot<Param>) => Param | undefined;
     readonly maxPages?: number;
     readonly refresh?: 'retained' | 'first';
     readonly groups?: readonly QueryGroup[];
-  } & (Args extends QueryArgs<Args> ? unknown : { readonly nonSerializableQueryArguments: never }) &
-    (Param extends QueryArgs<Param> ? unknown : { readonly nonSerializablePageParameters: never }),
+    readonly encodeArgs?: (args: Snapshot<Args>) => QueryKey;
+    readonly encodeParam?: (param: Snapshot<Param>) => QueryKey;
+  } & ([Args] extends [QueryArgs<Args>]
+    ? unknown
+    : { readonly encodeArgs: (args: Snapshot<Args>) => QueryKey }) &
+    ([Param] extends [QueryArgs<Param>]
+      ? unknown
+      : { readonly encodeParam: (param: Snapshot<Param>) => QueryKey }),
 ): InfiniteQuery<Args, A, Param, E, R> {
   const config = Object.freeze({ ...definition });
   const maxPages = config.maxPages ?? Infinity;
   if (maxPages !== Infinity && (!Number.isInteger(maxPages) || maxPages < 1))
     throw new RangeError('maxPages must be a positive integer.');
-  encodeQueryKey(config.initial as QueryKey);
+  const encodeArgs = (args: Snapshot<Args>) =>
+    config.encodeArgs ? config.encodeArgs(args) : (args as QueryKey);
+  const encodeParam = (param: Snapshot<Param>) =>
+    config.encodeParam ? config.encodeParam(param) : (param as QueryKey);
+  const paramKey = (param: Param | Snapshot<Param> | undefined) =>
+    encodeQueryKey(param === undefined ? undefined : encodeParam(param as Snapshot<Param>));
+  paramKey(config.initial);
   const initial = protectSnapshot(config.initial) as Snapshot<Param>;
   const next = (value: Snapshot<A>, param: Snapshot<Param>): Param | undefined => {
     const result = config.next(value, param);
-    encodeQueryKey(result as QueryKey);
+    paramKey(result);
     return result;
   };
   const page = query<{ args: Args; param: Param }, A, E, R>({
     name: `${config.name}:page`,
+    encode: ({ args, param }: Snapshot<{ args: Args; param: Param }>) => ({
+      args: encodeArgs(args),
+      param: encodeParam(param),
+    }),
     load: ({ args, param }: Snapshot<{ args: Args; param: Param }>) => config.load(args, param),
-  } as Parameters<typeof query<{ args: Args; param: Param }, A, E, R>>[0]);
+  });
   const root = query<Args, InfiniteData<A, Param>, E, R>({
     name: config.name,
+    encode: encodeArgs,
     ...(config.groups ? { groups: config.groups } : {}),
     load: (args: Snapshot<Args>, previous?: Snapshot<InfiniteData<A, Param>>) => {
       const params =
@@ -70,8 +93,8 @@ export function infiniteQuery<Args, A, Param, E = never, R = never>(
         }),
       );
     },
-  } as Parameters<typeof query<Args, InfiniteData<A, Param>, E, R>>[0]);
-  return Object.freeze({ query: root, page, maxPages, next });
+  });
+  return Object.freeze({ query: root, page, maxPages, next, paramKey });
 }
 
 export interface InfiniteResource<Args, A, Param, E = never> extends QueryResource<
@@ -106,7 +129,7 @@ function operationBook(cache: object, definition: object): Map<string, PageOpera
 /** Cache-owned results, observer-owned subscriptions. Operations return typed Effects for task composition. */
 export function infiniteResource<Args, A, Param, E, R>(
   cache: QueryCache<R>,
-  definition: InfiniteQuery<Args, A, Param, E, NoInfer<R>>,
+  definition: InfiniteQuery<Args, A, Param, E, NoInfer<R> | Scope.Scope>,
 ): InfiniteResource<Args, A, Param, E> {
   const resource = queryResource({ cache }, definition.query);
   const internal = cacheInternals(cache);
@@ -123,15 +146,13 @@ export function infiniteResource<Args, A, Param, E, R>(
       const current = yield* cache.prefetch(definition.query, args);
       const param = retry ? retry.param : current.next;
       if (param === undefined) return current;
-      const pageKey = encodeQueryKey(param as QueryKey);
-      const retained = current.pages.some(
-        (page) => encodeQueryKey(page.param as QueryKey) === pageKey,
-      );
-      if (retry && !retained && encodeQueryKey(current.next as QueryKey) !== pageKey)
+      const pageKey = definition.paramKey(param);
+      const retained = current.pages.some((page) => definition.paramKey(page.param) === pageKey);
+      if (retry && !retained && definition.paramKey(current.next) !== pageKey)
         return yield* Effect.die(
           new RangeError('Retry a retained page or the next page parameter.'),
         );
-      const key = encodeQueryKey(args as QueryKey);
+      const key = encodeQueryArguments(definition.query, args);
       const revision = internal.revision(definition.query, args);
       let operation = book.get(key);
       if (!operation || operation.revision !== revision) {
@@ -155,10 +176,9 @@ export function infiniteResource<Args, A, Param, E, R>(
           )
             return;
           const index = latest.pages.findIndex(
-            (page) => encodeQueryKey(page.param as QueryKey) === pageKey,
+            (page) => definition.paramKey(page.param) === pageKey,
           );
-          if (index < 0 && (retained || encodeQueryKey(latest.next as QueryKey) !== pageKey))
-            return;
+          if (index < 0 && (retained || definition.paramKey(latest.next) !== pageKey)) return;
           if (index >= 0 && latest.pages[index]!.value === value) return;
           const pages = [...latest.pages];
           const page = { param, value } as Snapshot<{ param: Param; value: A }>;
@@ -198,8 +218,8 @@ export function infiniteResource<Args, A, Param, E, R>(
     ) {
       if (!data.pages.length || data.pages.length > definition.maxPages)
         throw new RangeError('Seed pages must fit the retained page range.');
-      encodeQueryKey(data.next as QueryKey);
-      const keys = data.pages.map((page) => encodeQueryKey(page.param as QueryKey));
+      definition.paramKey(data.next);
+      const keys = data.pages.map((page) => definition.paramKey(page.param));
       if (new Set(keys).size !== keys.length)
         throw new TypeError('Seed page parameters must be unique.');
       return cache.setQueryData(definition.query, args, data);

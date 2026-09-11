@@ -1,8 +1,10 @@
-import { Effect } from 'effect';
+import { Context, Effect, Option, Scope } from 'effect';
 import { query, type Query } from './query.js';
 import { makeQueryCache } from './cache.js';
 import { queryResource } from './session.js';
 import type { Snapshot } from './snapshot.js';
+import { infiniteQuery, infiniteResource } from './infinite-query.js';
+import { makeUiRuntime } from './runtime.js';
 
 export function queryTypes() {
   interface Filter {
@@ -25,7 +27,7 @@ export function queryTypes() {
   void invalidProjection;
   // @ts-expect-error Services are not serializable request arguments.
   query({ name: 'service', load: (args: { api: () => string }) => Effect.succeed(args.api()) });
-  // @ts-expect-error Date is not plain request data; pass an explicit timestamp.
+  // @ts-expect-error Date needs an explicit encoder or a timestamp argument.
   query({ name: 'date', load: (args: { date: Date }) => Effect.succeed(args.date.getTime()) });
   // @ts-expect-error Definitions cannot be constructed with a caller-selected identity or load type.
   const forged: Query<true, string> = { name: 'data', id: 1, load: () => Effect.succeed('bad') };
@@ -93,4 +95,66 @@ export function querySnapshotArguments() {
   arrayCache.dispose();
   void [arrayResult, invalidArray];
   return fetched;
+}
+
+export function effectArgumentEncoding() {
+  const missingDefinition = {
+    name: 'optional-filter',
+    load: (_args: Option.Option<string> | undefined) => Effect.void,
+  };
+  // @ts-expect-error A union containing non-plain data still requires an encoder.
+  const missing = query(missingDefinition);
+  const encoded = query({
+    name: 'optional-filter',
+    encode: (args: Option.Option<string> | undefined) =>
+      args === undefined ? undefined : Option.getOrNull(args),
+    load: (_args: Option.Option<string> | undefined) => Effect.void,
+  });
+  void [missing, encoded];
+}
+
+export function queryResourceScopes() {
+  class Storage extends Context.Service<Storage, { readonly read: Effect.Effect<string> }>()(
+    'QueryTypecheck/Storage',
+  ) {}
+  const scoped = query({
+    name: 'scoped-load',
+    load: () => Effect.acquireRelease(Effect.succeed('value'), () => Effect.void),
+  });
+  const explicitlyTyped = query<string, string>({
+    name: 'typed-scoped-load',
+    load: (id) => Effect.acquireRelease(Effect.succeed(id), () => Effect.void),
+  });
+  const cache = makeQueryCache();
+  const prefetched: Effect.Effect<string> = cache.prefetch(scoped, true);
+  const explicit: Effect.Effect<string> = cache.prefetch(explicitlyTyped, 'one');
+  queryResource({ cache }, scoped).select(true);
+  const pages = infiniteQuery({
+    name: 'scoped-pages',
+    initial: 0,
+    load: (_args: string, page: number) =>
+      Effect.acquireRelease(Effect.succeed(page), () => Effect.void),
+    next: (_value: number, page: number) => page + 1,
+  });
+  const paginated = infiniteResource(cache, pages);
+  paginated.select('one');
+  const nextPage: Effect.Effect<unknown> = paginated.loadNext();
+  const requiringStorage = query({
+    name: 'service-and-scope',
+    load: () =>
+      Effect.acquireRelease(Storage, () => Effect.void).pipe(
+        Effect.flatMap((storage) => storage.read),
+      ),
+  });
+  // @ts-expect-error Owning the query Scope must not erase an application's service requirement.
+  const missingService = cache.prefetch(requiringStorage, true);
+  // @ts-expect-error A query observation must also retain application service requirements.
+  queryResource({ cache }, requiringStorage);
+  const provided: Effect.Effect<string, never, Storage | Scope.Scope> = Effect.gen(function* () {
+    const runtime = yield* makeUiRuntime<Storage>();
+    const owned = makeQueryCache(runtime);
+    yield* Effect.addFinalizer(() => owned.close());
+    return yield* owned.prefetch(requiringStorage, true);
+  });
+  void [prefetched, explicit, nextPage, missingService, provided];
 }

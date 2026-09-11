@@ -207,7 +207,9 @@ import { Editor } from './safeAuthoringFixture';
 import { createLazyViewFixture } from './lazyViewFixture';
 import { mountPortal } from './portalFixture';
 import { mountIdentityFixture, mountRecoveryFixture } from './recoveryFixture';
-Object.assign(window, { mountAuthoring, mountContracts, ownershipContracts, Editor, createLazyViewFixture, mountPortal, mountIdentityFixture, mountRecoveryFixture });
+import { mountInheritedContext, mountEffectSetup, mountScopedRendering, checkObservationDisposal } from './scopedRenderingFixture';
+import { failedRenderCleanup, mountClosingExit } from './mountLifecycleFixture';
+Object.assign(window, { failedRenderCleanup, mountClosingExit, mountInheritedContext, mountEffectSetup, mountScopedRendering, checkObservationDisposal, mountAuthoring, mountContracts, ownershipContracts, Editor, createLazyViewFixture, mountPortal, mountIdentityFixture, mountRecoveryFixture });
 const name: IconName = 'camera';
 // @ts-expect-error Unknown icon names must fail at compile time.
 const badName: IconName = 'not-a-lucide-icon';
@@ -241,6 +243,8 @@ for (const file of [
   'lazyViewModule.tsx',
   'portalFixture.tsx',
   'nativeEventsFixture.tsx',
+  'scopedRenderingFixture.tsx',
+  'mountLifecycleFixture.tsx',
 ]) {
   writeFileSync(join(temp, file), readFileSync(`tests/fixtures/${file}`));
 }
@@ -251,6 +255,7 @@ for (const file of [
   'effect-contract.typecheck.ts',
   'async.typecheck.tsx',
   'query.typecheck.ts',
+  'scoped.typecheck.tsx',
   'commands.typecheck.ts',
   'tasks.typecheck.ts',
   'large-project.typecheck.ts',
@@ -383,13 +388,14 @@ run(
   temp,
 );
 
-const { Effect, Context } = await import(
+const { Effect, Context, Fiber } = await import(
   pathToFileURL(join(temp, 'node_modules/effect/dist/Effect.js')).href
 ).then(async (effect) => ({
   Effect: effect,
   Context: await import(pathToFileURL(join(temp, 'node_modules/effect/dist/Context.js')).href),
+  Fiber: await import(pathToFileURL(join(temp, 'node_modules/effect/dist/Fiber.js')).href),
 }));
-const { makeQueryCache, query, uiRuntime } = await import(
+const { makeQueryCache, scopedQueryCache, query, uiRuntime } = await import(
   pathToFileURL(join(temp, 'node_modules/effectweb/dist/index.js')).href
 );
 const service = Context.Service('package-smoke/service');
@@ -403,6 +409,41 @@ assert.equal(
 );
 assert.equal(await Effect.runPromise(cache.prefetch(definition, true)), 'written:updated');
 cache.dispose();
+let releaseQuery;
+let queryReleased = false;
+const queryGate = new Promise((resolve) => {
+  releaseQuery = resolve;
+});
+await Effect.runPromise(
+  Effect.scoped(
+    Effect.gen(function* () {
+      const scopedCache = yield* scopedQueryCache();
+      const scopedDefinition = query({
+        name: 'packaged-scoped-load',
+        load: () =>
+          Effect.acquireRelease(Effect.succeed(1), () =>
+            Effect.promise(async () => {
+              await queryGate;
+              queryReleased = true;
+            }),
+          ),
+      });
+      yield* scopedCache.prefetch(scopedDefinition, true);
+      const retained = !queryReleased;
+      const closing = Effect.runFork(scopedCache.close());
+      const pending = closing.pollUnsafe() === undefined;
+      releaseQuery();
+      yield* Fiber.join(closing);
+      assert.equal(retained, true);
+      assert.equal(pending, true);
+      assert.equal(
+        queryReleased,
+        true,
+        'Query acquisition must close before the application scope',
+      );
+    }),
+  ),
+);
 const server = createServer((request, response) => {
   const pathname = new URL(request.url, 'http://localhost').pathname;
   if (!/^\/(?:assets\/[\w.-]+|index.html|mixed\/(?:assets\/[\w.-]+|mixed.html))?$/.test(pathname)) {
@@ -449,6 +490,69 @@ try {
   assert.equal(
     await page.evaluate(() => window.originalCamera === document.querySelector('.lucide-camera')),
     true,
+  );
+  const scoped = await page.evaluate(async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const close = await window.mountInheritedContext(host);
+    host.querySelector('#ambient-component').click();
+    host.querySelector('#ambient-task').click();
+    const labels = [...host.children].map((node) => node.textContent);
+    await close();
+    const setup = await window.mountEffectSetup(host);
+    host.querySelector('button').click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const count = host.textContent;
+    await setup.closeMount();
+    await setup.close();
+    const rows = await window.mountScopedRendering(host);
+    const before = rows.evaluations();
+    rows.send({ type: 'select', id: 500 });
+    const evaluated = rows.evaluations() - before;
+    await rows.close();
+    const disposal = await window.checkObservationDisposal(host);
+    const empty = host.childNodes.length === 0;
+    host.remove();
+    return { labels, count, releases: setup.releases, evaluated, disposal, empty };
+  });
+  assert.deepEqual(scoped, {
+    labels: ['application', 'application', 'application', 'application'],
+    count: '5',
+    releases: ['dom', 'view'],
+    evaluated: 2,
+    disposal: { beforeClose: 1, afterClose: 1 },
+    empty: true,
+  });
+  const lifetimes = await page.evaluate(async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const failure = await window.failedRenderCleanup(host);
+    const exits = [];
+    for (const action of ['close', 'dispose', 'reentrant-dispose', 'failure', 'interrupt'])
+      exits.push(await window.mountClosingExit(host, action));
+    host.remove();
+    return { failure, exits };
+  });
+  assert.deepEqual(lifetimes.failure, {
+    result: 'Failure',
+    whileClosing: ['child release started'],
+    pending: true,
+    after: ['child release started', 'child released', 'view dependency'],
+    empty: true,
+  });
+  assert.deepEqual(
+    lifetimes.exits,
+    ['success', 'success', 'success', 'application failed', 'interrupted'].map((exit) => ({
+      whileClosing: ['DOM release started'],
+      bothPending: true,
+      detached: true,
+      after: ['DOM release started', 'DOM released', 'view released'],
+      exits: [
+        { owner: 'DOM', exit },
+        { owner: 'view', exit },
+      ],
+      unsubscriptions: 1,
+    })),
   );
   const recovery = await page.evaluate(async () => {
     const host = document.createElement('div');

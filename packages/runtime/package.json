@@ -1,6 +1,6 @@
 {
   "name": "effectweb",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Immutable Effect models and compiled JSX with direct DOM rendering",
   "homepage": "https://github.com/DerpyCrabs/EffectWeb",
   "bugs": {
@@ -14,8 +14,7 @@
   },
   "files": [
     "dist",
-    "LICENSE",
-    "README.md"
+    "LICENSE"
   ],
   "type": "module",
   "sideEffects": false,
@@ -95,6 +94,14 @@
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js"
+    },
+    "./source": {
+      "types": "./dist/source.d.ts",
+      "import": "./dist/source.js"
+    },
+    "./render": {
+      "types": "./dist/render.d.ts",
+      "import": "./dist/render.js"
     },
     "./form": {
       "types": "./dist/form.d.ts",

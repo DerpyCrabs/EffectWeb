@@ -2,12 +2,13 @@ import { commandSlot } from './program.js';
 import type { Snapshot } from './snapshot.js';
 import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
+import type * as Scope from 'effect/Scope';
 import * as Option from 'effect/Option';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import type { UiLoad } from './load.js';
 import { loadEffect } from './load.js';
 import { component } from './component.js';
-import { defaultUiRuntime, type UiRuntime } from './runtime.js';
+import type { UiRuntime } from './runtime.js';
 import type { View } from './dom.js';
 import { effectCommand, type Transition } from './program.js';
 const commandLoad = commandSlot('load');
@@ -35,11 +36,13 @@ export function resourceComponent<Props, A, E = unknown, R = never>(
   definition: {
     request: (
       props: Snapshot<Props>,
-    ) => { key: string; load: () => UiLoad<A, E, R>; delay?: number } | undefined;
+    ) => { key: string; load: () => UiLoad<A, E, R | Scope.Scope>; delay?: number } | undefined;
     view: View<ResourceModel<Props, A, E>, ResourceMessage>;
-  } & ([R] extends [never] ? { runtime?: UiRuntime<R> } : { runtime: UiRuntime<R> }),
+  } & ([Exclude<R, Scope.Scope>] extends [never]
+    ? { runtime?: UiRuntime<R> }
+    : { runtime: UiRuntime<R> }),
 ): View<Props, never> {
-  const runtime = definition.runtime ?? (defaultUiRuntime as UiRuntime<R>);
+  const runtime = definition.runtime;
   const request = (
     model: ResourceModel<Props, A, E>,
     retry = false,
@@ -62,12 +65,14 @@ export function resourceComponent<Props, A, E = unknown, R = never>(
       commands: [
         effectCommand(
           commandLoad,
-          () =>
-            runtime.provide(
-              selected.delay
-                ? Effect.sleep(selected.delay).pipe(Effect.andThen(loadEffect(selected.load)))
-                : loadEffect(selected.load),
-            ),
+          () => {
+            const work = selected.delay
+              ? Effect.sleep(selected.delay).pipe(Effect.andThen(loadEffect(selected.load)))
+              : loadEffect(selected.load);
+            return runtime
+              ? runtime.provideScoped(work)
+              : (work as Effect.Effect<A, E, Scope.Scope>);
+          },
           {
             policy: 'replace',
             onSuccess: (value): InternalMessage<A, E> => ({ type: 'Loaded', value }),

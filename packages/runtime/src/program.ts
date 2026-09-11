@@ -6,6 +6,8 @@ import * as Effect from 'effect/Effect';
 import * as Fiber from 'effect/Fiber';
 import * as Option from 'effect/Option';
 import * as Stream from 'effect/Stream';
+import type * as Scope from 'effect/Scope';
+import { makeUiRuntime, type UiRuntime } from './runtime.js';
 
 export type Send<Message> = (message: Message) => void;
 /** queue retains FIFO requests; latest-queued retains only the newest pending request. */
@@ -24,17 +26,17 @@ export type Command<Message, R = never> = {
   readonly onDiscard?: (reason: 'Cancelled' | 'Superseded' | 'Dropped') => void;
 } & (
   | {
-      readonly effect: Effect.Effect<Message, never, R>;
+      readonly effect: Effect.Effect<Message, never, R | Scope.Scope>;
       readonly stream?: never;
       readonly action?: never;
     }
   | {
-      readonly stream: Stream.Stream<Message, never, R>;
+      readonly stream: Stream.Stream<Message, never, R | Scope.Scope>;
       readonly effect?: never;
       readonly action?: never;
     }
   | {
-      readonly action: Effect.Effect<void, unknown, R>;
+      readonly action: Effect.Effect<void, unknown, R | Scope.Scope>;
       readonly effect?: never;
       readonly stream?: never;
     }
@@ -53,7 +55,8 @@ export function effectCommand<A, E, Success, Failure, R = never>(
   return {
     slot,
     policy: handlers.policy,
-    effect: Effect.suspend(load).pipe(Effect.matchCause(handlers)),
+    // Release the operation with its actual exit before translating it into a message.
+    effect: Effect.scoped(Effect.suspend(load)).pipe(Effect.matchCause(handlers)),
   };
 }
 
@@ -115,6 +118,7 @@ export function program<Model, Message>(options: {
   name?: string;
   update: (model: Snapshot<Model>, message: Message) => Transition<Model, Message>;
   onDefect?: (cause: unknown) => void;
+  runtime?: Pick<UiRuntime<never>, 'runFork'>;
 }): RunningProgram<Model, Message> {
   const id = nextProgramId();
   const trace = (
@@ -238,7 +242,9 @@ export function program<Model, Message>(options: {
         ? command.action.pipe(Effect.as(Option.none<Message>()))
         : command.effect.pipe(Effect.map(Option.some));
     live.add(task);
-    const fiber = Effect.runFork(effect);
+    const fiber = options.runtime
+      ? options.runtime.runFork(effect)
+      : Effect.runFork(Effect.scoped(effect));
     task.fiber = fiber;
     fiber.addObserver((exit) => {
       live.delete(task);
@@ -384,3 +390,18 @@ export function program<Model, Message>(options: {
     dispose,
   };
 }
+
+/** Construct a program in the current Effect environment and own it in the current scope. */
+export const makeProgram = <Model, Message, R = never>(options: {
+  initial: Model | Snapshot<Model>;
+  name?: string;
+  update: (model: Snapshot<Model>, message: Message) => Transition<Model, Message, R>;
+  onDefect?: (cause: unknown) => void;
+}): Effect.Effect<RunningProgram<Model, Message>, never, R | Scope.Scope> =>
+  Effect.gen(function* () {
+    const runtime = yield* makeUiRuntime<R>();
+    return yield* Effect.acquireRelease(
+      Effect.sync(() => runtime.program(options)),
+      (source) => source.close(),
+    );
+  });

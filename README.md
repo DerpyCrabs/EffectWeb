@@ -34,26 +34,31 @@ export default defineConfig({ plugins: [effectweb()] });
 Use `"jsx": "preserve"`, `"jsxImportSource": "effectweb"`, and `"moduleResolution": "Bundler"` in TypeScript. The plugin handles JSX before Vite transforms TypeScript and deduplicates Effect across linked packages.
 
 ```tsx
-import { defineActions, mountView, program, view } from 'effectweb';
+import { Effect, SubscriptionRef } from 'effect';
+import { fromSubscriptionRef, mount, view } from 'effectweb';
 
-const actions = defineActions<{ count: number }>()({
-  Increment: (model) => ({ model: { count: model.count + 1 } }),
-});
-const counter = program({ initial: { count: 0 }, update: actions.update });
-const Counter = view((model: { count: number }, send: typeof counter.send) => {
-  const dispatch = actions.bind(send);
-  return <button onClick={() => dispatch.Increment()}>Count: {model.count}</button>;
-});
-mountView(document.getElementById('app')!, Counter, counter);
+Effect.runFork(
+  Effect.scoped(
+    Effect.gen(function* () {
+      const count = yield* SubscriptionRef.make(0);
+      const source = yield* fromSubscriptionRef(count);
+      const Counter = view<number>((value) => (
+        <button onClick={() => SubscriptionRef.update(count, (n) => n + 1)}>Count: {value}</button>
+      ));
+      yield* mount(document.getElementById('app')!, Counter, source);
+      return yield* Effect.never;
+    }),
+  ),
+);
 ```
 
 The [reading-list example](examples/reading-list) uses the packages with both IndexedDB and synchronous Effect storage.
 
-See the [authoring guide](docs/authoring.md) for choosing a state owner, growing local fields into domain transitions, forms, tasks, and cache ownership. Upgrading from 0.3.x? Read the [0.4.0 migration guide](docs/migration-0.4.0.md) and [changelog](CHANGELOG.md).
+See the [GitHub releases](https://github.com/DerpyCrabs/EffectWeb/releases) for release changes.
 
 ## Design boundaries
 
-Views read ordinary immutable values; messages update models. Effects belong to program, component, or DOM-listener scopes. Changing a loader from synchronous Effect to asynchronous Effect does not change its view contract. Promise APIs are adapted explicitly with `fromPromise`.
+Views read immutable sources; programs can update them through messages, and Effect references or atoms can supply existing state. Effects belong to program, component, or DOM-listener scopes. Changing a loader from synchronous Effect to asynchronous Effect does not change its view contract. Promise APIs are adapted explicitly with `fromPromise`.
 
 The compiler preserves calls, callbacks, locals, and control flow. It does not infer render dependencies or memoize helpers. Declare entity identity with `collection` or `entities`, render it with `list`, and keep expensive projections at an explicit application boundary. Ordinary `.map(...)` produces an ordinary array whose rendered children have positional identity. Published plain objects and arrays are frozen in every build, and `Snapshot<T>` exposes recursively readonly data. Opaque mutable resources keep their own lifecycle. Query identity includes every request argument; services belong in the Effect environment. Query caching is in memory; persistence, optimistic domain transactions, multi-tab coordination, and service acquisition remain application responsibilities.
 
