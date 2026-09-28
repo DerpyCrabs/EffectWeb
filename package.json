@@ -1,12 +1,18 @@
 {
   "name": "effectweb-workspace",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "workspaces": [
     "packages/runtime",
     "packages/compiler",
     "packages/lucide",
-    "packages/native-*"
+    "packages/native-*",
+    "packages/json-render",
+    "packages/tanstack-router",
+    "packages/tanstack-form",
+    "packages/tanstack-table",
+    "packages/keycloak",
+    "packages/antd-icons"
   ],
   "type": "module",
   "scripts": {

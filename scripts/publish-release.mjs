@@ -1,13 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { platforms } from './platforms.mjs';
+import { packages } from './packages.mjs';
 import { packageFilename } from './package-filename.mjs';
 const { version } = JSON.parse(readFileSync('packages/runtime/package.json', 'utf8'));
 const names = [
   ...platforms.map((platform) => `@effectweb/compiler-${platform.suffix}`),
-  'effectweb',
-  '@effectweb/compiler',
-  '@effectweb/lucide',
+  ...packages.map(({ metadata }) => metadata.name),
 ];
 const tag = version.includes('-') ? 'next' : 'latest';
 // Check the complete artifact set before any irreversible publish.

@@ -222,3 +222,34 @@ test('the Vite development plugin enables snapshot protection automatically', as
     text: 'published',
   });
 });
+
+test('an option with an empty value keeps it, so a select can default to it', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const path = '/tests/fixtures/usabilityFixture.tsx';
+    const { mountSelect } = (await import(path)) as typeof import('../fixtures/usabilityFixture');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const mounted = mountSelect(host);
+    const select = host.querySelector('select')!;
+    const initial = {
+      values: Array.from(select.options, (option) => option.value),
+      selected: select.value,
+    };
+    select.value = 'note';
+    select.dispatchEvent(new Event('change'));
+    await Promise.resolve();
+    const chosen = mounted.model().kind;
+    select.value = '';
+    select.dispatchEvent(new Event('change'));
+    await Promise.resolve();
+    const back = { kind: mounted.model().kind, text: select.selectedOptions[0]?.textContent };
+    mounted.dispose();
+    return { initial, chosen, back };
+  });
+  expect(result).toEqual({
+    initial: { values: ['', 'note'], selected: '' },
+    chosen: 'note',
+    back: { kind: '', text: 'All kinds' },
+  });
+});

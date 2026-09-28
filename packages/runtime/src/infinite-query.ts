@@ -38,6 +38,9 @@ export function infiniteQuery<Args, A, Param, E = never, R = never>(
     readonly maxPages?: number;
     readonly refresh?: 'retained' | 'first';
     readonly groups?: readonly QueryGroup[];
+    /** Freshness applies to both the aggregate and individual page queries. */
+    readonly staleTime?: number;
+    readonly unused?: 'retain' | 'cancel';
     readonly encodeArgs?: (args: Snapshot<Args>) => QueryKey;
     readonly encodeParam?: (param: Snapshot<Param>) => QueryKey;
   } & ([Args] extends [QueryArgs<Args>]
@@ -66,6 +69,8 @@ export function infiniteQuery<Args, A, Param, E = never, R = never>(
   };
   const page = query<{ args: Args; param: Param }, A, E, R>({
     name: `${config.name}:page`,
+    ...(config.staleTime !== undefined ? { staleTime: config.staleTime } : {}),
+    ...(config.unused ? { unused: config.unused } : {}),
     encode: ({ args, param }: Snapshot<{ args: Args; param: Param }>) => ({
       args: encodeArgs(args),
       param: encodeParam(param),
@@ -76,6 +81,8 @@ export function infiniteQuery<Args, A, Param, E = never, R = never>(
     name: config.name,
     encode: encodeArgs,
     ...(config.groups ? { groups: config.groups } : {}),
+    ...(config.staleTime !== undefined ? { staleTime: config.staleTime } : {}),
+    ...(config.unused ? { unused: config.unused } : {}),
     load: (args: Snapshot<Args>, previous?: Snapshot<InfiniteData<A, Param>>) => {
       const params =
         config.refresh !== 'first' && previous?.pages.length

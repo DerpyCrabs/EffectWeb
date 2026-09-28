@@ -17,6 +17,7 @@ import { chromium } from '@playwright/test';
 import { hostPlatform } from './platforms.mjs';
 import { verifyLucide } from './lucide-smoke.mjs';
 import { packageFilename } from './package-filename.mjs';
+import { packages } from './packages.mjs';
 const root = process.cwd();
 function run(command, args, cwd = root) {
   const result = spawnSync(command, args, {
@@ -39,7 +40,7 @@ writeFileSync(
       private: true,
       type: 'module',
       dependencies: Object.fromEntries(
-        ['effectweb', '@effectweb/compiler', '@effectweb/lucide', native].map((name) => [
+        [...packages.map(({ metadata }) => metadata.name), native].map((name) => [
           name,
           `file:${resolve('artifacts/packages', packageFilename(name, version))}`,
         ]),
@@ -93,7 +94,7 @@ assert.ok(
     'spread.tsx',
   ).code.includes('.markup('),
 );
-for (const name of ['effectweb', '@effectweb/compiler', '@effectweb/lucide']) {
+for (const name of packages.map(({ metadata }) => metadata.name)) {
   const directory = join(temp, 'node_modules', name);
   const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
   if (name === '@effectweb/compiler') {
@@ -149,7 +150,10 @@ run(
     '--no-audit',
     '--no-fund',
     '--save-dev',
+    // Keep Solid's compiler and runtime on the same RC: delegated event keys can change between RCs.
     'solid-js@2.0.0-rc.7',
+    '@solidjs/compiler@2.0.0-rc.7',
+    '@solidjs/babel-plugin@2.0.0-rc.7',
     '@solidjs/web@2.0.0-rc.7',
     '@solidjs/vite-plugin@3.0.0-next.39',
   ],
@@ -197,7 +201,8 @@ writeFileSync(
   join(temp, 'app.tsx'),
   `import { Context, Effect } from 'effect';
 import { available, defineTasks, mountView, program, uiRuntime, view, type JSX } from 'effectweb';
-import { Camera } from '@effectweb/lucide';
+import Camera from '@effectweb/lucide/icons/camera';
+import type { LucideProps } from '@effectweb/lucide/types';
 import AlarmCheck from '@effectweb/lucide/icons/alarm-check';
 import type { IconName } from '@effectweb/lucide/dynamic';
 import { mountAuthoring } from './authoringFixture';
@@ -227,6 +232,39 @@ const Counter = counter.view(view((model, send) => {
 const source = program<{}, never>({ initial: {}, update: model => ({ model }) });
 document.documentElement.dataset.snapshotFrozen = String(Object.isFrozen(source.model()));
 mountView(document.getElementById('app')!, Counter, source);
+`,
+);
+writeFileSync(
+  join(temp, 'jsonRenderFixture.tsx'),
+  `
+import { defineCatalog, type Spec } from '@json-render/core';
+import { z } from 'zod';
+import { Renderer, defineRegistry, setPointer, type ActionEvent } from '@effectweb/json-render';
+import { schema } from '@effectweb/json-render/schema';
+import { mountView, program, view } from 'effectweb';
+const catalog = defineCatalog(schema, { components: {
+  Frame: { props: z.object({}), slots: ['default'] },
+  Badge: { props: z.object({ label: z.string() }), slots: [] },
+}, actions: {} });
+const { registry } = defineRegistry(catalog, { components: {
+  Frame: ({ children }) => <section data-json-frame>{children}</section>,
+  Badge: ({ props, emit }) => <button data-json-badge onClick={() => emit('press')}>{props.label}</button>,
+} });
+const spec: Spec = { root: 'root', elements: {
+  root: { type: 'Frame', props: {}, children: ['badge', 'hidden', 'missing', 'root'] },
+  badge: { type: 'Badge', props: { label: { $state: '/label' } }, on: { press: { action: 'rename', params: { label: { $state: '/next' } } } } },
+  hidden: { type: 'Badge', props: { label: 'hidden' }, visible: false },
+} };
+export function mountJsonRenderer(host: HTMLElement) {
+  const source = program<{ state: Record<string, unknown> }, ActionEvent>({
+    initial: { state: { label: 'Before', next: 'After' } },
+    update: (model, action) => ({ model: { state: setPointer(model.state, '/label', action.params.label) } }),
+  });
+  const App = view<{ state: Record<string, unknown> }, ActionEvent>((model, send) =>
+    <Renderer spec={spec} registry={registry} state={model.state} dispatch={send} />);
+  const unmount = mountView(host, App, source);
+  return { dispose: () => { unmount(); source.dispose(); } };
+}
 `,
 );
 writeFileSync(
@@ -371,6 +409,24 @@ assert.ok(
 assert.ok(bundle.length < 160_000, `Icon consumer unexpectedly large: ${bundle.length} bytes`);
 // Build optional integrations separately so the existing core/icon bundle budget stays meaningful.
 writeFileSync(
+  join(temp, 'json.html'),
+  '<!doctype html><html><body><script type="module" src="/json-entry.ts"></script></body></html>',
+);
+writeFileSync(
+  join(temp, 'json-entry.ts'),
+  "import { mountJsonRenderer } from './jsonRenderFixture'; Object.assign(window, { mountJsonRenderer });\n",
+);
+writeFileSync(
+  join(temp, 'vite.json.config.mjs'),
+  "import { effectweb } from '@effectweb/compiler/vite'; export default { base: '/json/', plugins: [effectweb()], build: { outDir: 'json-dist', rollupOptions: { input: 'json.html' } } };\n",
+);
+run(
+  process.execPath,
+  ['node_modules/vite/bin/vite.js', 'build', '--config', 'vite.json.config.mjs'],
+  temp,
+);
+
+writeFileSync(
   join(temp, 'mixed.html'),
   '<!doctype html><html><body><script type="module" src="/mixed-islands-entry.jsx"></script></body></html>',
 );
@@ -446,19 +502,31 @@ await Effect.runPromise(
 );
 const server = createServer((request, response) => {
   const pathname = new URL(request.url, 'http://localhost').pathname;
-  if (!/^\/(?:assets\/[\w.-]+|index.html|mixed\/(?:assets\/[\w.-]+|mixed.html))?$/.test(pathname)) {
+  if (
+    !/^\/(?:assets\/[\w.-]+|index.html|(?:mixed|json)\/(?:assets\/[\w.-]+|mixed.html|json.html))?$/.test(
+      pathname,
+    )
+  ) {
     response.writeHead(404).end();
     return;
   }
   try {
     response.setHeader('Content-Type', pathname.endsWith('.js') ? 'text/javascript' : 'text/html');
-    const mixed = pathname.startsWith('/mixed/');
+    const integration = pathname.startsWith('/mixed/')
+      ? 'mixed'
+      : pathname.startsWith('/json/')
+        ? 'json'
+        : undefined;
     response.end(
       readFileSync(
         join(
           temp,
-          mixed ? 'mixed-dist' : 'dist',
-          mixed ? pathname.slice('/mixed/'.length) : pathname === '/' ? 'index.html' : pathname,
+          integration ? `${integration}-dist` : 'dist',
+          integration
+            ? pathname.slice(integration.length + 2)
+            : pathname === '/'
+              ? 'index.html'
+              : pathname,
         ),
       ),
     );
@@ -491,6 +559,33 @@ try {
     await page.evaluate(() => window.originalCamera === document.querySelector('.lucide-camera')),
     true,
   );
+  const jsonPage = await browser.newPage();
+  jsonPage.on('pageerror', (error) => errors.push(error.message));
+  await jsonPage.goto(`http://127.0.0.1:${server.address().port}/json/json.html`);
+  const jsonRender = await jsonPage.evaluate(async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const mounted = window.mountJsonRenderer(host);
+    const button = host.querySelector('[data-json-badge]');
+    const before = button?.textContent;
+    button?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const after = host.querySelector('[data-json-badge]')?.textContent;
+    const count = host.querySelectorAll('button').length;
+    const noWrapper = host.firstElementChild?.matches('section[data-json-frame]');
+    mounted.dispose();
+    const disposed = host.childNodes.length === 0;
+    host.remove();
+    return { before, after, count, noWrapper, disposed };
+  });
+  assert.deepEqual(jsonRender, {
+    before: 'Before',
+    after: 'After',
+    count: 1,
+    noWrapper: true,
+    disposed: true,
+  });
+  await jsonPage.close();
   const scoped = await page.evaluate(async () => {
     const host = document.createElement('div');
     document.body.append(host);

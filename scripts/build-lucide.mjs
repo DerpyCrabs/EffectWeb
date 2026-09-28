@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import ts from 'typescript';
@@ -8,12 +8,10 @@ import { compile } from '../packages/compiler/native.cjs';
 const directory = 'packages/lucide/dist';
 mkdirSync(`${directory}/icons`, { recursive: true });
 const canonical = new Map();
-const exports = [];
 for (const [name, data] of Object.entries(upstream).sort(([a], [b]) => a.localeCompare(b, 'en'))) {
   if (name === 'icons') continue;
   if (!data.name || !data.node) throw new Error(`Unexpected Lucide export: ${name}`);
   canonical.set(data.name, data);
-  exports.push(`export { default as ${name} } from './icons/${data.name}.js';`);
 }
 
 function geometry(nodes) {
@@ -95,12 +93,9 @@ for (const [slug, name] of slugs) {
       );
   }
 }
-const barrel = exports.join('\n') + '\n';
-writeFileSync(`${directory}/index.js`, barrel);
-writeFileSync(
-  `${directory}/index.d.ts`,
-  "export type { LucideIcon, LucideProps } from './attributes.js';\n" + barrel,
-);
+// Do not expose a root barrel: ESM development servers follow every re-export.
+// Remove stale barrels even when this generator is run without a full clean build.
+for (const extension of ['js', 'd.ts']) rmSync(`${directory}/index.${extension}`, { force: true });
 const registry = [...slugs]
   .map(([slug, name]) => `${JSON.stringify(slug)}: () => import('./icons/${name}.js')`)
   .join(',\n');
@@ -141,5 +136,5 @@ const expected = JSON.parse(readFileSync('packages/lucide/package.json', 'utf8')
 ];
 if (version !== expected) throw new Error(`Lucide version mismatch: ${version} / ${expected}`);
 process.stdout.write(
-  `Generated ${canonical.size} Lucide icons, ${slugs.size} paths, ${exports.length} named exports from ${version}.\n`,
+  `Generated ${canonical.size} Lucide icons, ${slugs.size} paths, no root barrel from ${version}.\n`,
 );

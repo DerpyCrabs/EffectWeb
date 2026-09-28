@@ -1,0 +1,28 @@
+{
+  "name": "@effectweb/tanstack-table",
+  "version": "0.5.1",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@tanstack/table-core": "9.2.4"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-rc.112",
+    "effectweb": "^0.5.1"
+  }
+}

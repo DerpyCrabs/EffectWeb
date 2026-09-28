@@ -4,7 +4,9 @@ import { resolve } from 'node:path';
 import ts from 'typescript';
 import { compile } from '../packages/compiler/native.cjs';
 
-for (const name of ['compiler', 'runtime', 'lucide']) {
+import { packages } from './packages.mjs';
+
+for (const { directory: name } of packages) {
   const root = resolve(`packages/${name}`);
   rmSync(`${root}/dist`, { recursive: true, force: true });
   mkdirSync(`${root}/dist`, { recursive: true });
@@ -20,7 +22,17 @@ for (const name of ['compiler', 'runtime', 'lucide']) {
         compile(
           source,
           file,
-          JSON.stringify({ importSource: './index.js', runtimeModule: './dom.js' }),
+          JSON.stringify(
+            [
+              'json-render',
+              'tanstack-router',
+              'tanstack-form',
+              'tanstack-table',
+              'keycloak',
+            ].includes(name)
+              ? { importSource: 'effectweb', runtimeModule: 'effectweb/dom' }
+              : { importSource: './index.js', runtimeModule: './dom.js' },
+          ),
         ),
       ).code;
     const output = ts.transpileModule(source, {
@@ -41,3 +53,4 @@ for (const name of ['compiler', 'runtime', 'lucide']) {
   if (check.status !== 0) process.exit(check.status ?? 1);
 }
 await import('./build-lucide.mjs');
+await import('./build-antd-icons.mjs');

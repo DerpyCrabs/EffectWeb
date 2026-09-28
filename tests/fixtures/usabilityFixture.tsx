@@ -105,3 +105,28 @@ export function mountForm(parent: HTMLElement) {
     },
   };
 }
+
+export function mountSelect(parent: HTMLElement) {
+  const View = view<{ kind: string }, string>((model, send) => (
+    <select
+      aria-label="Kind"
+      value={model.kind}
+      onChange={(event) => send(event.currentTarget.value)}
+    >
+      <option value="">All kinds</option>
+      <option value="note">Notes</option>
+    </select>
+  ));
+  const source = program<{ kind: string }, string>({
+    initial: { kind: '' },
+    update: (_model, kind) => ({ model: { kind } }),
+  });
+  const unmount = mountView(parent, View, source);
+  return {
+    model: () => source.model(),
+    dispose() {
+      unmount();
+      source.dispose();
+    },
+  };
+}

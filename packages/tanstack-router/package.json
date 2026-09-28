@@ -1,0 +1,29 @@
+{
+  "name": "@effectweb/tanstack-router",
+  "version": "0.5.1",
+  "license": "MIT",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@tanstack/history": "1.162.4",
+    "@tanstack/router-core": "1.171.33"
+  },
+  "peerDependencies": {
+    "effect": "4.0.0-rc.112",
+    "effectweb": "^0.5.1"
+  }
+}

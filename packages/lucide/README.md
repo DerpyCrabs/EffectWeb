@@ -16,7 +16,9 @@ export const Toolbar = view<{ busy: boolean }, never>((model, _send) => (
 ));
 ```
 
-Named imports such as `import { Camera } from '@effectweb/lucide'` are tree-shaken in production builds. Prefer the per-icon paths above for development: prebundling the root entry preserves the full catalogue's exports and source maps. Do not force the whole catalogue into Vite's `optimizeDeps.include` for a fixed icon set. Upstream aliases, including `AlarmCheck` / `AlarmClockCheck`, and `Icon`-suffixed named exports share the same view identity. Per-icon and lazy imports also support aliases. `LucideIcon` and `LucideProps` are exported types.
+The package intentionally has **no root entry or icon barrel**. `import { Camera } from '@effectweb/lucide'` fails package resolution and TypeScript checking. Use the direct icon paths above: development servers load only the selected icons, without relying on production tree-shaking. Aliases such as `alarm-check` and `alarm-clock-check` share the same view identity.
+
+Import shared types with `import type { LucideIcon, LucideProps } from '@effectweb/lucide/types'`.
 
 ## Props
 
@@ -42,7 +44,7 @@ const load = loadIcon(name); // Effect<LucideIcon, IconLoadError>
 
 Run the Effect in an existing task/resource lifecycle and use the returned view. Module imports cache the view without creating DOM. `IconLoadError` carries `iconName` and the original `cause`; invalid untyped names also fail in the Effect error channel. Interrupting the Effect stops waiting, but cannot abort a browser module download.
 
-This entry also exports `iconNames`, the `IconName` union, and `dynamicIconImports`, a low-level Promise-based module map. Importing the registry makes the full catalogue available as lazy chunks. Prefer named imports, per-icon imports, or a small application-owned import map for a fixed set of icons. The registry is absent from ordinary icon bundles.
+This entry also exports `iconNames`, the `IconName` union, and `dynamicIconImports`, a low-level Promise-based module map. Importing the registry makes the full catalogue available as lazy chunks. Prefer per-icon imports or a small application-owned import map for a fixed set of icons. The registry is absent from ordinary icon bundles.
 
 ## Raw SVG and data
 

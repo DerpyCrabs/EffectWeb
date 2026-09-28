@@ -622,7 +622,9 @@ export function attribute(element: Element, name: string, value: unknown) {
       if (!next.has(property)) style.removeProperty(property);
     for (const [property, value] of entries) style.setProperty(property, value);
     styleProperties.set(element, next);
-  } else if (name === 'value' && 'value' in element) {
+  } else if (name === 'value' && 'value' in element && element.localName !== 'option') {
+    // An <option> gets its value as an attribute: before its text child exists its value property reads "", so a
+    // property write of "" would be skipped and the option would later fall back to its text.
     const next = scalar(value);
     if (element.value !== next) element.value = next;
   } else if (

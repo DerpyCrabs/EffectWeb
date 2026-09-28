@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createServer } from 'node:http';
@@ -7,7 +7,74 @@ import { chromium } from '@playwright/test';
 
 export async function verifyLucide(temp, run) {
   const installed = (name) => pathToFileURL(join(temp, 'node_modules', name)).href;
-  const catalogue = await import(installed('@effectweb/lucide/dist/index.js'));
+  const catalogue = Object.fromEntries(
+    await Promise.all(
+      [
+        ['Camera', 'camera'],
+        ['AlarmClockCheck', 'alarm-clock-check'],
+        ['AlarmCheck', 'alarm-check'],
+      ].map(async ([name, slug]) => [
+        name,
+        (await import(installed(`@effectweb/lucide/dist/icons/${slug}.js`))).default,
+      ]),
+    ),
+  );
+  const manifest = JSON.parse(
+    readFileSync(join(temp, 'node_modules/@effectweb/lucide/package.json'), 'utf8'),
+  );
+  assert.equal(manifest.exports['.'], undefined, 'Lucide must not expose an eager root barrel');
+  assert.ok(
+    !existsSync(join(temp, 'node_modules/@effectweb/lucide/dist/index.js')),
+    'Stale barrel shipped',
+  );
+  writeFileSync(
+    join(temp, 'lucide-no-barrel.mjs'),
+    `import assert from 'node:assert/strict';
+await assert.rejects(import('@effectweb/lucide'), { code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' });
+`,
+  );
+  run(process.execPath, ['lucide-no-barrel.mjs'], temp);
+  writeFileSync(
+    join(temp, 'lucide-exports.ts'),
+    `// @ts-expect-error Root icon barrels must remain unavailable.
+import type { Camera as ForbiddenCamera } from '@effectweb/lucide';
+import type { LucideProps } from '@effectweb/lucide/types';
+const props: LucideProps = { size: 20 }; void props;
+`,
+  );
+  run(
+    process.execPath,
+    [
+      'node_modules/typescript/bin/tsc',
+      '--noEmit',
+      '--skipLibCheck',
+      '--target',
+      'ES2022',
+      '--module',
+      'NodeNext',
+      '--moduleResolution',
+      'NodeNext',
+      'lucide-exports.ts',
+    ],
+    temp,
+  );
+  const data = await import(installed('@effectweb/lucide/dist/data.js'));
+  // A test-local catalogue lets the exhaustive browser geometry audit cover every
+  // upstream name without shipping an eagerly loaded catalogue to consumers.
+  const canonical = [
+    ...new Set(
+      Object.entries(data)
+        .filter(([name]) => name !== 'icons')
+        .map(([, datum]) => datum.name),
+    ),
+  ];
+  const auditImports = canonical
+    .map((name, index) => `import Icon${index} from '@effectweb/lucide/icons/${name}';`)
+    .join('\n');
+  const auditNames = Object.entries(data)
+    .filter(([name]) => name !== 'icons')
+    .map(([name, datum]) => `${JSON.stringify(name)}: Icon${canonical.indexOf(datum.name)}`)
+    .join(',');
   const { loadIcon, isIconName, iconNames, IconLoadError } = await import(
     installed('@effectweb/lucide/dist/dynamic.js')
   );
@@ -41,7 +108,8 @@ export async function verifyLucide(temp, run) {
   writeFileSync(
     join(temp, 'lucide-audit.js'),
     `
-import * as icons from '@effectweb/lucide';
+${auditImports}
+const icons = {${auditNames}};
 import * as data from '@effectweb/lucide/data';
 import { buildLucideIconElement, buildLucideSvg, buildLucideDataUri } from '@effectweb/lucide/build';
 import { Scope } from 'effectweb/dom';
@@ -136,6 +204,45 @@ window.lucideResult = { canonical: seen.size, aliases, exports: Object.keys(icon
   let browser;
   try {
     browser = await chromium.launch();
+    // Audit the unbundled development graph as well as the production bundle.
+    writeFileSync(
+      join(temp, 'lucide-one.html'),
+      '<script type="module" src="/lucide-one.js"></script>',
+    );
+    writeFileSync(
+      join(temp, 'lucide-one.js'),
+      "import Camera from '@effectweb/lucide/icons/camera'; window.singleIcon = Camera;",
+    );
+    const { createServer: createViteServer } = await import(installed('vite/dist/node/index.js'));
+    const dev = await createViteServer({
+      root: temp,
+      configFile: false,
+      logLevel: 'error',
+      optimizeDeps: { noDiscovery: true },
+      server: { host: '127.0.0.1', port: 0 },
+    });
+    await dev.listen();
+    const devPage = await browser.newPage();
+    const iconRequests = [];
+    devPage.on('request', (request) => {
+      if (/lucide\/dist\/icons\//.test(request.url()))
+        iconRequests.push(new URL(request.url()).pathname.split('/').at(-1));
+    });
+    try {
+      await devPage.goto(`http://127.0.0.1:${dev.httpServer.address().port}/lucide-one.html`);
+      await devPage.waitForFunction(() => window.singleIcon);
+      assert.deepEqual(
+        [...new Set(iconRequests)],
+        ['camera.js'],
+        'Direct icon import loaded unrelated icon modules',
+      );
+      process.stdout.write(
+        'Lucide development graph: camera.js only; root imports rejected by Node and TypeScript.\n',
+      );
+    } finally {
+      await devPage.close();
+      await dev.close();
+    }
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
