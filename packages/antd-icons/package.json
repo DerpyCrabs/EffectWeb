@@ -3,6 +3,11 @@
   "version": "0.6.0",
   "description": "Ant Design icons compiled to direct DOM views for EffectWeb",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DerpyCrabs/EffectWeb.git",
+    "directory": "packages/antd-icons"
+  },
   "files": [
     "dist",
     "LICENSE",

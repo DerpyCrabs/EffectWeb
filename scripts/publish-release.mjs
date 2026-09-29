@@ -19,6 +19,9 @@ for (const name of names) {
   const metadata = JSON.parse(manifest.stdout);
   if (metadata.name !== name || metadata.version !== version)
     throw new Error(`Wrong package in ${file}: ${metadata.name}@${metadata.version}`);
+  const repository = metadata.repository?.url?.replace(/^git\+/, '').replace(/\.git$/, '');
+  if (repository !== 'https://github.com/DerpyCrabs/EffectWeb')
+    throw new Error(`Missing or incorrect provenance repository in ${file}`);
 }
 for (const name of names) {
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';

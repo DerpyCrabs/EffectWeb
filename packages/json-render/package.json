@@ -3,6 +3,11 @@
   "version": "0.6.0",
   "description": "Consumer-defined json-render registries for EffectWeb",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DerpyCrabs/EffectWeb.git",
+    "directory": "packages/json-render"
+  },
   "files": [
     "dist",
     "README.md",
