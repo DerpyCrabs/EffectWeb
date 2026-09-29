@@ -14,6 +14,8 @@ use oxc::{
 };
 use serde::Serialize;
 use std::collections::HashSet;
+/// Query definitions live in this package; EW2002 checks its `query` calls.
+pub const QUERY_PACKAGE: &str = "@effectweb/query";
 
 #[derive(Serialize)]
 struct Output {
@@ -50,7 +52,7 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
             .and_then(|(_, tail)| tail.split_whitespace().next())
     });
     let opted_in = pragma.map_or_else(|| program.body.iter().any(|statement| {
-        matches!(statement, Statement::ImportDeclaration(import) if import.source.value == import_source || import.source.value.starts_with(&format!("{import_source}/")))
+        matches!(statement, Statement::ImportDeclaration(import) if import.source.value == import_source || import.source.value == QUERY_PACKAGE || import.source.value.starts_with(&format!("{import_source}/")))
     }), |pragma| pragma == import_source);
     if !opted_in {
         return serde_json::to_string(&Output {
@@ -75,7 +77,7 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
             };
             let root = import.source.value == import_source;
             let dom = root || import.source.value == format!("{import_source}/dom");
-            let query = root || import.source.value == format!("{import_source}/query");
+            let query = import.source.value == QUERY_PACKAGE;
             for specifier in import.specifiers.iter().flatten() {
                 let ImportDeclarationSpecifier::ImportSpecifier(specifier) = specifier else {
                     continue;

@@ -3,8 +3,8 @@ import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { afterEach, expect, it, vi } from 'vitest';
 import { makeQueryCache, type QueryCache } from './cache.js';
 import { query } from './query.js';
-import { queryResource } from './session.js';
-import { available } from './resource.js';
+import { available } from 'effectweb';
+import { queryResource } from './observe.js';
 
 const caches: QueryCache[] = [];
 const makeCache = () => {

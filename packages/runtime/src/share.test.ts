@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { shareValue } from './share.js';
 
 it('treats accessors as opaque without executing getters or replacing descriptors', () => {
@@ -115,4 +115,53 @@ it('borrows frozen and unfrozen publications, including custom shared branches',
     expect(previous.revision).toBe(0);
     expect(next.items[0]).not.toBe(item);
   }
+});
+
+describe('immutable sharing', () => {
+  it('reuses immutable comparison results across projections without cloning already shared input', () => {
+    const previous = { child: { id: 1 }, version: 1 };
+    const next = { child: { id: 1 }, version: 2 };
+    const first = shareValue(previous, next);
+    expect(first.child).toBe(previous.child);
+    expect(shareValue(previous, next)).toBe(first);
+    const alreadyShared = { child: previous.child, version: 3 };
+    expect(shareValue(previous, alreadyShared)).toBe(alreadyShared);
+  });
+
+  it('handles removed optional fields and does not compare opaque media by contents', () => {
+    const previous = {
+      text: 'same',
+      reply: 'removed',
+      bytes: new Uint8Array([1]),
+      blob: new Blob(['a']),
+    };
+    const next = { text: 'same', bytes: new Uint8Array([1]), blob: new Blob(['a']) };
+    const shared = shareValue(previous, next);
+    expect(shared).toEqual(next);
+    expect(shared.bytes).toBe(next.bytes);
+    expect(shared.blob).toBe(next.blob);
+    expect('reply' in shared).toBe(false);
+  });
+});
+
+it('applies explicit field sharing without polluting ordinary comparison caching', async () => {
+  const { collection } = await import('./collection.js');
+  const rows = collection<{ id: number; text: string }>((item) => item.id);
+  const previous = {
+    items: [
+      { id: 1, text: 'a' },
+      { id: 2, text: 'b' },
+    ],
+    meta: { count: 2 },
+    removed: true as boolean | undefined,
+  };
+  const next = { items: structuredClone([...previous.items].reverse()), meta: { count: 2 } };
+  const positional = shareValue(previous, next);
+  const keyed = shareValue(previous, next, { items: rows.share });
+  expect(keyed).toEqual(next);
+  expect(keyed.items[0]).toBe(previous.items[1]);
+  expect(keyed.meta).toBe(previous.meta);
+  expect('removed' in keyed).toBe(false);
+  expect(shareValue(previous, next)).toBe(positional);
+  expect(shareValue(previous, structuredClone(previous), { items: rows.share })).toBe(previous);
 });

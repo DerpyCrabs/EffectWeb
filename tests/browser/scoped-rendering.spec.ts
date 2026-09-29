@@ -77,7 +77,7 @@ test('Effect setup supplies event services and owns DOM resources and isolated o
   });
 });
 
-test('components, tasks, resources and lazy views inherit the mounted application context', async ({
+test('components, tasks and lazy views inherit the mounted application context', async ({
   page,
 }) => {
   await page.goto('/');
@@ -97,7 +97,7 @@ test('components, tasks, resources and lazy views inherit the mounted applicatio
     host.remove();
     return labels;
   });
-  expect(labels).toEqual(['application', 'application', 'application', 'application']);
+  expect(labels).toEqual(['application', 'application', 'application']);
 });
 
 test('an observation removed during synchronous subscription releases that subscription', async ({

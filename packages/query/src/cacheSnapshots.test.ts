@@ -2,8 +2,8 @@ import { Effect } from 'effect';
 import { expect, it } from 'vitest';
 import { makeQueryCache } from './cache.js';
 import { query } from './query.js';
-import { available } from './resource.js';
-import { queryResource } from './session.js';
+import { available } from 'effectweb';
+import { queryResource } from './observe.js';
 
 it('protects cached data before an observer or retained loader reference can mutate it', async () => {
   const loaded = { names: ['Ada'] };

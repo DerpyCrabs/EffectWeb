@@ -1,9 +1,9 @@
 import { Effect } from 'effect';
 import { makeQueryCache } from './cache.js';
 import { query } from './query.js';
-import { available } from './resource.js';
-import { lifetime, observeQuery } from './session.js';
-import { modelOwner } from './owner.js';
+import { available } from 'effectweb';
+import { lifetime, modelOwner } from 'effectweb';
+import { observeQuery } from './observe.js';
 
 export function cachedSnapshotTypes() {
   const people = query({

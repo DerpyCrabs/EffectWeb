@@ -70,21 +70,10 @@ defineTasks(extractedConfig).tasks({
   },
 });
 
-import { resourceComponent } from './resource.js';
 import { component } from './component.js';
 import { compiled } from './dom.js';
 import { effectEvent } from './effectEvent.js';
 import { domMount, domBinding } from './mount.js';
-// @ts-expect-error services must be supplied before resource views are created
-resourceComponent({
-  request: (_props: void) => ({ key: 'storage', load: () => Storage }),
-  view: compiled(() => {}),
-});
-resourceComponent({
-  runtime,
-  request: (_props: void) => ({ key: 'storage', load: () => Storage }),
-  view: compiled(() => {}),
-});
 // @ts-expect-error services must be supplied before stateful views are created
 component({
   init: (_props: void) => ({ props: undefined }),
@@ -109,9 +98,6 @@ domBinding('input', (_element: HTMLElement, _input: () => string) => lifetime);
 domBinding('input', (_element: HTMLElement, _input: () => string) => lifetime, runtime);
 
 import { modelOwner } from './owner.js';
-import { makeQueryCache } from './cache.js';
-import { query } from './query.js';
-import { observeQuery } from './session.js';
 const ownedModel = modelOwner({ count: 0 }, { runtime });
 ownedModel.run(
   commandSave,
@@ -122,17 +108,6 @@ ownedModel.run(
 modelOwner({ count: 0 }).run(commandSave, Storage, 'replace');
 // @ts-expect-error An unrelated service cannot run in this owner.
 ownedModel.run(commandMissing, Missing, 'replace');
-const ownedCache = ownedModel.own(makeQueryCache(runtime));
-const ownedQuery = query({
-  name: 'save-result',
-  load: () => Effect.flatMap(Storage, (storage) => storage.save('text')),
-});
-observeQuery(ownedModel, ownedCache, ownedQuery, (result) => {
-  const typed: AsyncResult.AsyncResult<number, 'offline'> = result;
-  void typed;
-});
-// @ts-expect-error Query observation preserves service requirements.
-observeQuery(ownedModel, makeQueryCache(), ownedQuery, () => {});
 
 const controllerTasks = defineTasks(ownedModel, {
   save: {

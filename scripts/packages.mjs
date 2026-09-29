@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 export const packages = [
   ['compiler', 'index'],
   ['runtime', 'index'],
+  ['query', 'index'],
   ['lucide', 'icons/camera'],
   ['antd-icons', 'icons/DeleteOutlined'],
   ['json-render', 'index'],

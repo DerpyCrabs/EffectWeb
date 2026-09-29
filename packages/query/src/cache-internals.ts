@@ -4,7 +4,7 @@ import type * as Atom from 'effect/unstable/reactivity/Atom';
 import type * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
 import type { QueryCache } from './cache.js';
 import type { Query } from './query.js';
-import type { Snapshot } from './snapshot.js';
+import { type Snapshot } from 'effectweb';
 
 export interface CacheInternals<R> {
   refresh(atom: Atom.Atom<unknown>): void;

@@ -256,3 +256,35 @@ it('releases a source acquired during parent disposal', async () => {
   await Effect.runPromise(scope.settlement.wait());
   expect(dispose).toHaveBeenCalledTimes(1);
 });
+
+it('captures imperative state before a program view disposes its child on unmount', async () => {
+  const events: string[] = [];
+  const definition = programView<Props, Model, never>({
+    create: (props) => {
+      const source = program<Model, never>({
+        initial: { props, count: 0 },
+        update: (model) => ({ model }),
+      });
+      return {
+        ...source,
+        close: () =>
+          Effect.sync(() => {
+            events.push('close');
+            source.dispose();
+          }),
+      };
+    },
+    receive: () => {},
+    beforeDispose: (source) => {
+      events.push(`capture:${source.model().props.id}`);
+    },
+    view: compiled((scope) => {
+      scope.cleanups.push(() => events.push('child'));
+    }),
+  });
+  const scope = new Scope<Props, never>({ id: 'a' }, () => {});
+  definition.build(scope, parent, null);
+  scope.dispose();
+  await Effect.runPromise(scope.settlement.wait());
+  expect(events).toEqual(['capture:a', 'child', 'close']);
+});

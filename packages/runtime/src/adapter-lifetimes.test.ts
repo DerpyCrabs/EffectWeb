@@ -2,14 +2,6 @@ import { Cause, Deferred, Effect, Exit, Fiber, Scope as EffectScope } from 'effe
 import { expect, it } from 'vitest';
 import { defineTasks } from './tasks.js';
 import { makeUiRuntime } from './runtime.js';
-import { compiled, Scope } from './dom.js';
-import {
-  resourceComponent,
-  type ResourceModel,
-  type ResourceMessage,
-  available,
-} from './resource.js';
-import { Settlement } from './settlement.js';
 
 it('releases a task acquisition before the task owner finishes closing', async () => {
   let released = false;
@@ -39,43 +31,6 @@ it('releases a task acquisition before the task owner finishes closing', async (
   );
   expect(released).toBe(true);
   expect(releasedAtTaskClose).toBe(true);
-});
-
-it('joins resource load acquisitions at component close', async () => {
-  let released = false;
-  let releasedAtClose = false;
-  await Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const runtime = yield* makeUiRuntime<EffectScope.Scope>();
-        const settlement = new Settlement();
-        const root = new Scope<{}, never>({}, () => {}, undefined, settlement);
-        let child!: Scope<ResourceModel<{}, string, never>, ResourceMessage>;
-        const resource = resourceComponent<{}, string, never, EffectScope.Scope>({
-          runtime,
-          request: () => ({
-            key: 'read',
-            load: () =>
-              Effect.acquireRelease(Effect.succeed('value'), () =>
-                Effect.sync(() => {
-                  released = true;
-                }),
-              ),
-          }),
-          view: compiled((scope) => {
-            child = scope;
-          }),
-        });
-        resource.build(root, {} as Node, null);
-        yield* Effect.promise(() => expect.poll(() => available(child.value.result)).toBe('value'));
-        root.dispose();
-        yield* settlement.wait();
-        releasedAtClose = released;
-      }),
-    ),
-  );
-  expect(released).toBe(true);
-  expect(releasedAtClose).toBe(true);
 });
 
 it.each(['complete', 'failure', 'cancel', 'replace', 'close'] as const)(
@@ -136,44 +91,3 @@ it.each(['complete', 'failure', 'cancel', 'replace', 'close'] as const)(
     );
   },
 );
-
-it('joins pending resource cleanup through the ambient component runtime', async () => {
-  const release = Deferred.makeUnsafe<void>();
-  let releasing = false;
-  let released = false;
-  await Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const runtime = yield* makeUiRuntime();
-        const settlement = new Settlement(runtime);
-        const root = new Scope({}, () => {}, undefined, settlement);
-        const resource = resourceComponent({
-          request: () => ({
-            key: 'read',
-            load: () =>
-              Effect.acquireRelease(Effect.void, () =>
-                Effect.gen(function* () {
-                  releasing = true;
-                  yield* Deferred.await(release);
-                  released = true;
-                }),
-              ).pipe(Effect.andThen(Effect.never)),
-          }),
-          view: compiled(() => {}),
-        });
-        resource.build(root, {} as Node, null);
-        root.dispose();
-        const closing = Effect.runFork(settlement.wait());
-        try {
-          expect(releasing).toBe(true);
-          expect(released).toBe(false);
-          expect(closing.pollUnsafe()).toBeUndefined();
-        } finally {
-          yield* Deferred.succeed(release, undefined);
-          yield* Fiber.join(closing);
-        }
-        expect(released).toBe(true);
-      }),
-    ),
-  );
-});

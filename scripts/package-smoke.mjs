@@ -141,7 +141,7 @@ assert.equal(refreshedEntities.items[1], previousEntities.items[0]);
 const runtimeExports = await import(
   pathToFileURL(join(temp, 'node_modules/effectweb/dist/index.js')).href
 );
-assert.equal(typeof runtimeExports.infiniteQuery, 'function');
+assert.equal(runtimeExports.makeQueryCache, undefined, 'Queries live in @effectweb/query');
 assert.equal(typeof runtimeExports.commandSlots, 'function');
 assert.equal(runtimeExports.lazyView, undefined, 'Specialized APIs live in effectweb/advanced');
 const runtimeManifest = JSON.parse(
@@ -312,14 +312,15 @@ for (const file of [
 }
 // Route each relative runtime import to the public entry point that exports it.
 const entryModules = {
-  effectweb: 'index',
-  'effectweb/advanced': 'advanced',
-  'effectweb/testing': 'testing',
-  'effectweb/dom': 'dom',
-  'effectweb/jsx': 'jsx',
+  effectweb: 'runtime/src/index',
+  'effectweb/advanced': 'runtime/src/advanced',
+  'effectweb/testing': 'runtime/src/testing',
+  'effectweb/dom': 'runtime/src/dom',
+  'effectweb/jsx': 'runtime/src/jsx',
+  '@effectweb/query': 'query/src/index',
 };
 const entryPoints = Object.entries(entryModules).map(([specifier, module]) => {
-  const text = readFileSync(`packages/runtime/src/${module}.ts`, 'utf8');
+  const text = readFileSync(`packages/${module}.ts`, 'utf8');
   const names = new Set();
   for (const [, block] of text.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}/gu))
     for (const item of block.split(','))
@@ -367,7 +368,7 @@ function packageImports(source, file) {
     })
     .replace(/import\((['"])\.\/([A-Za-z-]+)\.js\1\)/gu, (match, quote, module) => {
       // Type queries may only name a module that is itself a public entry point.
-      const entry = Object.entries(entryModules).find(([, name]) => name === module);
+      const entry = Object.entries(entryModules).find(([, name]) => name.endsWith(`/${module}`));
       if (!entry) throw new Error(`${file}: route ${match} through a public entry point`);
       return `import(${quote}${entry[0]}${quote})`;
     });
@@ -378,11 +379,9 @@ for (const file of [
   'render-contract.typecheck.tsx',
   'effect-contract.typecheck.ts',
   'async.typecheck.tsx',
-  'query.typecheck.ts',
   'scoped.typecheck.tsx',
   'commands.typecheck.ts',
   'tasks.typecheck.ts',
-  'large-project.typecheck.ts',
   'lazy.typecheck.tsx',
   'portal.typecheck.tsx',
   'native-jsx.typecheck.ts',
@@ -390,6 +389,15 @@ for (const file of [
 ]) {
   const source = packageImports(readFileSync(`packages/runtime/src/${file}`, 'utf8'), file);
   writeFileSync(join(temp, file), source);
+}
+for (const file of [
+  'query.typecheck.ts',
+  'large-project.typecheck.ts',
+  'services.typecheck.ts',
+  'cacheSnapshots.typecheck.ts',
+]) {
+  const source = packageImports(readFileSync(`packages/query/src/${file}`, 'utf8'), file);
+  writeFileSync(join(temp, `query-${file}`), source);
 }
 writeFileSync(
   join(temp, '.oxlintrc.json'),
@@ -534,11 +542,11 @@ const { Effect, Context, Fiber } = await import(
   Context: await import(pathToFileURL(join(temp, 'node_modules/effect/dist/Context.js')).href),
   Fiber: await import(pathToFileURL(join(temp, 'node_modules/effect/dist/Fiber.js')).href),
 }));
-const { makeQueryCache, query, uiRuntime } = await import(
+const { uiRuntime } = await import(
   pathToFileURL(join(temp, 'node_modules/effectweb/dist/index.js')).href
 );
-const { scopedQueryCache } = await import(
-  pathToFileURL(join(temp, 'node_modules/effectweb/dist/advanced.js')).href
+const { makeQueryCache, query, scopedQueryCache } = await import(
+  pathToFileURL(join(temp, 'node_modules/@effectweb/query/dist/index.js')).href
 );
 const service = Context.Service('package-smoke/service');
 const cache = makeQueryCache(uiRuntime(Context.make(service, 'shared')));
@@ -697,7 +705,7 @@ try {
     return { labels, count, releases: setup.releases, evaluated, disposal, empty };
   });
   assert.deepEqual(scoped, {
-    labels: ['application', 'application', 'application', 'application'],
+    labels: ['application', 'application', 'application'],
     count: '5',
     releases: ['dom', 'view'],
     evaluated: 2,

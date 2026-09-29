@@ -2,7 +2,7 @@ import { Effect, Fiber } from 'effect';
 import { expect, it, vi } from 'vitest';
 import { makeQueryCache } from './cache.js';
 import { query, queryGroup } from './query.js';
-import { queryResource } from './session.js';
+import { queryResource } from './observe.js';
 
 it('cancels only the last unused observer and restarts an abandoned selection', () => {
   let starts = 0,

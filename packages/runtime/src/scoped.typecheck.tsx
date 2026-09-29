@@ -7,7 +7,6 @@ import { view } from './dom.js';
 import { fromStream, type Source } from './source.js';
 import * as Stream from 'effect/Stream';
 import { defineTasks } from './tasks.js';
-import { resourceComponent } from './resource.js';
 import { lazyView } from './advanced.js';
 
 class Storage extends Context.Service<Storage, { readonly save: Effect.Effect<void, 'offline'> }>()(
@@ -58,10 +57,6 @@ const scopedLoad = () => Effect.acquireRelease(Effect.succeed('value'), () => Ef
 const scopedTasks = defineTasks({ init: () => ({}) }).tasks({
   read: { policy: 'replace', run: scopedLoad },
 });
-const scopedResource = resourceComponent({
-  request: () => ({ key: 'read', load: scopedLoad }),
-  view: view(() => <span />),
-});
 const scopedLazy = lazyView(() =>
   Effect.as(
     scopedLoad(),
@@ -69,11 +64,6 @@ const scopedLazy = lazyView(() =>
   ),
 );
 const serviceLoad = () => Effect.acquireRelease(Storage, () => Effect.void);
-// @ts-expect-error A work scope cannot provide application services.
-const missingResourceService = resourceComponent({
-  request: () => ({ key: 'read', load: serviceLoad }),
-  view: view(() => <span />),
-});
 // @ts-expect-error A lazy loader's application service requires an explicit runtime.
 const missingLazyService = lazyView(() =>
   Effect.as(
@@ -85,11 +75,4 @@ const missingTaskService = defineTasks({ init: () => ({}) }).tasks({
   // @ts-expect-error Scope ownership does not provide Storage.
   read: { policy: 'replace', run: serviceLoad },
 });
-void [
-  scopedTasks,
-  scopedResource,
-  scopedLazy,
-  missingResourceService,
-  missingLazyService,
-  missingTaskService,
-];
+void [scopedTasks, scopedLazy, missingLazyService, missingTaskService];

@@ -189,7 +189,7 @@ it.each([
   `key: () => 'fixed', load: args => api(args.page)`,
   `key: ({account: owner}) => [owner], load: ({page: cursor}) => api(cursor)`,
 ])('reports legacy query projections through optional lint', (definition) => {
-  const text = `import {query as defineQuery} from 'effectweb'; const q = defineQuery({name: 'page', ${definition}});`;
+  const text = `import {query as defineQuery} from '@effectweb/query'; const q = defineQuery({name: 'page', ${definition}});`;
   expect(lint(text, 'queries.ts')[0]).toMatchObject({
     code: 'EW2002',
     severity: 'error',
@@ -214,25 +214,33 @@ it.each([
   `key: ({account, ...rest}) => [account, rest], load: args => api(args.page)`,
 ])('rejects projections even when their completeness is unprovable: %s', (definition) => {
   expect(
-    lint(`import {query} from 'effectweb'; const q = query({${definition}});`, 'queries.ts')[0],
+    lint(
+      `import {query} from '@effectweb/query'; const q = query({${definition}});`,
+      'queries.ts',
+    )[0],
   ).toMatchObject({ code: 'EW2002', severity: 'error' });
 });
 
 it('accepts complete automatic request identity', () => {
   expect(
     lint(
-      `import {query} from 'effectweb'; const q = query({load: args => api(args.filter.status)});`,
+      `import {query} from '@effectweb/query'; const q = query({load: args => api(args.filter.status)});`,
       'queries.ts',
     ),
   ).toEqual([]);
 });
 
-it('recognizes query subpath imports without treating unrelated query functions as framework calls', () => {
+it('recognizes the query package without treating unrelated query functions as framework calls', () => {
   const definition = `{key: args => args.account, load: args => api(args.page)}`;
   expect(
-    lint(`import {query} from 'effectweb/query'; const q = query(${definition});`, 'queries.ts')[0]
-      ?.code,
+    lint(
+      `import {query as q} from '@effectweb/query'; const d = q(${definition});`,
+      'queries.ts',
+    )[0]?.code,
   ).toBe('EW2002');
+  expect(
+    lint(`import {query} from 'effectweb'; const q = query(${definition});`, 'queries.ts'),
+  ).toEqual([]);
   expect(
     lint(`import {query} from './other'; const q = query(${definition});`, 'queries.ts'),
   ).toEqual([]);
@@ -243,7 +251,7 @@ it('surfaces parser or native-analysis failures when query-key is used on TypeSc
   plugin.rules['query-key']
     .create({
       filename: 'queries.ts',
-      sourceCode: { text: `import {query} from 'effectweb'; const q = query({` },
+      sourceCode: { text: `import {query} from '@effectweb/query'; const q = query({` },
       options: [],
       report: (report) => reports.push(report),
     })
@@ -280,6 +288,15 @@ describe('optional identity lint: keyed rows', () => {
       .Program();
     return reports;
   };
+
+  it('treats literal tuples and records as fixed rows', () => {
+    const text = `import { view } from 'effectweb';
+import { Field } from './Field';
+const A = view(m => <div>{[['id', 'Id'], ['name', 'Name']].map(([k, l]) => <Field id={k} label={l} />)}</div>);
+const B = view(m => <div>{[{ id: 'a', label: \`A\` }].map(o => <Field id={o.id} label={o.label} />)}</div>);
+const C = view(m => <div>{[[m.key, 'Label']].map(([k, l]) => <Field id={k} label={l} />)}</div>);`;
+    expect(run(text).map((report) => report.loc.line)).toEqual([5]);
+  });
 
   it('reports .map rows containing components or form controls', () => {
     const text = `import { view, list, entities } from 'effectweb';

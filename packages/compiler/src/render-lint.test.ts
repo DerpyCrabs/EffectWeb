@@ -311,3 +311,45 @@ view(() => <p>{observe(source, (s) => s.compute())}</p>);`;
 view((p) => <p>{p.each(() => Math.random())}</p>);`;
   expect(lint(handed, 'handed.tsx')).toEqual([expect.objectContaining({ code: 'EW1003' })]);
 });
+
+it('allows fresh Array constructor buffers while preserving borrowed element checks', () => {
+  expect(checkRender(`view(model => <p>{Array(model.count).fill('..').join('/')}</p>);`)).toContain(
+    '.markup(',
+  );
+  expect(() =>
+    checkRender(`view(model => <p>{Array(model.item).map(item => item.count++).join('/')}</p>);`),
+  ).toThrow(/mutat/u);
+});
+
+it('allows deferred async component loaders but not async DOM handlers or render calls', () => {
+  expect(
+    checkRender(
+      `const load = async () => { const response = await fetch('/data'); return response.json(); }; view(model => <Reader load={load} />);`,
+    ),
+  ).toContain('Reader');
+  expect(() =>
+    checkRender(
+      `const load = async () => { await fetch('/data'); }; view(model => <button onClick={load} />);`,
+    ),
+  ).toThrow(/Async work/u);
+  expect(() =>
+    checkRender(
+      `const load = async () => { await fetch('/data'); }; view(model => <Reader value={load()} />);`,
+    ),
+  ).toThrow(/Async work/u);
+  expect(() =>
+    checkRender(`view(model => <Reader load={async () => { model.items.push(1); }} />);`),
+  ).toThrow(/mutating method/u);
+});
+
+it('lets views observe query sources but not create caches while rendering', () => {
+  const observed = `import { view, observe } from 'effectweb';
+import { querySource } from '@effectweb/query';
+import { cache, user } from './queries';
+view((model) => <p>{observe(querySource(cache, user, { id: model.id }), (result) => result._tag)}</p>);`;
+  expect(lint(observed, 'observed.tsx')).toEqual([]);
+  const created = `import { view } from 'effectweb';
+import { makeQueryCache } from '@effectweb/query';
+view(() => <p>{String(makeQueryCache())}</p>);`;
+  expect(lint(created, 'created.tsx')).toEqual([expect.objectContaining({ code: 'EW1003' })]);
+});

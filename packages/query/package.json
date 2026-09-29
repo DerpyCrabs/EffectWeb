@@ -1,11 +1,11 @@
 {
-  "name": "@effectweb/tanstack-form",
+  "name": "@effectweb/query",
   "version": "0.7.0",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/DerpyCrabs/EffectWeb.git",
-    "directory": "packages/tanstack-form"
+    "directory": "packages/query"
   },
   "files": [
     "dist",
@@ -22,9 +22,6 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "dependencies": {
-    "@tanstack/form-core": "1.33.5"
   },
   "peerDependencies": {
     "effect": "4.0.0-rc.112",

@@ -197,3 +197,147 @@ it('replaces work per key through a declared slot family', async () => {
   expect([...owner.read().done].sort()).toEqual(['1b', '2a']);
   owner.dispose();
 });
+
+it('releases scoped resources before starting the next queued command', async () => {
+  const owner = modelOwner({});
+  const events: number[] = [];
+  let finish!: () => void;
+  owner.run(
+    commandLoad,
+    Effect.gen(function* () {
+      yield* Effect.addFinalizer(() => Effect.sync(() => events.push(2)));
+      yield* Effect.callback<void>((resume) => {
+        finish = () => resume(Effect.void);
+      });
+    }),
+    'queue',
+  );
+  owner.run(
+    commandLoad,
+    Effect.sync(() => events.push(3)),
+    'queue',
+  );
+  expect(events).toEqual([]);
+  finish();
+  await Effect.runPromise(owner.awaitIdle());
+  expect(events).toEqual([2, 3]);
+  owner.dispose();
+});
+
+it('allows new commands after cancellation while an async finalizer drains', async () => {
+  const owner = modelOwner({ count: 0 });
+  let release!: () => void;
+  owner.run(
+    commandLoad,
+    Effect.never.pipe(
+      Effect.ensuring(
+        Effect.callback<void>((resume) => {
+          release = () => resume(Effect.void);
+        }),
+      ),
+    ),
+    'drop',
+  );
+  owner.cancel(commandLoad);
+  owner.run(
+    commandLoad,
+    Effect.sync(() => owner.patch({ count: 8 })),
+    'drop',
+  );
+  expect(owner.read().count).toBe(8);
+  release();
+  await Effect.runPromise(owner.awaitIdle());
+  owner.dispose();
+});
+
+it('discards reentrant commands when disposed before admission', () => {
+  const owner = modelOwner({ count: 0 });
+  const work = vi.fn();
+  owner.source.subscribe(() => {
+    owner.run(commandLoad, Effect.sync(work), 'queue');
+    owner.dispose();
+  });
+  owner.patch({ count: 1 });
+  expect(work).not.toHaveBeenCalled();
+});
+
+it('respects reentrant cancellation before admitting a new command', async () => {
+  const owner = modelOwner({ count: 0 });
+  const work = vi.fn();
+  owner.source.subscribe(() => {
+    owner.run(commandLoad, Effect.never, 'drop');
+    owner.cancel(commandLoad);
+    owner.run(commandLoad, Effect.sync(work), 'drop');
+  });
+  owner.patch({ count: 1 });
+  await Effect.runPromise(owner.awaitIdle());
+  expect(work).toHaveBeenCalledOnce();
+  owner.dispose();
+});
+
+it('rolls back cancellation and preserves the active command', async () => {
+  const owner = modelOwner({});
+  const stopped = vi.fn();
+  const dropped = vi.fn();
+  owner.run(commandLoad, Effect.never.pipe(Effect.ensuring(Effect.sync(stopped))), 'drop');
+  expect(() =>
+    owner.transaction(() => {
+      owner.cancel(commandLoad);
+      throw new Error('rollback');
+    }),
+  ).toThrow('rollback');
+  owner.run(commandLoad, Effect.sync(dropped), 'drop');
+  expect(stopped).not.toHaveBeenCalled();
+  expect(dropped).not.toHaveBeenCalled();
+  owner.transaction(() => owner.cancel(commandLoad));
+  await Effect.runPromise(owner.awaitIdle());
+  expect(stopped).toHaveBeenCalledOnce();
+  owner.dispose();
+});
+
+it('reads accepted writes synchronously during command startup', async () => {
+  const owner = modelOwner({ first: 0, second: 0 });
+  let read: unknown;
+  owner.run(
+    commandWork,
+    Effect.sync(() => {
+      owner.patch({ first: 1 });
+      const written = owner.read().first;
+      owner.patch({ second: written });
+      read = owner.read();
+    }),
+    'drop',
+  );
+  await Effect.runPromise(owner.awaitIdle());
+  expect(read).toEqual({ first: 1, second: 1 });
+  expect(owner.source.model()).toEqual(read);
+  owner.dispose();
+});
+
+it('accumulates reentrant edits and keeps nested transaction rollback isolated', () => {
+  const owner = modelOwner({ count: 0, label: '' });
+  const published: number[] = [];
+  owner.source.subscribe((snapshot) => {
+    published.push(snapshot.count);
+    if (snapshot.count !== 1) return;
+    owner.edit('count', (count) => count + 1);
+    owner.edit('count', (count) => count + 1);
+    expect(owner.read().count).toBe(3);
+    expect(() =>
+      owner.transaction(() => {
+        owner.patch({ count: 99 });
+        throw new Error('rollback');
+      }),
+    ).toThrow('rollback');
+    expect(owner.read().count).toBe(3);
+    owner.transaction(() => {
+      owner.patch({ label: String(owner.read().count) });
+      owner.edit('count', (count) => count + 1);
+    });
+    expect(owner.read()).toEqual({ count: 4, label: '3' });
+  });
+  owner.patch({ count: 1 });
+  expect(published).toEqual([1, 2, 3, 4]);
+  expect(owner.source.model()).toEqual({ count: 4, label: '3' });
+  owner.dispose();
+});

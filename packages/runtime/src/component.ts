@@ -116,6 +116,8 @@ export function programView<Props, Model, Message>(definition: {
     runtime: UiRuntime<never>,
   ) => import('./program').Program<Model, Message>;
   receive: (source: import('./program').Program<Model, Message>, props: Snapshot<Props>) => void;
+  /** Capture DOM state before child disposal, on unmount or identity replacement. */
+  beforeDispose?: (source: import('./program').Program<Model, Message>) => void;
   view: View<Model, Message>;
 }): View<Props, never> {
   return identify(
@@ -134,6 +136,7 @@ export function programView<Props, Model, Message>(definition: {
         () => closeProgram(scope, source),
         () => child.dispose(),
         () => unsubscribe(),
+        () => definition.beforeDispose?.(source),
       );
       const release = source.subscribe((model) => child.set(model));
       if (scope.disposed) {

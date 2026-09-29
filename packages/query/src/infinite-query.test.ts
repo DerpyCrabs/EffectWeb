@@ -1,8 +1,10 @@
-import { Context, Effect } from 'effect';
+import { Context, Effect, Option } from 'effect';
+import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { expect, it } from 'vitest';
-import { infiniteQuery, infiniteResource } from './infinite-query.js';
+import { fetchNextPage, infiniteQuery, infiniteResource } from './infinite-query.js';
+import { querySource } from './observe.js';
 import { makeQueryCache } from './cache.js';
-import { uiRuntime } from './runtime.js';
+import { uiRuntime } from 'effectweb';
 
 it('shares initial and next loads, seeds, bounds pages and refreshes retained parameters', async () => {
   const loads: number[] = [];
@@ -201,4 +203,28 @@ it('supports first-page refresh explicitly and validates seed ranges and cursors
   expect((await Effect.runPromiseExit(observer.retryPage(9)))._tag).toBe('Failure');
   observer.dispose();
   await Effect.runPromise(cache.close());
+});
+
+it('reads infinite queries through querySource and extends them with fetchNextPage', async () => {
+  const cache = makeQueryCache();
+  const numbers = infiniteQuery({
+    name: 'source-numbers',
+    initial: 0,
+    load: (_args: { list: string }, offset: number) => Effect.succeed([offset, offset + 1]),
+    next: (_page, offset) => (offset < 2 ? offset + 2 : undefined),
+  });
+  const source = querySource(cache, numbers, { list: 'a' });
+  const seen: number[][] = [];
+  const stop = source.subscribe((result) => {
+    const data = Option.getOrUndefined(AsyncResult.value(result));
+    if (data) seen.push(data.pages.flatMap((page) => [...page.value]));
+  });
+  await Effect.runPromise(Effect.yieldNow);
+  const first = Option.getOrUndefined(AsyncResult.value(source.model()));
+  expect(first?.pages.flatMap((page) => [...page.value])).toEqual([0, 1]);
+  const extended = await Effect.runPromise(fetchNextPage(cache, numbers, { list: 'a' }));
+  expect(extended.next).toBeUndefined();
+  expect(seen.at(-1)).toEqual([0, 1, 2, 3]);
+  stop();
+  cache.dispose();
 });

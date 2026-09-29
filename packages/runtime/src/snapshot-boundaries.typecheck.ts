@@ -8,13 +8,12 @@ import {
   defineTasks,
   localComponent,
   program,
-  resourceComponent,
   slot,
   view,
   ViewBinding,
   type Snapshot,
 } from './index.js';
-import { pages, programView } from './advanced.js';
+import { programView } from './advanced.js';
 
 type Item = { name: string; tags: string[] };
 type Props = { items: Item[] };
@@ -104,47 +103,6 @@ export function taskSnapshotBoundaries(props: Snapshot<Props>) {
   builder.controls(source.send).patch({ items: source.model().items });
   // @ts-expect-error Parent props remain outside task field ownership.
   builder.controls(source.send).patch({ props });
-  source.dispose();
-}
-
-export function resourceSnapshotBoundaries(props: Snapshot<Props>) {
-  resourceComponent<Props, number>({
-    request(input) {
-      // @ts-expect-error Request selection cannot mutate published props.
-      input.items[0]!.name = 'bad';
-      return { key: 'count', load: () => Effect.succeed(input.items.length) };
-    },
-    view: view(() => null),
-  });
-  const pagination = pages<Props, Item, { offsets: number[] }>({
-    key(input) {
-      // @ts-expect-error Page identity reads immutable input.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      input.items.pop();
-      return 'items';
-    },
-    load(input, cursor) {
-      // @ts-expect-error Load props can be retained published data.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      input.items[0]!.tags.push('bad');
-      // @ts-expect-error A continuation cursor belongs to the previous snapshot.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      cursor?.offsets.push(1);
-      return Effect.succeed({ items: [], next: undefined });
-    },
-    itemKey(item) {
-      // @ts-expect-error Existing result items cannot be mutated by identity selection.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      item.tags.sort();
-      return item.name;
-    },
-  });
-  const source = pagination.create(props);
-  pagination.receive(source.model(), props);
-  pagination.update(source.model(), { type: 'More' });
-  // @ts-expect-error A newly assembled initial model still borrows immutable parent input.
-  // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-  pagination.init(props).props.items.push({ name: 'bad', tags: [] });
   source.dispose();
 }
 

@@ -7,11 +7,11 @@ mkdirSync(resolve('artifacts'), { recursive: true });
 const directory = mkdtempSync(resolve('artifacts/bundle-'));
 const cases = {
   owner: `import { modelOwner } from 'effectweb'; window.app=modelOwner({count:0});`,
-  ownedQuery: `import { modelOwner, makeQueryCache, query, observeQuery } from 'effectweb'; import { Effect } from 'effect'; const app=modelOwner({result:undefined}); const cache=app.own(makeQueryCache()); const source=observeQuery(app,cache,query({name:'sample',load:()=>Effect.succeed(1)}),result=>app.patch({result})); source.select(true); window.app=app;`,
+  ownedQuery: `import { modelOwner } from 'effectweb'; import { makeQueryCache, query, observeQuery } from '@effectweb/query'; import { Effect } from 'effect'; const app=modelOwner({result:undefined}); const cache=app.own(makeQueryCache()); const source=observeQuery(app,cache,query({name:'sample',load:()=>Effect.succeed(1)}),result=>app.patch({result})); source.select(true); window.app=app;`,
   unusedView: `import { view, mountView } from 'effectweb'; const Unused = view((model, send) => <button onClick={() => send(model.id)}><span>UNUSED_VIEW_MARKER</span>{model.label}</button>); const View = view((model, send) => <p>{model.text}</p>); mountView(document.body, View, {model:()=>({text:'hello'}),send:()=>{},subscribe:()=>()=>{}});`,
   view: `import { view, mountView } from 'effectweb'; const View = view((model, send) => <p>{model.text}</p>); mountView(document.body, View, {model:()=>({text:'hello'}),send:()=>{},subscribe:()=>()=>{}});`,
   program: `import { program } from 'effectweb'; const app=program({initial:0, update:(model, n)=>({model:model+n})}); window.app=app;`,
-  query: `import { makeQueryCache, query } from 'effectweb'; import { Effect } from 'effect'; const cache=makeQueryCache(); window.cache=cache; window.load=()=>cache.prefetch(query({name:'sample',load:()=>Effect.succeed(1)}),true);`,
+  query: `import { makeQueryCache, query } from '@effectweb/query'; import { Effect } from 'effect'; const cache=makeQueryCache(); window.cache=cache; window.load=()=>cache.prefetch(query({name:'sample',load:()=>Effect.succeed(1)}),true);`,
 };
 const { effectweb } = await import('../packages/compiler/dist/vite.js');
 const report = {};

@@ -25,6 +25,7 @@ export interface DisposableOwner {
 }
 export interface ModelOwner<Model extends object, R = never> extends DisposableOwner {
   readonly source: Program<Model, never>;
+  /** Latest accepted immutable state, including writes queued during command startup. */
   readonly read: () => Snapshot<Model>;
   /** Expose only controller-selected editable fields to a view. */
   readonly fields: <const Keys extends readonly (keyof Model)[]>(
@@ -121,18 +122,27 @@ export function modelOwner<Model extends object, R>(
       };
     },
   });
-  const read = (): Snapshot<Model> =>
-    protectSnapshot(staged?.model ?? source.model()) as Snapshot<Model>;
+  let accepted = source.model() as Model;
+  const read = (): Snapshot<Model> => protectSnapshot(staged?.model ?? accepted) as Snapshot<Model>;
   const submit = (operation: Operation) => {
     if (disposed) return;
     if (staged) {
       staged.operations.push(operation);
       if (operation.type === 'Patch')
         staged.model = patchModel(staged.model, operation.changes as Partial<Model>);
-    } else source.send([operation]);
+    } else submitBatch([operation]);
   };
   const patch = (changes: Partial<Model> | Partial<Snapshot<Model>>) =>
     submit({ type: 'Patch', changes });
+  const submitBatch = (operations: Batch) => {
+    let next = accepted;
+    for (const operation of operations)
+      if (operation.type === 'Patch') next = patchModel(next, operation.changes as Partial<Model>);
+    // Commands and publication callbacks can enqueue patches while the program is draining.
+    // Reads observe accepted writes immediately; views still receive committed publications.
+    accepted = protectSnapshot(next) as Model;
+    source.send(operations);
+  };
   const dispose = () => {
     if (disposed) return;
     disposed = true;
@@ -207,7 +217,7 @@ export function modelOwner<Model extends object, R>(
           if (parent) {
             parent.model = batch.model;
             parent.operations.push(...batch.operations);
-          } else if (batch.operations.length) source.send(batch.operations);
+          } else if (batch.operations.length) submitBatch(batch.operations);
         }
         return result;
       } finally {

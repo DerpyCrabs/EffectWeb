@@ -24,6 +24,7 @@ for (const { directory: name } of packages) {
           file,
           JSON.stringify(
             [
+              'query',
               'json-render',
               'tanstack-router',
               'tanstack-form',

@@ -1,10 +1,9 @@
 import { Context, Effect, Option, Scope } from 'effect';
 import { query, type Query } from './query.js';
 import { makeQueryCache } from './cache.js';
-import { lifetime, observeQuery } from './session.js';
-import type { Snapshot } from './snapshot.js';
 import { infiniteQuery, infiniteResource } from './infinite-query.js';
-import { makeUiRuntime } from './runtime.js';
+import { lifetime, type Snapshot, makeUiRuntime } from 'effectweb';
+import { observeQuery } from './observe.js';
 
 export function queryTypes() {
   interface Filter {
@@ -157,4 +156,16 @@ export function observedQueryScopes() {
     return yield* owned.prefetch(requiringStorage, true);
   });
   void [prefetched, explicit, nextPage, missingService, provided];
+}
+
+export function immutableQueryInputs() {
+  return query<{ filters: string[]; page: number }, number>({
+    name: 'readonly query inputs',
+    load: (args) => {
+      // @ts-expect-error Running loads must not mutate their selected query identity.
+      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
+      args.filters.push('changed');
+      throw new Error('Type-only fixture');
+    },
+  });
 }

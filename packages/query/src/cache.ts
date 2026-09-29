@@ -1,5 +1,4 @@
 import { Settlement } from './settlement.js';
-import { protectSnapshot, type Snapshot } from './snapshot.js';
 import * as Deferred from 'effect/Deferred';
 import * as Effect from 'effect/Effect';
 import * as Scope from 'effect/Scope';
@@ -8,14 +7,15 @@ import * as Option from 'effect/Option';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import * as Atom from 'effect/unstable/reactivity/Atom';
 import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
-
-import { shareData } from './sharing.js';
+import * as Context from 'effect/Context';
 import { encodeQueryArguments, type Query, type QueryGroup } from './query.js';
 import { registerCache } from './cache-internals.js';
 import { queryDefinition } from './query-internals.js';
-import { defaultUiRuntime, makeUiRuntime, type UiRuntime } from './runtime.js';
 import { reportError, reportSafely } from './errors.js';
-export { shareValue } from './share.js';
+import { protectSnapshot, shareValue } from 'effectweb/advanced';
+import { type Snapshot, makeUiRuntime, uiRuntime, type UiRuntime } from 'effectweb';
+
+const defaultRuntime = /* @__PURE__ */ uiRuntime(Context.empty());
 
 interface ResourceEntry {
   atom: Atom.Writable<AsyncResult.AsyncResult<unknown, unknown>, unknown>;
@@ -57,7 +57,7 @@ function createQueryCache<R>(
   if (!Number.isFinite(retention) || retention < 0)
     throw new RangeError('Query retention must be finite and nonnegative.');
   const registry = AtomRegistry.make({ defaultIdleTTL: retention });
-  const clock = (runtime ?? defaultUiRuntime).clock;
+  const clock = (runtime ?? defaultRuntime).clock;
   const cancelValue = Symbol('cancel');
   const removeValue = Symbol('remove');
   const generation = Atom.keepAlive(Atom.make(0));
@@ -83,7 +83,7 @@ function createQueryCache<R>(
     key: string,
     load: () => Effect.Effect<A, E, Scope.Scope>,
     share: (previous: Snapshot<A>, next: A | Snapshot<A>) => A | Snapshot<A> = (previous, next) =>
-      shareData(previous, next as Snapshot<A>),
+      shareValue(previous, next as Snapshot<A>),
   ) => {
     let entry = resources.get(key);
     if (entry) entry.load = load;
@@ -369,7 +369,7 @@ function createQueryCache<R>(
       const shared = previous
         ? config.share
           ? config.share(previous.value as Snapshot<A>, next)
-          : shareData(previous.value as Snapshot<A>, next as Snapshot<A>)
+          : shareValue(previous.value as Snapshot<A>, next as Snapshot<A>)
         : next;
       const snapshot = protectSnapshot(shared) as Snapshot<A>;
       checkWritable();

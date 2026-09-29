@@ -1,9 +1,8 @@
 import { Context, Effect } from 'effect';
 import { infiniteQuery, infiniteResource } from './infinite-query.js';
 import { makeQueryCache } from './cache.js';
-import { pages } from './pages.js';
 import { query, queryGroup } from './query.js';
-import { uiRuntime } from './runtime.js';
+import { uiRuntime } from 'effectweb';
 
 class Files extends Context.Service<
   Files,
@@ -29,27 +28,6 @@ void invalidRetry;
 infiniteResource(makeQueryCache(), listing);
 // @ts-expect-error Query arguments must retain their declared type.
 observer.select({ path: 1 });
-const local = pages(
-  {
-    key: (path: string) => path,
-    itemKey: (value: string) => value,
-    load: (path: string, offset: number | undefined) =>
-      Effect.flatMap(Files, (files) => files.load(path, offset ?? 0)).pipe(
-        Effect.map((items) => ({ items, next: undefined as number | undefined })),
-      ),
-  },
-  runtime,
-);
-local.create('/');
-// @ts-expect-error Local pagination must receive its required services.
-pages({
-  key: (path: string) => path,
-  itemKey: (value: string) => value,
-  load: (path: string) =>
-    Effect.flatMap(Files, (files) => files.load(path, 0)).pipe(
-      Effect.map((items) => ({ items, next: undefined })),
-    ),
-});
 const typed = query({
   name: 'file',
   groups: [group],

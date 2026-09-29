@@ -1,5 +1,5 @@
 import { openDB } from 'idb';
-import { fromPromise } from 'effectweb';
+import { Effect } from 'effect';
 import { mountReadingList, type Entry, type Storage } from './app';
 import './style.css';
 
@@ -11,23 +11,29 @@ const database = () =>
     },
   });
 const storage: Storage = {
-  load: fromPromise(async () => {
-    const db = await database();
-    try {
-      return ((await db.get('lists', 'entries')) as Entry[] | undefined) ?? [];
-    } finally {
-      db.close();
-    }
-  }),
-  save: (entries) =>
-    fromPromise(async (signal) => {
+  load: Effect.tryPromise({
+    try: async () => {
       const db = await database();
       try {
-        if (signal.aborted) return;
-        await db.put('lists', [...entries], 'entries');
+        return ((await db.get('lists', 'entries')) as Entry[] | undefined) ?? [];
       } finally {
         db.close();
       }
+    },
+    catch: (error) => error,
+  }),
+  save: (entries) =>
+    Effect.tryPromise({
+      try: async (signal) => {
+        const db = await database();
+        try {
+          if (signal.aborted) return;
+          await db.put('lists', [...entries], 'entries');
+        } finally {
+          db.close();
+        }
+      },
+      catch: (error) => error,
     }),
 };
 const stop = mountReadingList(document.getElementById('app')!, storage);

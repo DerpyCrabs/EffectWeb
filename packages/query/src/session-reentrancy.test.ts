@@ -2,7 +2,7 @@ import { Effect } from 'effect';
 import { it, expect } from 'vitest';
 import { makeQueryCache } from './cache.js';
 import { query } from './query.js';
-import { queryResource, type QueryResource } from './session.js';
+import { queryResource, type QueryResource } from './observe.js';
 
 it('select remains coherent if releasing previous query reenters selection', async () => {
   const cache = makeQueryCache({ unused: 'cancel' });

@@ -1,7 +1,7 @@
 import type * as Effect from 'effect/Effect';
 import type * as Scope from 'effect/Scope';
-import type { Snapshot } from './snapshot.js';
 import type { Query, QueryGroup, QueryKey } from './query.js';
+import { type Snapshot } from 'effectweb';
 
 export interface QueryDefinition<Args, A, E, R> {
   readonly name: string;

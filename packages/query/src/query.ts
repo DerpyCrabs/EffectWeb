@@ -1,7 +1,7 @@
 import type * as Effect from 'effect/Effect';
 import type * as Scope from 'effect/Scope';
 import { registerQuery, queryDefinition, type QueryDefinition } from './query-internals.js';
-import type { Snapshot } from './snapshot.js';
+import { type Snapshot } from 'effectweb';
 
 /** Canonical data identity: plain objects, dense arrays, and finite scalar values. */
 export type QueryKey =

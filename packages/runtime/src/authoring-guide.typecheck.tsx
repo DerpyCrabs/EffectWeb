@@ -18,10 +18,7 @@ import {
   errorBoundary,
   list,
   localComponent,
-  makeQueryCache,
   modelOwner,
-  observeQuery,
-  query,
   sequence,
   submit,
   view,
@@ -29,6 +26,13 @@ import {
   type Snapshot,
   type Transition,
 } from './index.js';
+import {
+  makeQueryCache,
+  observeQuery,
+  query,
+  querySource,
+  type QueryCache,
+} from '@effectweb/query';
 
 // --- Views -------------------------------------------------------------------
 type Todo = { readonly id: string; readonly title: string; readonly done: boolean };
@@ -225,6 +229,13 @@ export function profileController(id: string) {
   user.select({ id });
   return { source: owner.source, refresh: user.refresh, dispose: owner.dispose };
 }
+// Views can read a query directly; equal arguments share one cached, live source.
+declare const appCache: QueryCache;
+export const UserName = view<{ readonly id: string }>((model) =>
+  observe(querySource(appCache, userQuery, { id: model.id }), (user) => (
+    <AsyncContent result={user} content={(value) => <b>{value.name}</b>} />
+  )),
+);
 export const Profile = view<{ readonly user: AsyncResult.AsyncResult<User, Error> }>((model) => (
   <AsyncContent
     result={model.user}

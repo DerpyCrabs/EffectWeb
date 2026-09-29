@@ -21,7 +21,7 @@ This is the guide to read before writing EffectWeb code, whether you are a perso
 | A feature controller shared by several views             | `modelOwner(initial)` (or `makeModelOwner` inside an Effect scope)                    |
 | One debounced/replaced request per row or entity         | `commandSlots('name')(rowId)` with `owner.run` / `effectCommand`                      |
 | An Effect started directly by a click                    | `onClick={effectEvent('drop', () => effect)}` or return the Effect from the handler   |
-| Cached server data                                       | `query(…)` + `makeQueryCache()` + `observeQuery(owner, cache, query, …)`              |
+| Cached server data                                       | `@effectweb/query`: `query(…)`, then `querySource` in views or `observeQuery`         |
 | Loading/empty/failure presentation                       | `<AsyncContent result={…} content={…} pending={…} failure={…} />`                     |
 | Imperative DOM (focus, charts, observers)                | `use={domMount(setup)}` or `use={domBinding(data, setup)}` with `setup` declared once |
 | Rendering into another element                           | `<Portal mount={element}>…</Portal>`                                                  |
@@ -212,6 +212,8 @@ export const CopyButton = view<{ readonly text: string }>((model) => (
 
 ## Server data
 
+Server data lives in `@effectweb/query`. There is one kind of query: a cached `query` (or `infiniteQuery` for pages), read by views through `querySource` or by controllers through `observeQuery`.
+
 ```tsx
 const userQuery = query({
   name: 'user',
@@ -227,14 +229,24 @@ export function profileController(id: string) {
   user.select({ id });
   return { source: owner.source, refresh: user.refresh, dispose: owner.dispose };
 }
+// Views can read a query directly; equal arguments share one cached, live source.
+declare const appCache: QueryCache;
+export const UserName = view<{ readonly id: string }>((model) =>
+  observe(querySource(appCache, userQuery, { id: model.id }), (user) => (
+    <AsyncContent result={user} content={(value) => <b>{value.name}</b>} />
+  )),
+);
 ```
 
 - Query identity is every argument. There is no custom `key`, so the wrong entry can't be reused (EW2002). Services come from the Effect environment, not arguments.
 - Share one cache per application or session. Invalidate with `cache.invalidateQuery(query, args)` or `queryGroup`, and write with `setQueryData`/`updateQueryData`.
-- `resourceComponent({ request, view })` is the per-view shortcut when no controller is involved. `available(result)` and `resourceError(result)` read an `AsyncResult`.
+- Loaders get services from the cache's runtime (`makeQueryCache(uiRuntime(context))`), not from props or closures. `available(result)` and `resourceError(result)` read an `AsyncResult`.
+- Paginate with `infiniteQuery`. Views read it with `querySource` and load more with `fetchNextPage(cache, query, args)` from an event handler; controllers can use `infiniteResource`.
 - Present results with `AsyncContent` rather than hand-written `isInitial`/`isFailure` branches.
-- Adapt Promise APIs explicitly with `fromPromise((signal) => fetch(url, { signal }))`.
-- A controller without a model of its own (a session composed from other sources) owns its resources with `lifetime()`: `observeQuery(scope, cache, query, changed)`, `scope.add(unsubscribe)` and `scope.dispose()`.
+- Keep orchestration in Effect pipelines and publish command completion into immutable controller state. Start owned work with `owner.run`; compose or await `owner.awaitIdle()` inside Effect when synchronization is required. Promise conversion belongs only at external library or browser integration boundaries.
+- Adapt Promise APIs explicitly with `Effect.tryPromise({ try: (signal) => fetch(url, { signal }), catch: (error) => error })`.
+- Internal component and controller loaders return Effects, for example `(path: string) => Effect.Effect<Document, LoadError>`. The controller runs them through an owned command. Passing a callback is not render work; invoking it during render is. Promise-valued callbacks belong only to external interop contracts. Native DOM event handlers should return an Effect instead of an unowned Promise.
+- A controller without a model of its own (a session composed from other sources) owns its resources and commands with `lifetime()` (`run`, `cancel`, `awaitIdle`, and `close` have the same ownership as `modelOwner`): `observeQuery(scope, cache, query, changed)`, `scope.add(unsubscribe)` and `scope.dispose()`.
 
 ## Time
 

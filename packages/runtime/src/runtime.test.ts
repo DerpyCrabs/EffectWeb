@@ -1,9 +1,8 @@
 import { commandSlot } from './program.js';
-import { Effect, Fiber } from 'effect';
+import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { Scope } from './dom.js';
 import { observeBindings } from './diagnostics.js';
-import { fromPromise } from './load.js';
 import { program } from './program.js';
 import { sessionGroup } from './session.js';
 
@@ -100,21 +99,6 @@ describe('UI failure isolation', () => {
     expect(dispose).toHaveBeenCalledTimes(1);
     reported.mockRestore();
   });
-});
-
-it('adapts a Promise factory lazily and forwards interruption through AbortSignal', async () => {
-  const abort = vi.fn(),
-    started = vi.fn();
-  const load = fromPromise((signal) => {
-    started();
-    signal.addEventListener('abort', abort);
-    return new Promise<never>(() => {});
-  });
-  expect(started).not.toHaveBeenCalled();
-  const fiber = Effect.runFork(load);
-  await Effect.runPromise(Fiber.interrupt(fiber));
-  expect(started).toHaveBeenCalledTimes(1);
-  expect(abort).toHaveBeenCalledTimes(1);
 });
 
 it('reports changed dependency names without retaining model data', () => {

@@ -11,8 +11,9 @@ import {
 } from './query.js';
 import type { QueryCache } from './cache.js';
 import { cacheInternals } from './cache-internals.js';
-import { queryResource, type QueryResource } from './session.js';
-import { protectSnapshot, type Snapshot } from './snapshot.js';
+import { queryResource, type QueryResource } from './observe.js';
+import { protectSnapshot } from 'effectweb/advanced';
+import { type Snapshot } from 'effectweb';
 
 export interface InfiniteData<A, Param> {
   readonly pages: readonly { readonly param: Param; readonly value: A }[];
@@ -133,82 +134,109 @@ function operationBook(cache: object, definition: object): Map<string, PageOpera
   return book;
 }
 
+/**
+ * Load the page after the last retained page (or retry a retained one) for these arguments.
+ * Works from event handlers and commands; the aggregate query must already be loaded or loadable.
+ */
+function loadPage<Args, A, Param, E, R>(
+  cache: QueryCache<R>,
+  definition: InfiniteQuery<Args, A, Param, E, NoInfer<R> | Scope.Scope>,
+  args: Args | Snapshot<Args>,
+  retry?: { param: Param | Snapshot<Param> },
+): Effect.Effect<Snapshot<InfiniteData<A, Param>>, E> {
+  const internal = cacheInternals(cache);
+  const book = operationBook(cache, definition.query);
+  return Effect.gen(function* () {
+    const current = yield* cache.prefetch(definition.query, args);
+    const param = retry ? retry.param : current.next;
+    if (param === undefined) return current;
+    const pageKey = definition.paramKey(param);
+    const retained = current.pages.some((page) => definition.paramKey(page.param) === pageKey);
+    if (retry && !retained && definition.paramKey(current.next) !== pageKey)
+      return yield* Effect.die(new RangeError('Retry a retained page or the next page parameter.'));
+    const key = encodeQueryArguments(definition.query, args);
+    const revision = internal.revision(definition.query, args);
+    let operation = book.get(key);
+    if (!operation || operation.revision !== revision) {
+      operation = { revision, active: 0 };
+      book.set(key, operation);
+    }
+    const state = operation;
+    state.active++;
+    return yield* Effect.gen(function* () {
+      const pageArgs = { args, param } as Snapshot<{ args: Args; param: Param }>;
+      const value = yield* cache.prefetch(definition.page, pageArgs, { refresh: true });
+      let result: Snapshot<InfiniteData<A, Param>> | undefined;
+      cache.batch(() => {
+        const latest = cache.getQueryData(definition.query, args);
+        result = latest;
+        // Other page operations can merge. External refresh, writes and reset own a new revision.
+        if (
+          !latest ||
+          book.get(key) !== state ||
+          state.revision !== internal.revision(definition.query, args)
+        )
+          return;
+        const index = latest.pages.findIndex((page) => definition.paramKey(page.param) === pageKey);
+        if (index < 0 && (retained || definition.paramKey(latest.next) !== pageKey)) return;
+        if (index >= 0 && latest.pages[index]!.value === value) return;
+        const pages = [...latest.pages];
+        const page = { param, value } as Snapshot<{ param: Param; value: A }>;
+        if (index >= 0) pages[index] = page;
+        else pages.push(page);
+        const kept = pages.slice(-definition.maxPages);
+        const last = kept[kept.length - 1]!;
+        result = cache.setQueryData(definition.query, args, {
+          pages: kept,
+          next: definition.next(last.value, last.param),
+        } as Snapshot<InfiniteData<A, Param>>);
+        state.revision = internal.revision(definition.query, args);
+      });
+      return result ?? (yield* Effect.interrupt);
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          state.active--;
+          if (state.active === 0 && book.get(key) === state) book.delete(key);
+        }),
+      ),
+    );
+  });
+}
+
+/** Load the next page of an infinite query into the cache. */
+export const fetchNextPage = <Args, A, Param, E, R>(
+  cache: QueryCache<R>,
+  definition: InfiniteQuery<Args, A, Param, E, NoInfer<R> | Scope.Scope>,
+  args: Args | Snapshot<Args>,
+): Effect.Effect<Snapshot<InfiniteData<A, Param>>, E> => loadPage(cache, definition, args);
+
+/** Reload one retained page (or the next page) of an infinite query. */
+export const retryPage = <Args, A, Param, E, R>(
+  cache: QueryCache<R>,
+  definition: InfiniteQuery<Args, A, Param, E, NoInfer<R> | Scope.Scope>,
+  args: Args | Snapshot<Args>,
+  param: Param | Snapshot<Param>,
+): Effect.Effect<Snapshot<InfiniteData<A, Param>>, E> =>
+  loadPage(cache, definition, args, { param });
+
 /** Cache-owned results, observer-owned subscriptions. Operations return typed Effects for task composition. */
 export function infiniteResource<Args, A, Param, E, R>(
   cache: QueryCache<R>,
   definition: InfiniteQuery<Args, A, Param, E, NoInfer<R> | Scope.Scope>,
 ): InfiniteResource<Args, A, Param, E> {
   const resource = queryResource({ cache }, definition.query);
-  const internal = cacheInternals(cache);
   let selected: Args | Snapshot<Args> | undefined;
   let disposed = false;
   const stopReset = cache.onReset(() => {
     selected = undefined;
   });
-  const book = operationBook(cache, definition.query);
   const updatePage = (retry?: { param: Param | Snapshot<Param> }) =>
-    Effect.gen(function* () {
-      if (disposed || selected === undefined) return yield* Effect.interrupt;
-      const args = selected;
-      const current = yield* cache.prefetch(definition.query, args);
-      const param = retry ? retry.param : current.next;
-      if (param === undefined) return current;
-      const pageKey = definition.paramKey(param);
-      const retained = current.pages.some((page) => definition.paramKey(page.param) === pageKey);
-      if (retry && !retained && definition.paramKey(current.next) !== pageKey)
-        return yield* Effect.die(
-          new RangeError('Retry a retained page or the next page parameter.'),
-        );
-      const key = encodeQueryArguments(definition.query, args);
-      const revision = internal.revision(definition.query, args);
-      let operation = book.get(key);
-      if (!operation || operation.revision !== revision) {
-        operation = { revision, active: 0 };
-        book.set(key, operation);
-      }
-      const state = operation;
-      state.active++;
-      return yield* Effect.gen(function* () {
-        const pageArgs = { args, param } as Snapshot<{ args: Args; param: Param }>;
-        const value = yield* cache.prefetch(definition.page, pageArgs, { refresh: true });
-        let result: Snapshot<InfiniteData<A, Param>> | undefined;
-        cache.batch(() => {
-          const latest = cache.getQueryData(definition.query, args);
-          result = latest;
-          // Other page operations can merge. External refresh, writes and reset own a new revision.
-          if (
-            !latest ||
-            book.get(key) !== state ||
-            state.revision !== internal.revision(definition.query, args)
-          )
-            return;
-          const index = latest.pages.findIndex(
-            (page) => definition.paramKey(page.param) === pageKey,
-          );
-          if (index < 0 && (retained || definition.paramKey(latest.next) !== pageKey)) return;
-          if (index >= 0 && latest.pages[index]!.value === value) return;
-          const pages = [...latest.pages];
-          const page = { param, value } as Snapshot<{ param: Param; value: A }>;
-          if (index >= 0) pages[index] = page;
-          else pages.push(page);
-          const kept = pages.slice(-definition.maxPages);
-          const last = kept[kept.length - 1]!;
-          result = cache.setQueryData(definition.query, args, {
-            pages: kept,
-            next: definition.next(last.value, last.param),
-          } as Snapshot<InfiniteData<A, Param>>);
-          state.revision = internal.revision(definition.query, args);
-        });
-        return result ?? (yield* Effect.interrupt);
-      }).pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            state.active--;
-            if (state.active === 0 && book.get(key) === state) book.delete(key);
-          }),
-        ),
-      );
-    });
+    Effect.suspend(() =>
+      disposed || selected === undefined
+        ? Effect.interrupt
+        : loadPage(cache, definition, selected, retry),
+    );
   return {
     read: resource.read,
     subscribe: resource.subscribe,

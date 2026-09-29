@@ -4,7 +4,7 @@ import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { makeQueryCache } from './cache.js';
 import { cacheInternals } from './cache-internals.js';
 import { query } from './query.js';
-import { uiRuntime } from './runtime.js';
+import { uiRuntime } from 'effectweb';
 
 const disposals: Array<() => void> = [];
 const cache = () => {

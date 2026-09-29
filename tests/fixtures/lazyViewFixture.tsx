@@ -1,13 +1,5 @@
-import { Cause } from 'effect';
-import {
-  domMount,
-  fromPromise,
-  mountView,
-  program,
-  view,
-  ViewBinding,
-  type Program,
-} from 'effectweb';
+import { Cause, Effect } from 'effect';
+import { domMount, mountView, program, view, ViewBinding, type Program } from 'effectweb';
 import { lazyView } from 'effectweb/advanced';
 import type { LazyMessage, LazyModel } from './lazyViewModule';
 
@@ -48,30 +40,35 @@ export function createLazyViewFixture(parent: HTMLElement, withFailure = true) {
   const Lazy = lazyView(
     () => {
       counts.starts++;
-      return fromPromise((signal) => {
-        let resolve!: () => void;
-        let reject!: (error: unknown) => void;
-        const ready = new Promise<void>((accept, fail) => {
-          resolve = accept;
-          reject = fail;
-        });
-        const loaded = ready.then(() => import('./lazyViewModule').then((module) => module.Loaded));
-        requests.push({
-          resolve,
-          reject,
-          settled: loaded.then(
-            () => {},
-            () => {},
-          ),
-        });
-        signal.addEventListener(
-          'abort',
-          () => {
-            counts.aborted++;
-          },
-          { once: true },
-        );
-        return loaded;
+      return Effect.tryPromise({
+        try: (signal) => {
+          let resolve!: () => void;
+          let reject!: (error: unknown) => void;
+          const ready = new Promise<void>((accept, fail) => {
+            resolve = accept;
+            reject = fail;
+          });
+          const loaded = ready.then(() =>
+            import('./lazyViewModule').then((module) => module.Loaded),
+          );
+          requests.push({
+            resolve,
+            reject,
+            settled: loaded.then(
+              () => {},
+              () => {},
+            ),
+          });
+          signal.addEventListener(
+            'abort',
+            () => {
+              counts.aborted++;
+            },
+            { once: true },
+          );
+          return loaded;
+        },
+        catch: (error) => error,
       });
     },
     { pending: Pending, ...(withFailure ? { failure: Failure } : {}) },

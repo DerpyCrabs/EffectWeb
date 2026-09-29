@@ -3,8 +3,8 @@ import * as TestClock from 'effect/testing/TestClock';
 import { expect, it } from 'vitest';
 import { makeQueryCache, scopedQueryCache } from './cache.js';
 import { query } from './query.js';
-import { queryResource } from './session.js';
 import { infiniteQuery, infiniteResource } from './infinite-query.js';
+import { queryResource } from './observe.js';
 
 class Request extends Data.Class<{ readonly id: string; readonly filter: Option.Option<string> }> {}
 const encode = (args: Request) => ({ id: args.id, filter: Option.getOrNull(args.filter) });

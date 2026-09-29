@@ -2,13 +2,11 @@ import { Effect } from 'effect';
 import { eventEffects, effectEvent } from './effectEvent.js';
 import { modelOwner } from './owner.js';
 import { program, commandSlot } from './program.js';
-import { makeQueryCache } from './cache.js';
 import { programDriver } from './testing.js';
 
 export function effectContracts() {
   const source = program({ initial: 0, update: (model: number) => ({ model }) });
   const owner = modelOwner({ count: 0 });
-  const cache = makeQueryCache();
   const driver = programDriver(source);
   const slot = commandSlot('work');
   const lifetime: Effect.Effect<void, AggregateError> = Effect.gen(function* () {
@@ -18,7 +16,6 @@ export function effectContracts() {
     yield* driver.run(Effect.void);
     yield* source.close();
     yield* owner.close();
-    yield* cache.close();
   });
   // @ts-expect-error Owners require Effect closure, preserving cancellation and error types.
   owner.own({ dispose() {}, close: async () => {} });

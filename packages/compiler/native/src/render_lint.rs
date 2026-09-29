@@ -17,6 +17,7 @@ use std::{
 pub enum Phase {
     Render,
     Event,
+    Callback,
     Host,
     Initializer,
 }
@@ -160,6 +161,7 @@ pub fn check<'a>(
         index,
         options,
         phase: Phase::Render,
+        attribute_phase: Phase::Event,
         bindings: Rc::new(BTreeMap::new()),
         receiver: None,
         scopes: vec![function.span],
@@ -199,6 +201,7 @@ struct Analyzer<'a, 's> {
     index: &'s Index<'a, 's>,
     options: &'s Options,
     phase: Phase,
+    attribute_phase: Phase,
     bindings: Rc<Bindings<'a>>,
     receiver: Option<Value<'a>>,
     scopes: Vec<Span>,
@@ -809,6 +812,7 @@ impl<'a> Analyzer<'a, '_> {
                         index: self.index,
                         options: self.options,
                         phase: Phase::Render,
+                        attribute_phase: Phase::Event,
                         bindings: Rc::new(BTreeMap::new()),
                         receiver: None,
                         scopes: vec![call.span],
@@ -941,7 +945,8 @@ impl<'a> Analyzer<'a, '_> {
             }
             Kind::Global(ref root, ref path)
                 if (root == "Array"
-                    && matches!(path.first().map(String::as_str), Some("from" | "of")))
+                    && (path.is_empty()
+                        || matches!(path.first().map(String::as_str), Some("from" | "of"))))
                     || (root == "Object"
                         && matches!(
                             path.as_slice().first().map(String::as_str),
@@ -1047,7 +1052,6 @@ impl<'a> Analyzer<'a, '_> {
                         "defineTasks",
                         "defineField",
                         "collection",
-                        "resourceComponent",
                         "component",
                     ]
                     .contains(&path.first().map(String::as_str).unwrap_or("")) =>
@@ -1134,12 +1138,13 @@ impl<'a> Analyzer<'a, '_> {
         value
     }
     fn framework(&self, module: &str) -> bool {
-        self.options.import_source.as_deref().is_some_and(|root| {
-            module == root
-                || module
-                    .strip_prefix(root)
-                    .is_some_and(|rest| rest.starts_with('/'))
-        })
+        module == crate::QUERY_PACKAGE
+            || self.options.import_source.as_deref().is_some_and(|root| {
+                module == root
+                    || module
+                        .strip_prefix(root)
+                        .is_some_and(|rest| rest.starts_with('/'))
+            })
     }
     fn check_value(&mut self, value: &Value<'a>, span: Span) {
         if self.phase != Phase::Render {
@@ -1223,7 +1228,7 @@ impl<'a> Analyzer<'a, '_> {
                     if let Some(argument)=arguments.first(){input.reads.extend(&argument.reads);input.source=argument.source.clone().map(|(span,mut path)|{path.push(None);(span,path)});}
                     for callback in callbacks{if matches!(callback.kind,Kind::Function(_)){self.invoke(callback,&[input.clone()],span,phase);}}
                 }
-                if phase==Phase::Render&&self.framework(&module)&&!matches!(path.last().map(String::as_str),Some("defineActions"|"defineTasks"|"defineField"|"collection"|"resourceComponent"|"component"|"bind"|"controls"|"from"|"map"|"view")) {self.fail(Issue::unknown(span,format!("framework method {} is a render operation",path.join("."))));}
+                if phase==Phase::Render&&self.framework(&module)&&!matches!(path.last().map(String::as_str),Some("defineActions"|"defineTasks"|"defineField"|"collection"|"component"|"bind"|"controls"|"from"|"map"|"view")) {self.fail(Issue::unknown(span,format!("framework method {} is a render operation",path.join("."))));}
                 for argument in arguments{if matches!(argument.kind,Kind::Function(_)){self.invoke(argument.clone(),&[Value::data()],span,if matches!(path.last().map(String::as_str),Some("map"|"from")){phase}else{Phase::Host});}}
                 let _=module;
             }
@@ -1601,7 +1606,7 @@ impl<'a> Analyzer<'a, '_> {
             ));
         }
     }
-    fn embedded(&mut self, value: Value<'a>, span: Span, depth: usize) {
+    fn embedded(&mut self, value: Value<'a>, span: Span, depth: usize, phase: Phase) {
         if depth > 80 {
             self.fail(Issue::unknown(span, "the effects of nested callback data"));
             return;
@@ -1620,7 +1625,7 @@ impl<'a> Analyzer<'a, '_> {
                     value,
                     &[Value::data()],
                     span,
-                    if jsx { Phase::Render } else { Phase::Event },
+                    if jsx { Phase::Render } else { phase },
                 );
             }
             Kind::Object(object, bindings) => {
@@ -1628,11 +1633,11 @@ impl<'a> Analyzer<'a, '_> {
                     match property {
                         ObjectPropertyKind::ObjectProperty(p) => {
                             let field = self.resolve(&p.value, &bindings, 0);
-                            self.embedded(field, p.span, depth + 1);
+                            self.embedded(field, p.span, depth + 1, phase);
                         }
                         ObjectPropertyKind::SpreadProperty(p) => {
                             let field = self.resolve(&p.argument, &bindings, 0);
-                            self.embedded(field, p.span, depth + 1);
+                            self.embedded(field, p.span, depth + 1, phase);
                         }
                     }
                 }
@@ -1644,7 +1649,7 @@ impl<'a> Analyzer<'a, '_> {
                     .filter_map(ArrayExpressionElement::as_expression)
                 {
                     let field = self.resolve(e, &bindings, 0);
-                    self.embedded(field, e.span(), depth + 1);
+                    self.embedded(field, e.span(), depth + 1, phase);
                 }
             }
             _ => {}
@@ -1662,12 +1667,16 @@ impl<'a> Analyzer<'a, '_> {
                 value,
                 &[Value::owned(true)],
                 e.span(),
-                if jsx { Phase::Render } else { Phase::Event },
+                if jsx {
+                    Phase::Render
+                } else {
+                    self.attribute_phase
+                },
             );
         } else if value.callable() {
-            self.invoke(value, &[Value::owned(true)], e.span(), Phase::Event);
+            self.invoke(value, &[Value::owned(true)], e.span(), self.attribute_phase);
         } else {
-            self.embedded(value, e.span(), 0);
+            self.embedded(value, e.span(), 0, self.attribute_phase);
         }
     }
 }
@@ -1920,6 +1929,17 @@ impl<'a> Visit<'a> for Analyzer<'a, '_> {
         } else {
             walk::walk_await_expression(self, n);
         }
+    }
+    fn visit_jsx_opening_element(&mut self, n: &JSXOpeningElement<'a>) {
+        let previous = self.attribute_phase;
+        self.attribute_phase = match &n.name {
+            JSXElementName::IdentifierReference(_) | JSXElementName::MemberExpression(_) => {
+                Phase::Callback
+            }
+            _ => Phase::Event,
+        };
+        walk::walk_jsx_opening_element(self, n);
+        self.attribute_phase = previous;
     }
     fn visit_jsx_attribute(&mut self, n: &JSXAttribute<'a>) {
         let n = self.alloc(n);

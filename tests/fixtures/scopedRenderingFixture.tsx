@@ -5,7 +5,6 @@ import {
   component,
   defineTasks,
   effectCommand,
-  resourceComponent,
   collection,
   list,
   ViewBinding,
@@ -162,10 +161,6 @@ const AmbientComponent = component<{}, { props: {}; label: string }, 'read' | { 
     </button>
   )),
 });
-const AmbientResource = resourceComponent({
-  request: (_props: {}) => ({ key: 'ambient', load: () => ambient }),
-  view: view((model) => <span id="ambient-resource">{available(model.result)}</span>),
-});
 const ambientTasks = defineTasks({ init: (_props: {}) => ({}) }).tasks({
   read: { policy: 'replace', run: () => ambient },
 });
@@ -187,7 +182,6 @@ export async function mountInheritedContext(parent: HTMLElement) {
       view<{}>(() => (
         <>
           <AmbientComponent />
-          <AmbientResource />
           <AmbientTask />
           <AmbientLazy />
         </>

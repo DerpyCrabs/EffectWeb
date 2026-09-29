@@ -22,6 +22,7 @@ export { mount } from './render.js';
 export type { JSX } from './jsx.js';
 export { Portal, domBinding, domMount, type DomMount, type PortalProps } from './mount.js';
 export { AsyncContent, type AsyncContentProps } from './AsyncContent.js';
+export { available, resourceError } from './result.js';
 export { errorBoundary } from './boundary.js';
 
 // Row identity for list(...)
@@ -65,32 +66,8 @@ export { uiRuntime, makeUiRuntime, type UiRuntime } from './runtime.js';
 // Sources
 export { mapSource, clock, type Source } from './source.js';
 
-// Async data
-export {
-  query,
-  queryGroup,
-  type Query,
-  type QueryKey,
-  type QueryGroup,
-  type QueryEncoding,
-} from './query.js';
-export { makeQueryCache, type QueryCache, type QueryCacheOptions } from './cache.js';
-export { observeQuery, lifetime, type QueryResource } from './session.js';
-export {
-  available,
-  resourceComponent,
-  resourceError,
-  type ResourceMessage,
-  type ResourceModel,
-} from './resource.js';
-export { fromPromise } from './load.js';
-export {
-  infiniteQuery,
-  infiniteResource,
-  type InfiniteData,
-  type InfiniteQuery,
-  type InfiniteResource,
-} from './infinite-query.js';
+// Owning resources in controllers without a model
+export { lifetime } from './session.js';
 
 // Form events
 export { submit } from './form.js';

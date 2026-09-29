@@ -3,6 +3,7 @@
 
 // Adapter building blocks
 export { projectionSource, fromStream, fromAtom, fromSubscriptionRef } from './source.js';
+export { protectSnapshot } from './snapshot.js';
 export { shareValue, type ShareFields } from './share.js';
 export { makeDomMount, makeDomBinding } from './mount.js';
 export { makeEffectHandler } from './effectEvent.js';
@@ -15,20 +16,10 @@ export { lazyView, type LazyViewOptions } from './lazy.js';
 export { programView } from './component.js';
 export { mapTransition, mapCommand } from './program.js';
 export { patchModel } from './state.js';
-export {
-  pages,
-  type PagesMessage,
-  type PagesRequest,
-  type PagesModel,
-  type PagesProgram,
-  type Pagination,
-} from './pages.js';
-export type { UiPage } from './load.js';
 export { defineActions, type ActionMessage } from './actions.js';
 
-// Sessions, projections and caches for large controllers
+// Sessions and projections for large controllers
 export { projectionCache, sessionGroup } from './session.js';
-export { scopedQueryCache } from './cache.js';
 
 // Draft fields with owned validation
 export {

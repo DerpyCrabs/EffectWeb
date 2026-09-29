@@ -33,19 +33,33 @@ impl<'a> Visit<'a> for MapRows {
 fn static_rows(expression: &Expression<'_>) -> bool {
     match expression.without_parentheses() {
         Expression::ArrayExpression(array) => array.elements.iter().all(|element| {
-            matches!(
-                element,
-                ArrayExpressionElement::StringLiteral(_)
-                    | ArrayExpressionElement::NumericLiteral(_)
-                    | ArrayExpressionElement::BooleanLiteral(_)
-                    | ArrayExpressionElement::NullLiteral(_)
-                    | ArrayExpressionElement::BigIntLiteral(_)
-                    | ArrayExpressionElement::Elision(_)
-            )
+            matches!(element, ArrayExpressionElement::Elision(_))
+                || element.as_expression().is_some_and(literal)
         }),
         Expression::TSAsExpression(e) => static_rows(&e.expression),
         Expression::TSSatisfiesExpression(e) => static_rows(&e.expression),
         Expression::TSNonNullExpression(e) => static_rows(&e.expression),
+        _ => false,
+    }
+}
+
+/// A literal value, including arrays and objects built only from literals (e.g. `['id', 'Label']`).
+fn literal(expression: &Expression<'_>) -> bool {
+    match expression.without_parentheses() {
+        Expression::StringLiteral(_)
+        | Expression::NumericLiteral(_)
+        | Expression::BooleanLiteral(_)
+        | Expression::NullLiteral(_)
+        | Expression::BigIntLiteral(_) => true,
+        Expression::TemplateLiteral(template) => template.expressions.is_empty(),
+        Expression::ArrayExpression(array) => array
+            .elements
+            .iter()
+            .all(|element| element.as_expression().is_some_and(literal)),
+        Expression::ObjectExpression(object) => object.properties.iter().all(|property| {
+            matches!(property, ObjectPropertyKind::ObjectProperty(property)
+                if !property.computed && literal(&property.value))
+        }),
         _ => false,
     }
 }

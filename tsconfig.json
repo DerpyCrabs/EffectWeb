@@ -15,7 +15,8 @@
     "types": ["node", "vite/client"],
     "paths": {
       "effectweb": ["./packages/runtime/src/index.ts"],
-      "effectweb/*": ["./packages/runtime/src/*.ts"]
+      "effectweb/*": ["./packages/runtime/src/*.ts"],
+      "@effectweb/query": ["./packages/query/src/index.ts"]
     },
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,

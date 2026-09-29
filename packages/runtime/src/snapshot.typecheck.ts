@@ -1,9 +1,9 @@
 import { Effect } from 'effect';
+import { available } from './result.js';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { defineActions } from './actions.js';
 import { modelOwner } from './owner.js';
 import { program, type Transition } from './program.js';
-import { available } from './resource.js';
 import type { Snapshot, snapshotOpaque } from './snapshot.js';
 import { view } from './dom.js';
 

@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 import { encodeQueryKey, query, type QueryKey } from './query.js';
 import { makeQueryCache } from './cache.js';
 import { cacheInternals } from './cache-internals.js';
-import { queryResource } from './session.js';
+import { queryResource } from './observe.js';
 
 it('encodes structured identities with canonical object ordering and distinct scalar types', () => {
   expect(encodeQueryKey(['feed', { account: 'a', page: 1 }])).toBe(
