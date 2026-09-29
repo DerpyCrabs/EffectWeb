@@ -1,5 +1,6 @@
 import { list as renderList } from 'effectweb';
-import { mountView, observeBindings, program, view } from 'effectweb';
+import { mountView, program, view } from 'effectweb';
+import { observeBindings } from 'effectweb/advanced';
 
 export function mountLexicalCapture(parent: HTMLElement) {
   type State = { title: string; values: readonly string[]; selected: string };

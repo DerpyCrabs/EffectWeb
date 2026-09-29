@@ -1,19 +1,15 @@
 import { commandSlot } from 'effectweb';
 import './style.css';
 import { Effect } from 'effect';
+import { mountView, program, submit, view, type Transition } from 'effectweb';
 import {
   defineField,
-  inputText,
-  mountView,
-  program,
-  submit,
-  view,
   type FieldMessage,
   type FieldResult,
   type FieldState,
-  type Transition,
-} from 'effectweb';
-import { effectCommand, mapTransition } from 'effectweb/program';
+} from 'effectweb/advanced';
+import { effectCommand } from 'effectweb';
+import { mapTransition } from 'effectweb/advanced';
 
 const commandSave = commandSlot('save');
 
@@ -190,9 +186,9 @@ const ProfileView = view<Model, Message>((model, send) => (
         }
         aria-invalid={model.username.validation === 'invalid'}
         aria-busy={model.username.validation === 'pending'}
-        onInput={inputText((draft) =>
-          send({ type: 'Username', message: { type: 'Change', draft } }),
-        )}
+        onInput={(event) =>
+          send({ type: 'Username', message: { type: 'Change', draft: event.currentTarget.value } })
+        }
         onBlur={() => send({ type: 'Username', message: { type: 'Blur' } })}
       />
       <p id="profile-username-error" role="alert">
@@ -213,7 +209,9 @@ const ProfileView = view<Model, Message>((model, send) => (
           model.hours.error ? 'profile-hours-help profile-hours-error' : 'profile-hours-help'
         }
         aria-invalid={model.hours.validation === 'invalid'}
-        onInput={inputText((draft) => send({ type: 'Hours', message: { type: 'Change', draft } }))}
+        onInput={(event) =>
+          send({ type: 'Hours', message: { type: 'Change', draft: event.currentTarget.value } })
+        }
         onBlur={() => send({ type: 'Hours', message: { type: 'Blur' } })}
       />
       <p id="profile-hours-error" role="alert">

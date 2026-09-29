@@ -1,8 +1,6 @@
 import { Context, Effect } from 'effect';
 import { infiniteQuery, infiniteResource } from './infinite-query.js';
 import { makeQueryCache } from './cache.js';
-import { keyedTasks, type TaskHandle } from './keyed-tasks.js';
-import { modelOwner } from './owner.js';
 import { pages } from './pages.js';
 import { query, queryGroup } from './query.js';
 import { uiRuntime } from './runtime.js';
@@ -52,26 +50,6 @@ pages({
       Effect.map((items) => ({ items, next: undefined })),
     ),
 });
-const owner = modelOwner({});
-const saves = keyedTasks(
-  owner,
-  {
-    name: 'save',
-    policy: 'latest-queued',
-    run: (_id: string, input: { content: string }) =>
-      Effect.flatMap(Files, () =>
-        input.content ? Effect.succeed(1) : Effect.fail('empty' as const),
-      ),
-  },
-  runtime,
-);
-const handle: TaskHandle<number, 'empty'> = saves.submit('document', { content: 'text' });
-void handle;
-// @ts-expect-error Task input is checked independently from the key.
-saves.submit('document', { content: 4 });
-// @ts-expect-error Task result retains its declared failure channel.
-const wrong: TaskHandle<number, 'other'> = saves.submit('document', { content: 'text' });
-void wrong;
 const typed = query({
   name: 'file',
   groups: [group],

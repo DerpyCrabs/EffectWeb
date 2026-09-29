@@ -20,7 +20,7 @@ export function asyncContentTypes(
 
 // Resource views may retry; only the lifetime owner can publish completions.
 export function resourceControls(
-  send: import('./program.js').Send<import('./resource.js').ResourceMessage>,
+  send: import('./index.js').Send<import('./index.js').ResourceMessage>,
 ) {
   send({ type: 'Retry' });
   // @ts-expect-error Resource completion belongs to its running command.
@@ -29,7 +29,9 @@ export function resourceControls(
   send({ type: 'Failed', cause: undefined });
 }
 
-export function paginationControls(source: import('./pages.js').PagesProgram<{}, number, string>) {
+export function paginationControls(
+  source: import('./advanced.js').PagesProgram<{}, number, string>,
+) {
   source.send({ type: 'More' });
   source.send({ type: 'Retry' });
   source.send({ type: 'Refresh' });
@@ -40,7 +42,7 @@ export function paginationControls(source: import('./pages.js').PagesProgram<{},
 }
 
 export function immutableQueryInputs() {
-  return import('./query.js').then(({ query }) =>
+  return import('./index.js').then(({ query }) =>
     query<{ filters: string[]; page: number }, number>({
       name: 'readonly query inputs',
       load: (args) => {

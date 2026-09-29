@@ -1,4 +1,5 @@
-import { mountView, mountBindingInspector, inspectBindings, program, view } from 'effectweb';
+import { mountView, program, view } from 'effectweb';
+import { mountBindingInspector, inspectBindings } from 'effectweb/advanced';
 
 export function mountInspectorFixture(app: HTMLElement, panel: HTMLElement) {
   const View = view<{ title: string; count: number }>((model) => {

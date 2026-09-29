@@ -6,8 +6,8 @@ import {
   type RowData,
 } from '@tanstack/table-core';
 import { storeReactivityBindings } from '@tanstack/table-core/store-reactivity-bindings';
-import { projectionSource, type Source } from 'effectweb';
-import { shareValue } from 'effectweb/share';
+import type { Source } from 'effectweb';
+import { projectionSource, shareValue } from 'effectweb/advanced';
 
 export * from '@tanstack/table-core';
 

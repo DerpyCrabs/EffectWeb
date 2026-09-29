@@ -286,3 +286,28 @@ it.each([
     /Read window|Cannot prove/u,
   );
 });
+
+it('treats functions supplied through the model as parent-checked callbacks', () => {
+  const source = `import { view, list, entities } from 'effectweb';
+view((p) => {
+  const shown = p.filter?.(p.items) ?? p.items;
+  return <ul>{list(entities(p.fields), (field) => <li>{field.control(shown.length)}</li>)}</ul>;
+});`;
+  expect(lint(source, 'callbacks.tsx')).toEqual([]);
+});
+
+it('still checks captured state, observed snapshots and closures handed to supplied callbacks', () => {
+  const captured = `import { view } from 'effectweb';
+let external = 'old';
+const c = { read() { return external; } };
+view(() => <p>{c.read()}</p>);`;
+  expect(lint(captured, 'captured.tsx')).toEqual([expect.objectContaining({ code: 'EW2001' })]);
+  // An observed controller snapshot is not the view's model; its functions stay unproven.
+  const observed = `import { view, observe } from 'effectweb';
+import { source } from './source';
+view(() => <p>{observe(source, (s) => s.compute())}</p>);`;
+  expect(lint(observed, 'observed.tsx')).toEqual([expect.objectContaining({ code: 'EW2001' })]);
+  const handed = `import { view } from 'effectweb';
+view((p) => <p>{p.each(() => Math.random())}</p>);`;
+  expect(lint(handed, 'handed.tsx')).toEqual([expect.objectContaining({ code: 'EW1003' })]);
+});

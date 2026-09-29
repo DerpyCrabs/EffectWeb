@@ -8,6 +8,7 @@ import {
   realpathSync,
   existsSync,
   unlinkSync,
+  rmSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
@@ -141,7 +142,30 @@ const runtimeExports = await import(
   pathToFileURL(join(temp, 'node_modules/effectweb/dist/index.js')).href
 );
 assert.equal(typeof runtimeExports.infiniteQuery, 'function');
-assert.equal(typeof runtimeExports.keyedTasks, 'function');
+assert.equal(typeof runtimeExports.commandSlots, 'function');
+assert.equal(runtimeExports.lazyView, undefined, 'Specialized APIs live in effectweb/advanced');
+const runtimeManifest = JSON.parse(
+  readFileSync(join(temp, 'node_modules/effectweb/package.json'), 'utf8'),
+);
+assert.deepEqual(Object.keys(runtimeManifest.exports).sort(), [
+  '.',
+  './advanced',
+  './dom',
+  './jsx',
+  './jsx-dev-runtime',
+  './jsx-runtime',
+  './testing',
+]);
+assert.ok(existsSync(join(temp, 'node_modules/effectweb/AUTHORING.md')));
+const advancedExports = await import(
+  pathToFileURL(join(temp, 'node_modules/effectweb/dist/advanced.js')).href
+);
+assert.equal(typeof advancedExports.lazyView, 'function');
+assert.equal(typeof advancedExports.shareValue, 'function');
+const testingExports = await import(
+  pathToFileURL(join(temp, 'node_modules/effectweb/dist/testing.js')).href
+);
+assert.equal(typeof testingExports.renderView, 'function');
 run(
   process.platform === 'win32' ? 'npm.cmd' : 'npm',
   [
@@ -286,6 +310,68 @@ for (const file of [
 ]) {
   writeFileSync(join(temp, file), readFileSync(`tests/fixtures/${file}`));
 }
+// Route each relative runtime import to the public entry point that exports it.
+const entryModules = {
+  effectweb: 'index',
+  'effectweb/advanced': 'advanced',
+  'effectweb/testing': 'testing',
+  'effectweb/dom': 'dom',
+  'effectweb/jsx': 'jsx',
+};
+const entryPoints = Object.entries(entryModules).map(([specifier, module]) => {
+  const text = readFileSync(`packages/runtime/src/${module}.ts`, 'utf8');
+  const names = new Set();
+  for (const [, block] of text.matchAll(/export\s+(?:type\s+)?\{([^}]*)\}/gu))
+    for (const item of block.split(','))
+      names.add(
+        item
+          .replace(/\btype\s+/u, '')
+          .split(' as ')
+          .at(-1)
+          .trim(),
+      );
+  for (const [, name] of text.matchAll(
+    /^export\s+(?:declare\s+)?(?:function|const|interface|type|class|namespace)\s+(\w+)/gmu,
+  ))
+    names.add(name);
+  return { specifier, names };
+});
+function packageImports(source, file) {
+  return source
+    .replace(
+      /import\s+(type\s+)?\{([^}]*)\}\s*from\s*(['"])\.\/[A-Za-z-]+\.js\3;?/gu,
+      (_match, typeOnly = '', body, quote) => {
+        const groups = new Map();
+        for (const item of body
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)) {
+          const name = item
+            .replace(/^type\s+/u, '')
+            .split(' as ')[0]
+            .trim();
+          const entry = entryPoints.find(({ names }) => names.has(name));
+          if (!entry) throw new Error(`${file}: ${name} is not exported by a public entry point`);
+          groups.set(entry.specifier, [...(groups.get(entry.specifier) ?? []), item]);
+        }
+        return [...groups]
+          .map(
+            ([specifier, items]) =>
+              `import ${typeOnly}{ ${items.join(', ')} } from ${quote}${specifier}${quote};`,
+          )
+          .join('\n');
+      },
+    )
+    .replace(/import\s+type\s+(\w+)\s+from\s*(['"])\.\/[A-Za-z-]+\.js\2/gu, (match) => {
+      throw new Error(`${file}: unsupported default import ${match}`);
+    })
+    .replace(/import\((['"])\.\/([A-Za-z-]+)\.js\1\)/gu, (match, quote, module) => {
+      // Type queries may only name a module that is itself a public entry point.
+      const entry = Object.entries(entryModules).find(([, name]) => name === module);
+      if (!entry) throw new Error(`${file}: route ${match} through a public entry point`);
+      return `import(${quote}${entry[0]}${quote})`;
+    });
+}
 for (const file of [
   'composition.typecheck.tsx',
   'contracts.typecheck.tsx',
@@ -300,12 +386,9 @@ for (const file of [
   'lazy.typecheck.tsx',
   'portal.typecheck.tsx',
   'native-jsx.typecheck.ts',
+  'authoring-guide.typecheck.tsx',
 ]) {
-  const source = readFileSync(`packages/runtime/src/${file}`, 'utf8').replace(
-    /(['"])\.\/([A-Za-z-]+)\.js\1/gu,
-    (_match, quote, module) =>
-      `${quote}${['AsyncContent', 'owner', 'index', 'snapshot'].includes(module) ? 'effectweb' : `effectweb/${module}`}${quote}`,
-  );
+  const source = packageImports(readFileSync(`packages/runtime/src/${file}`, 'utf8'), file);
   writeFileSync(join(temp, file), source);
 }
 writeFileSync(
@@ -451,8 +534,11 @@ const { Effect, Context, Fiber } = await import(
   Context: await import(pathToFileURL(join(temp, 'node_modules/effect/dist/Context.js')).href),
   Fiber: await import(pathToFileURL(join(temp, 'node_modules/effect/dist/Fiber.js')).href),
 }));
-const { makeQueryCache, scopedQueryCache, query, uiRuntime } = await import(
+const { makeQueryCache, query, uiRuntime } = await import(
   pathToFileURL(join(temp, 'node_modules/effectweb/dist/index.js')).href
+);
+const { scopedQueryCache } = await import(
+  pathToFileURL(join(temp, 'node_modules/effectweb/dist/advanced.js')).href
 );
 const service = Context.Service('package-smoke/service');
 const cache = makeQueryCache(uiRuntime(Context.make(service, 'shared')));
@@ -882,4 +968,6 @@ try {
   server.close();
 }
 await verifyLucide(temp, run);
-process.stdout.write(`Clean package consumer passed: ${temp}\n`);
+// Each consumer is a full install; keep it only when a failure needs inspecting.
+rmSync(temp, { recursive: true, force: true });
+process.stdout.write('Clean package consumer passed\n');

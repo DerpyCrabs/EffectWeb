@@ -244,3 +244,32 @@ export function projectionSource<Model>(options: {
     },
   };
 }
+
+/**
+ * The current time in epoch milliseconds, published every `interval` while observed.
+ * Declare it once at module scope and read it with `observe(minute, (now) => …)` or
+ * `mapSource`: views never read the clock themselves. It keeps no timer while unobserved.
+ */
+export function clock(interval: number): Source<number> {
+  if (!(interval > 0)) throw new RangeError('clock interval must be a positive number of ms');
+  const listeners = new Set<(value: number) => void>();
+  let now = Date.now();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  return {
+    model: () => (listeners.size ? now : (now = Date.now())),
+    subscribe(listener) {
+      if (!listeners.size) {
+        now = Date.now();
+        timer = setInterval(() => {
+          now = Date.now();
+          for (const notify of listeners) notify(now);
+        }, interval);
+      }
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+        if (!listeners.size) clearInterval(timer);
+      };
+    },
+  };
+}

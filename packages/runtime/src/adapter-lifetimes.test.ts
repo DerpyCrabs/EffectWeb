@@ -10,8 +10,6 @@ import {
   available,
 } from './resource.js';
 import { Settlement } from './settlement.js';
-import { keyedTasks } from './keyed-tasks.js';
-import { makeModelOwner } from './owner.js';
 
 it('releases a task acquisition before the task owner finishes closing', async () => {
   let released = false;
@@ -179,68 +177,3 @@ it('joins pending resource cleanup through the ambient component runtime', async
     ),
   );
 });
-
-it.each(['success', 'failure', 'cancel'] as const)(
-  'keyed task %s closes its resources before publishing an outcome or finishing drain',
-  async (action) => {
-    const release = Deferred.makeUnsafe<void>();
-    let releasing: Exit.Exit<unknown, unknown> | undefined;
-    let releases = 0;
-    await Effect.runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const runtime = yield* makeUiRuntime<EffectScope.Scope>();
-          const owner = yield* makeModelOwner({});
-          const tasks = keyedTasks(
-            owner,
-            {
-              name: 'owned-keyed-load',
-              policy: 'replace',
-              run: (_key: string, _input: number) =>
-                Effect.gen(function* () {
-                  yield* Effect.acquireRelease(Effect.void, (_, exit) =>
-                    Effect.gen(function* () {
-                      releasing = exit;
-                      yield* Deferred.await(release);
-                      releases++;
-                    }),
-                  );
-                  if (action === 'success') return 'value';
-                  if (action === 'failure') return yield* Effect.fail('keyed load failed');
-                  return yield* Effect.never;
-                }),
-            },
-            runtime,
-          );
-          const handle = tasks.submit('one', 1);
-          if (action === 'cancel') tasks.cancel('one');
-          const outcome = Effect.runFork(handle.outcome);
-          const closing = Effect.runFork(tasks.drain());
-          try {
-            expect(releasing).toBeDefined();
-            expect(outcome.pollUnsafe()).toBeUndefined();
-            expect(closing.pollUnsafe()).toBeUndefined();
-            expect(releases).toBe(0);
-            if (action === 'success') expect(releasing?._tag).toBe('Success');
-            else {
-              expect(releasing?._tag).toBe('Failure');
-              if (releasing && Exit.isFailure(releasing)) {
-                if (action === 'failure')
-                  expect(Cause.squash(releasing.cause)).toBe('keyed load failed');
-                else expect(Cause.hasInterruptsOnly(releasing.cause)).toBe(true);
-              }
-            }
-          } finally {
-            yield* Deferred.succeed(release, undefined);
-            yield* Fiber.join(closing);
-          }
-          expect(releases).toBe(1);
-          const result = yield* Fiber.join(outcome);
-          expect(result._tag).toBe(
-            action === 'success' ? 'Success' : action === 'failure' ? 'Failure' : 'Cancelled',
-          );
-        }),
-      ),
-    );
-  },
-);

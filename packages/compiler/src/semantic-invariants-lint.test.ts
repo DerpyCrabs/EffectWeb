@@ -133,11 +133,25 @@ it.each([true, false])(
   },
 );
 
-it('does not confuse cached view allocations with a helper’s private scratch data', () => {
-  const source = `import {view} from 'effectweb';
+it('treats view-body allocations as owned while rendering, but not in later callbacks', () => {
+  // Views re-execute on every publication, so a view-body allocation is fresh per render.
+  for (const body of [
+    `const items=[];return <p>{append(items,m.value)}</p>`,
+    `const items=[1];items.push(m.value);return <p>{items.length}</p>`,
+    `const rows:number[]=[];if(m.value)rows.push(m.value);return <p>{rows.length}</p>`,
+    `const date=new Date(m.value,0,1);date.setDate(2);return <p>{date.getTime()}</p>`,
+  ])
+    expect(() =>
+      checkRender(
+        `import {view} from 'effectweb';
     const append=(items,value)=>{items.push(value);return items.length};
-    view(m=>{const items=[];return <p>{append(items,m.value)}</p>});`;
-  expect(() => checkRender(source, 'cached-allocation.tsx')).toThrow(/mutat|borrowed/u);
+    view(m=>{${body}});`,
+        'render-allocation.tsx',
+      ),
+    ).not.toThrow();
+  const later = `import {view} from 'effectweb';
+    view(m=>{const items=[];return <button onClick={()=>{items.push(m.value)}}>{items.length}</button>});`;
+  expect(() => checkRender(later, 'callback-allocation.tsx')).toThrow(/mutat|borrowed/u);
 });
 
 it.each([
@@ -213,4 +227,87 @@ it.each([
   expect(() =>
     checkRender(`import {view} from 'effectweb';${body}`, 'parameter-effects.tsx'),
   ).toThrow(/randomness/u);
+});
+
+it('reads optional member calls as callbacks rather than collection mutations', () => {
+  const source = `import {view} from 'effectweb';
+    view(m=><button onClick={()=>{m.props.add?.();m.props.clear?.(m.id)}}>{m.label}</button>);`;
+  expect(() => checkRender(source, 'optional-callback.tsx')).not.toThrow();
+  const required = `import {view} from 'effectweb';
+    view(m=><button onClick={()=>{m.tags.add(m.id)}}>{m.label}</button>);`;
+  expect(() => checkRender(required, 'set-mutation.tsx')).toThrow(/onAdd/u);
+});
+
+it('owns containers allocated by Object and Array constructors in callbacks', () => {
+  const source = `import {view} from 'effectweb';
+    view(m=><button onClick={()=>{const d=Object.fromEntries(m.pairs);d.extra=1;const k=Object.keys(m.record);k.push('x');m.save(d,k)}}>{m.label}</button>);`;
+  expect(() => checkRender(source, 'fresh-containers.tsx')).not.toThrow();
+  const nested = `import {view} from 'effectweb';
+    view(m=><button onClick={()=>{const d=Object.fromEntries(m.pairs);d.first.count=1}}>{m.label}</button>);`;
+  expect(() => checkRender(nested, 'borrowed-elements.tsx')).toThrow(/borrowed|mutat/u);
+});
+
+it('accepts observe on a controller source while still checking its render callback', () => {
+  const accepted = `import {view, observe, modelOwner} from 'effectweb';
+    export function make(){const owner=modelOwner({label:''});
+      return view(()=>observe(owner.source,(s)=><button onClick={()=>owner.patch({label:'x'})}>{s.label}</button>));}`;
+  expect(() => checkRender(accepted, 'observe-owner.tsx')).not.toThrow();
+  const impure = `import {view, observe, modelOwner} from 'effectweb';
+    export function make(){const owner=modelOwner({label:''});
+      return view(()=>observe(owner.source,(s)=><p>{s.label}{Math.random()}</p>));}`;
+  expect(() => checkRender(impure, 'observe-impure.tsx')).toThrow(/random/u);
+});
+
+it.each([
+  [
+    `import {view, list, entities} from 'effectweb'; view(m=><ul>{list(entities(m.rows),(r)=><li>{Math.random()}</li>)}</ul>);`,
+    /random/u,
+  ],
+  [`import {slot} from 'effectweb'; export const S=slot((v)=><b>{Date.now()}</b>);`, /Date/u],
+])('checks list and slot render callbacks as render code: %s', (source, error) => {
+  expect(() => checkRender(source, 'render-callbacks.tsx')).toThrow(error);
+});
+
+it('treats framework view factories as compiled views', () => {
+  const source = `import {view, collection} from 'effectweb'; import {listView} from 'effectweb/advanced';
+    const rows=collection(t=>t.id);
+    const cards=listView({project:(t,_i,m)=>({t,selected:m.selected===t.id}),view:view(p=><b>{p.t.id}</b>)});
+    view(m=><div>{cards(rows.from(m.items),m)}</div>);`;
+  expect(() => checkRender(source, 'list-view.tsx')).not.toThrow();
+});
+
+it('proves factory parameters read by views unless something writes to them', () => {
+  const ok = `import {view} from 'effectweb'; export function make(cfg){return view(()=><p>{cfg.title}</p>);}`;
+  expect(() => checkRender(ok, 'factory-param.tsx')).not.toThrow();
+  const written = `import {view} from 'effectweb'; export function make(cfg){const V=view(()=><p>{cfg.items.length}</p>);cfg.items.push('x');return V;}`;
+  expect(() => checkRender(written, 'factory-param-written.tsx')).toThrow(/mutate/u);
+});
+
+it('accepts pure recursive helpers', () => {
+  const source = `import {view} from 'effectweb';
+    const contains=(item,path)=>item.path===path||!!item.children?.some((child)=>contains(child,path));
+    view(m=><p>{contains(m.tree,m.path)?'yes':'no'}</p>);`;
+  expect(() => checkRender(source, 'recursive.tsx')).not.toThrow();
+});
+
+it('treats values resolved by setup before creating a view as captured data', () => {
+  const source = `import {view} from 'effectweb'; import {Effect} from 'effect';
+    export const app=Effect.gen(function*(){const account=yield* session;return view(()=><p>{account.name}</p>);});`;
+  expect(() => checkRender(source, 'setup-yield.tsx')).not.toThrow();
+  const inRender = `import {view} from 'effectweb';
+    export const V=view(async (m)=>{const value=await m.load();return <p>{value}</p>;});`;
+  expect(() => checkRender(inRender, 'render-await.tsx')).toThrow();
+});
+
+it.each([
+  "(m.items.push('x'), m.source)",
+  "(() => { m.items.push('x'); return m.source; })()",
+  'm.sources[Math.random()]',
+])('checks work used to evaluate an observed source: %s', (source) => {
+  expect(() =>
+    checkRender(
+      `import {view,observe} from 'effectweb';view(m=>observe(${source},s=><p>{s}</p>));`,
+      'observe-source-effects.tsx',
+    ),
+  ).toThrow(/mutat|borrowed|random/u);
 });

@@ -1,8 +1,8 @@
 import { Effect } from 'effect';
 import type Keycloak from 'keycloak-js';
 import type { KeycloakInitOptions } from 'keycloak-js';
-import { projectionSource } from 'effectweb';
-import { shareValue } from 'effectweb/share';
+
+import { projectionSource, shareValue } from 'effectweb/advanced';
 
 export interface AuthSnapshot {
   readonly authenticated: boolean;

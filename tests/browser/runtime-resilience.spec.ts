@@ -10,7 +10,7 @@ test('failed bindings, branches and cleanups leave siblings usable and release a
     const { compiled, element, text, branch, mountView } = (await import(
       domPath
     )) as typeof import('effectweb/dom');
-    const { program } = (await import(programPath)) as typeof import('effectweb/program');
+    const { program } = (await import(programPath)) as typeof import('effectweb');
     const errors: unknown[] = [],
       disposed: number[] = [];
     const source = program({

@@ -4,7 +4,8 @@ import { shareData } from './sharing.js';
 import * as Cause from 'effect/Cause';
 import * as Option from 'effect/Option';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
-import type { UiLoad, UiPage } from './load.js';
+import type * as Effect from 'effect/Effect';
+import type { UiPage } from './load.js';
 import {
   effectCommand,
   program,
@@ -63,7 +64,7 @@ export function pages<Props, A, Cursor, E = unknown, R = never>(
     load: (
       props: Snapshot<Props>,
       cursor: Snapshot<Cursor> | undefined,
-    ) => UiLoad<UiPage<A, Cursor>, E, R>;
+    ) => Effect.Effect<UiPage<A, Cursor>, E, R>;
     itemKey: (item: Snapshot<A>) => string;
   },
   ...provided: [R] extends [never] ? [runtime?: UiRuntime<R>] : [runtime: UiRuntime<R>]

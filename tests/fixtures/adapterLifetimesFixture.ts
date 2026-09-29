@@ -1,5 +1,6 @@
 import { Deferred, Effect, Fiber, Scope } from 'effect';
-import { lazyView, makeUiRuntime, mount } from 'effectweb';
+import { makeUiRuntime, mount } from 'effectweb';
+import { lazyView } from 'effectweb/advanced';
 
 export async function lazyScopeCleanup(root: HTMLElement, explicitRuntime: boolean) {
   const release = Deferred.makeUnsafe<void>();

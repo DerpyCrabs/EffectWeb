@@ -109,3 +109,20 @@ it('reports an interrupted DOM finalizer defect before its scope settles', async
   await Effect.runPromise(scope.settlement.wait());
   expect(errors).toEqual([problem]);
 });
+
+it('settles close for setup that returns no cleanup', async () => {
+  const scope = new Scope({}, () => {});
+  let started = 0;
+  const host = domMount(() => {
+    started++;
+  });
+  attach(
+    scope,
+    new EventTarget() as Element,
+    () => [],
+    () => host,
+  );
+  await expect.poll(() => started).toBe(1);
+  scope.dispose();
+  await Effect.runPromise(Effect.timeout(scope.settlement.wait(), 1000));
+});

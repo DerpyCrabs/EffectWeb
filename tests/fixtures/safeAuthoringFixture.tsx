@@ -1,24 +1,26 @@
 import { Cause, Context, Effect, Schema } from 'effect';
 import * as HttpClientRequest from 'effect/unstable/http/HttpClientRequest';
+import * as HttpClient from 'effect/unstable/http/HttpClient';
+import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse';
 import {
   commandSlot,
-  defineActions,
   effectCommand,
-  httpJson,
   makeQueryCache,
   modelOwner,
   query,
   uiRuntime,
   view,
-  type ActionMessage,
 } from 'effectweb';
+import { defineActions, type ActionMessage } from 'effectweb/advanced';
 
 // The decoder determines the response type. HTTP and decoding failures stay typed.
 const Item = Schema.Struct({ id: Schema.String, title: Schema.String });
 export const fetchItems = (account: string) =>
-  httpJson(
+  HttpClient.execute(
     HttpClientRequest.get(`/api/accounts/${encodeURIComponent(account)}/items`),
-    Schema.Array(Item),
+  ).pipe(
+    Effect.flatMap(HttpClientResponse.filterStatusOk),
+    Effect.flatMap(HttpClientResponse.schemaBodyJson(Schema.Array(Item))),
   );
 
 class Storage extends Context.Service<

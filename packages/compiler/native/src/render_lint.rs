@@ -20,7 +20,7 @@ pub enum Phase {
     Host,
     Initializer,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Ownership {
     Borrowed,
     Shallow,
@@ -83,6 +83,10 @@ struct Value<'a> {
     // Ambient objects are stable only while their reachable properties cannot change.
     ambient: BTreeSet<SymbolId>,
     source: Option<(Span, Vec<Option<String>>)>,
+    // Allocated by the view body: a callback that mutates it loses the change on the next render.
+    render_local: bool,
+    // Read from a field of a captured object; handing it to other code does not hand over its owner.
+    field: bool,
 }
 impl<'a> Value<'a> {
     fn new(kind: Kind<'a>) -> Self {
@@ -92,6 +96,8 @@ impl<'a> Value<'a> {
             reads: BTreeSet::new(),
             ambient: BTreeSet::new(),
             source: None,
+            render_local: false,
+            field: false,
         }
     }
     fn unknown(reason: impl Into<String>) -> Self {
@@ -149,7 +155,7 @@ pub fn check<'a>(
     index: &Index<'a, '_>,
     function: &'a ArrowFunctionExpression<'a>,
     options: &Options,
-) -> Option<Issue> {
+) -> Vec<Issue> {
     let mut analyzer = Analyzer {
         index,
         options,
@@ -160,8 +166,8 @@ pub fn check<'a>(
         resolving: HashSet::new(),
         checking: HashSet::new(),
         error: None,
+        issues: Vec::new(),
         steps: 0,
-        slot_position: true,
         auditing_ambient: false,
         ambient_proofs: HashMap::new(),
         audit_root: None,
@@ -183,9 +189,12 @@ pub fn check<'a>(
         analyzer.bind(&parameter.pattern, value, &mut bindings, 0);
     }
     analyzer.bindings = Rc::new(bindings);
-    analyzer.visit_arrow_function_body(&function.body);
-    analyzer.error
+    analyzer.issues.extend(analyzer.error.take());
+    analyzer.recover(|analyzer| analyzer.visit_arrow_function_body(&function.body));
+    analyzer.issues
 }
+/// A function under analysis, keyed by the ownership of its arguments.
+type Invocation = (Span, Phase, Vec<(Ownership, bool)>);
 struct Analyzer<'a, 's> {
     index: &'s Index<'a, 's>,
     options: &'s Options,
@@ -194,10 +203,11 @@ struct Analyzer<'a, 's> {
     receiver: Option<Value<'a>>,
     scopes: Vec<Span>,
     resolving: HashSet<SymbolId>,
-    checking: HashSet<(Span, Phase)>,
+    checking: HashSet<Invocation>,
+    // The issue aborting the current statement or JSX slot; `recover` records it and moves on.
     error: Option<Issue>,
+    issues: Vec<Issue>,
     steps: usize,
-    slot_position: bool,
     auditing_ambient: bool,
     ambient_proofs: HashMap<SymbolId, bool>,
     audit_root: Option<SymbolId>,
@@ -215,6 +225,37 @@ fn unwrap<'a>(mut e: &'a Expression<'a>) -> &'a Expression<'a> {
     }
 }
 impl<'a> Analyzer<'a, '_> {
+    // Passing a source does not read its published state, but evaluating the
+    // reference still executes calls, computed keys and other expressions.
+    fn visit_source_reference(&mut self, expression: &'a Expression<'a>) {
+        match unwrap(expression) {
+            Expression::StaticMemberExpression(member) => {
+                self.visit_source_reference(&member.object);
+            }
+            Expression::ComputedMemberExpression(member) => {
+                self.visit_source_reference(&member.object);
+                self.visit_expression(&member.expression);
+            }
+            _ => self.visit_expression(expression),
+        }
+    }
+
+    /// Analyze one statement or JSX slot, so a view reports every independent issue.
+    fn recover(&mut self, analyze: impl FnOnce(&mut Self)) {
+        if self.error.is_some() {
+            return;
+        }
+        analyze(self);
+        // Recovering inside a helper can meet the same cause again at its call site.
+        if let Some(issue) = self.error.take()
+            && !self
+                .issues
+                .iter()
+                .any(|known| known.message == issue.message)
+        {
+            self.issues.push(issue);
+        }
+    }
     fn fail(&mut self, issue: Issue) {
         if self.auditing_ambient {
             return;
@@ -255,6 +296,20 @@ impl<'a> Analyzer<'a, '_> {
                 bindings: bindings.clone(),
                 receiver: None,
             }))
+        } else if let Some(declaration) = self.index.declarators.get(&id)
+            && !self.local(id)
+            && declaration.init.as_ref().is_some_and(|e| {
+                matches!(
+                    unwrap(e),
+                    Expression::YieldExpression(_) | Expression::AwaitExpression(_)
+                )
+            })
+        {
+            // Setup code resolved this value before creating the view; treat it like a
+            // captured const, proven while nothing writes to it.
+            let mut value = Value::data();
+            value.ambient.insert(id);
+            value
         } else if let Some(declaration) = self.index.declarators.get(&id) {
             let declaration = *declaration;
             let local = self.local(id);
@@ -284,14 +339,22 @@ impl<'a> Analyzer<'a, '_> {
             {
                 result.kind = Kind::Opaque;
             }
+            // A view-body local is allocated per render, so render-time work owns it.
+            // Callbacks run after render: mutating that local there changes nothing visible.
             if !local
-                || self
-                    .scopes
-                    .iter()
-                    .skip(1)
-                    .all(|scope| !scope.contains_inclusive(self.index.scoping.symbol_span(id)))
+                || (self.phase != Phase::Render
+                    && self
+                        .scopes
+                        .iter()
+                        .skip(1)
+                        .all(|scope| !scope.contains_inclusive(self.index.scoping.symbol_span(id))))
             {
                 result.ownership = Ownership::Borrowed;
+                result.render_local = local
+                    && matches!(
+                        result.kind,
+                        Kind::Object(..) | Kind::Array(..) | Kind::Native
+                    );
                 if !local
                     && matches!(
                         result.kind,
@@ -306,6 +369,12 @@ impl<'a> Analyzer<'a, '_> {
                 }
             }
             result
+        } else if !self.local(id) && flags.is_function_scoped_declaration() {
+            // A parameter of an enclosing factory is configuration fixed for the views it
+            // creates. Like a captured const, it is proven only while nothing writes to it.
+            let mut value = Value::data();
+            value.ambient.insert(id);
+            value
         } else {
             Value::unknown(format!(
                 "the provenance of {}",
@@ -673,6 +742,7 @@ impl<'a> Analyzer<'a, '_> {
             });
         }
         selected.reads.append(&mut object.reads);
+        selected.field |= !object.ambient.is_empty();
         selected.ambient.extend(object.ambient);
         selected
     }
@@ -745,8 +815,8 @@ impl<'a> Analyzer<'a, '_> {
                         resolving: HashSet::new(),
                         checking: HashSet::new(),
                         error: None,
+                        issues: Vec::new(),
                         steps: 0,
-                        slot_position: false,
                         auditing_ambient: true,
                         ambient_proofs: HashMap::new(),
                         audit_root: Some(*root),
@@ -782,10 +852,13 @@ impl<'a> Analyzer<'a, '_> {
         roots.contains(&id)
             || (seen.insert(id)
                 && self.index.initializers.get(&id).is_some_and(|e| {
-                    self.index.references(e.span()).any(|r| {
-                        r.symbol
-                            .is_some_and(|id| self.aliases_root(id, roots, seen))
-                    })
+                    // Only expressions that can evaluate to the root (or an object inside it)
+                    // alias it; literals, spreads and call results are separate objects.
+                    may_alias(e)
+                        && self.index.references(e.span()).any(|r| {
+                            r.symbol
+                                .is_some_and(|id| self.aliases_root(id, roots, seen))
+                        })
                 }))
     }
     fn arguments(
@@ -867,9 +940,15 @@ impl<'a> Analyzer<'a, '_> {
                 value
             }
             Kind::Global(ref root, ref path)
-                if root == "Array"
-                    && matches!(path.first().map(String::as_str), Some("from" | "of")) =>
+                if (root == "Array"
+                    && matches!(path.first().map(String::as_str), Some("from" | "of")))
+                    || (root == "Object"
+                        && matches!(
+                            path.as_slice().first().map(String::as_str),
+                            Some("fromEntries" | "entries" | "keys" | "values" | "groupBy")
+                        )) =>
             {
+                // Each call allocates a new container; its elements may still be borrowed.
                 Value::owned(false)
             }
             Kind::Global(ref root, ref path) if root == "<dispatch>" && path.is_empty() => {
@@ -969,7 +1048,6 @@ impl<'a> Analyzer<'a, '_> {
                         "defineField",
                         "collection",
                         "resourceComponent",
-                        "taskComponent",
                         "component",
                     ]
                     .contains(&path.first().map(String::as_str).unwrap_or("")) =>
@@ -1007,6 +1085,18 @@ impl<'a> Analyzer<'a, '_> {
                     }) =>
             {
                 Value::new(Kind::Api(module.clone(), path.clone(), vec![]))
+            }
+            // Framework view factories return compiled views, which render safely.
+            Kind::Import(ref module, ref path)
+                if self.framework(module)
+                    && matches!(
+                        path.last().map(String::as_str),
+                        Some(
+                            "listView" | "memoView" | "lazyView" | "errorBoundary" | "programView"
+                        )
+                    ) =>
+            {
+                Value::new(Kind::Compiled)
             }
             Kind::Import(..) => Value::data(),
             Kind::Global(ref root, _)
@@ -1098,12 +1188,14 @@ impl<'a> Analyzer<'a, '_> {
                 Kind::Member(_, method) => !pure_method(method) && !mutator(method),
                 _ => false,
             };
+            // Calling a service or config object's method does not rewrite its fields;
+            // assignments, mutators and handing the object to opaque code still count.
             if opaque
                 && self.audit_root.is_some_and(|root| {
-                    value.ambient.contains(&root)
+                    (value.ambient.contains(&root) && !matches!(value.kind, Kind::Member(..)))
                         || arguments
                             .iter()
-                            .any(|argument| argument.ambient.contains(&root))
+                            .any(|argument| !argument.field && argument.ambient.contains(&root))
                 })
             {
                 self.ambient_mutated = true;
@@ -1112,12 +1204,16 @@ impl<'a> Analyzer<'a, '_> {
         match value.kind.clone() {
             Kind::Function(function)=>{
                 if function.callable.asynchronous()&&phase==Phase::Event {self.fail(Issue::invalid(span,"Async work belongs in commands. Event handlers dispatch synchronously."));return;}
-                if !self.checking.insert((function.callable.span(),phase)){self.fail(Issue::unknown(span,"recursive helper effects within the lint analysis. Review the helper for render effects."));return;}
+                // A recursive call with the same argument ownership repeats effects already being
+                // checked; weaker (e.g. borrowed) arguments are analyzed again.
+                let signature=arguments.iter().map(|a|(a.ownership,a.reads.is_empty())).collect::<Vec<_>>();
+                let key=(function.callable.span(),phase,signature);
+                if !self.checking.insert(key.clone()){return;}
                 let previous=(self.phase,self.bindings.clone(),self.receiver.clone());
                 self.phase=phase;self.bindings=self.arguments(&function,arguments,0);self.receiver=function.receiver.as_deref().cloned();self.scopes.push(function.callable.span());
                 match function.callable {Callable::Arrow(f)=>self.visit_arrow_function_body(&f.body),Callable::Function(f)=>{if let Some(body)=&f.body{self.visit_function_body(body);}}}
                 self.scopes.pop();self.phase=previous.0;self.bindings=previous.1;self.receiver=previous.2;
-                self.checking.remove(&(function.callable.span(),phase));
+                self.checking.remove(&key);
             }
             Kind::Union(values)=>for value in values {self.invoke(value,arguments,span,phase);},
             Kind::Unknown(reason) if phase==Phase::Render=>self.fail(Issue::unknown(span,format!("the target of this call ({reason}). Use a stable helper and pass immutable model inputs; run effects as commands."))),
@@ -1127,7 +1223,7 @@ impl<'a> Analyzer<'a, '_> {
                     if let Some(argument)=arguments.first(){input.reads.extend(&argument.reads);input.source=argument.source.clone().map(|(span,mut path)|{path.push(None);(span,path)});}
                     for callback in callbacks{if matches!(callback.kind,Kind::Function(_)){self.invoke(callback,&[input.clone()],span,phase);}}
                 }
-                if phase==Phase::Render&&self.framework(&module)&&!matches!(path.last().map(String::as_str),Some("defineActions"|"defineTasks"|"defineField"|"collection"|"resourceComponent"|"taskComponent"|"component"|"bind"|"controls"|"from"|"map"|"view")) {self.fail(Issue::unknown(span,format!("framework method {} is a render operation",path.join("."))));}
+                if phase==Phase::Render&&self.framework(&module)&&!matches!(path.last().map(String::as_str),Some("defineActions"|"defineTasks"|"defineField"|"collection"|"resourceComponent"|"component"|"bind"|"controls"|"from"|"map"|"view")) {self.fail(Issue::unknown(span,format!("framework method {} is a render operation",path.join("."))));}
                 for argument in arguments{if matches!(argument.kind,Kind::Function(_)){self.invoke(argument.clone(),&[Value::data()],span,if matches!(path.last().map(String::as_str),Some("map"|"from")){phase}else{Phase::Host});}}
                 let _=module;
             }
@@ -1135,7 +1231,7 @@ impl<'a> Analyzer<'a, '_> {
                 let (namespace,operation)=if module=="effect" {(path.first().map(String::as_str).unwrap_or(""),path.get(1).map(String::as_str).unwrap_or(""))}else{(module.strip_prefix("effect/").unwrap_or(""),path.first().map(String::as_str).unwrap_or(""))};
                 if phase==Phase::Render&&(namespace.starts_with("Mutable")||(namespace=="DateTime"&&matches!(operation,"nowUnsafe"|"isFutureUnsafe"|"isPastUnsafe"))){self.fail(Issue::invalid(span,"Read or mutate ambient Effect state in a command or DOM host, then publish immutable data in the model."));return;}
                 if namespace.starts_with("Mutable")&&matches!(operation,"set"|"setAndGet"|"update"|"modify"|"remove"|"delete"|"clear"|"add")&& let Some(target)=arguments.first(){self.check_mutation(target,span,operation,phase);}
-                if phase==Phase::Render&&self.framework(&module)&&matches!(path.first().map(String::as_str),Some("mountView"|"modelOwner"|"observeBindings"|"inspectBindings"|"mountBindingInspector"|"observePrograms"|"uiRuntime"|"makeQueryCache"|"observeQuery"|"lifetime"|"projectionCache"|"sessionGroup"|"keyedTasks"|"program"|"queryResource"|"infiniteResource")){self.fail(Issue::invalid(span,"Create owned resources and perform mounting in a command, component owner, or DOM host."));return;}
+                if phase==Phase::Render&&self.framework(&module)&&matches!(path.first().map(String::as_str),Some("mountView"|"modelOwner"|"observeBindings"|"inspectBindings"|"mountBindingInspector"|"observePrograms"|"uiRuntime"|"makeQueryCache"|"observeQuery"|"lifetime"|"projectionCache"|"sessionGroup"|"program"|"infiniteResource")){self.fail(Issue::invalid(span,"Create owned resources and perform mounting in a command, component owner, or DOM host."));return;}
                 if phase==Phase::Render&&((module=="effect"&&path.first().is_some_and(|p|p=="Effect")&&path.get(1).is_some_and(|p|p.starts_with("run")))||(module=="effect/Effect"&&path.first().is_some_and(|p|p.starts_with("run")))) {self.fail(Issue::invalid(span,"Run effects in a command or DOM host, then put results in the model."));return;}
                 for (position, argument) in arguments.iter().enumerate() {
                     let callback_phase = if (module == "effect" && path.first().is_some_and(|name| name == "Effect")) || module == "effect/Effect" {
@@ -1143,12 +1239,21 @@ impl<'a> Analyzer<'a, '_> {
                     } else if self.framework(&module) {
                         match (path.last().map(String::as_str), position) {
                             (Some("domMount"), 0) | (Some("domBinding" | "effectEvent"), 1) => Some(Phase::Host),
-                            (Some("inputText" | "inputNumber" | "inputChecked" | "submit" | "keyDown"), 0) => Some(Phase::Event),
+                            (Some("submit"), 0) => Some(Phase::Event),
+                            // Render callbacks run while rendering, with the same purity rules.
+                            (Some("observe" | "list"), 1) | (Some("slot"), 0) => Some(phase),
                             _ => None,
                         }
                     } else if module == "effect" || module.starts_with("effect/") { Some(phase) } else { None };
                     if let Some(callback_phase) = callback_phase && argument.callable() {
-                        self.invoke(argument.clone(), &[Value::data()], span, callback_phase);
+                        // List rows derive from the rows argument, so a row keeps its model provenance.
+                        let mut input = Value::data();
+                        if self.framework(&module) && path.last().is_some_and(|name| name == "list")
+                            && let Some(rows) = arguments.first()
+                        {
+                            input.reads.extend(&rows.reads);
+                        }
+                        self.invoke(argument.clone(), &[input], span, callback_phase);
                     }
                 }
             }
@@ -1175,9 +1280,11 @@ impl<'a> Analyzer<'a, '_> {
                 }}
             }
             Kind::Member(receiver,method)=>{
-                if phase==Phase::Render&&self.slot_position&&!mutator(&method)&&!pure_method(&method)&&!value.reads.is_empty(){return;}
+                // A function read from the model is a parent-supplied callback: the parent's closure is
+                // checked where it is created. Closures handed to it may run now and are checked below.
+                let supplied=!value.reads.is_empty();
                 if mutator(&method){self.check_mutation(&receiver,span,&method,phase);if self.error.is_some(){return;}}
-                if !mutator(&method) && phase==Phase::Render&&!pure_method(&method){self.fail(Issue::unknown(span,format!("the target of method {method}. Use a stable helper with immutable model inputs.")));}
+                if !mutator(&method) && phase==Phase::Render&&!pure_method(&method)&&!supplied{self.fail(Issue::unknown(span,format!("the target of method {method}. Use a stable helper with immutable model inputs.")));}
                 for argument in arguments{if argument.callable(){let mut input=Value::data().with_reads(&receiver);
                     if receiver.ownership==Ownership::Deep { input.kind=Kind::Native;input.ownership=Ownership::Deep; }
                     input.source=receiver.source.clone().map(|(span,mut path)|{path.push(None);(span,path)});
@@ -1198,11 +1305,34 @@ impl<'a> Analyzer<'a, '_> {
         if target.ownership != Ownership::Borrowed {
             return;
         }
+        if phase != Phase::Render && target.render_local {
+            self.fail(Issue::invalid(span,format!("Callbacks cannot call mutating method {operation} on data allocated during render: the next render allocates it again and the change is lost. Keep it in component state and update it with patch or send.")));
+            return;
+        }
         // Effects may update external services, but never a borrowed snapshot.
         if phase != Phase::Render && target.reads.is_empty() {
             return;
         }
-        self.fail(Issue::invalid(span,format!("Views cannot call mutating method {operation} on borrowed data. Views do not mutate snapshots; use an owned copy or a command.")));
+        let hint = if matches!(operation, "add" | "set" | "delete" | "clear") {
+            " If this is a callback prop, name it like onAdd so it is not read as a Set or Map method."
+        } else {
+            ""
+        };
+        self.fail(Issue::invalid(span,format!("Views cannot call mutating method {operation} on borrowed data. Views do not mutate snapshots; use an owned copy or a command.{hint}")));
+    }
+}
+fn may_alias(e: &Expression<'_>) -> bool {
+    match unwrap(e) {
+        Expression::Identifier(_)
+        | Expression::StaticMemberExpression(_)
+        | Expression::ComputedMemberExpression(_)
+        | Expression::ThisExpression(_) => true,
+        Expression::ChainExpression(chain) => chain.expression.as_member_expression().is_some(),
+        Expression::ConditionalExpression(c) => may_alias(&c.consequent) || may_alias(&c.alternate),
+        Expression::LogicalExpression(l) => may_alias(&l.left) || may_alias(&l.right),
+        Expression::SequenceExpression(q) => q.expressions.last().is_some_and(may_alias),
+        Expression::AssignmentExpression(a) => may_alias(&a.right),
+        _ => false,
     }
 }
 fn mutator(name: &str) -> bool {
@@ -1307,7 +1437,23 @@ fn pure_method(name: &str) -> bool {
             | "toISOString"
             | "toLocaleDateString"
             | "toLocaleTimeString"
+            | "toDateString"
+            | "toTimeString"
+            | "toUTCString"
+            | "toJSON"
+            | "valueOf"
+            | "getTimezoneOffset"
+            | "getUTCFullYear"
+            | "getUTCMonth"
+            | "getUTCDate"
+            | "getUTCDay"
+            | "getUTCHours"
+            | "getUTCMinutes"
+            | "getUTCSeconds"
+            | "getUTCMilliseconds"
             | "format"
+            | "formatToParts"
+            | "resolvedOptions"
     )
 }
 fn known_global(root: &str, path: &[String]) -> bool {
@@ -1505,8 +1651,6 @@ impl<'a> Analyzer<'a, '_> {
         }
     }
     fn attribute_value(&mut self, e: &'a Expression<'a>) {
-        let slot_position = self.slot_position;
-        self.slot_position = false;
         self.visit_expression(e);
         let value = self.expression_value(e);
         if let Kind::Function(function) = &value.kind {
@@ -1525,7 +1669,6 @@ impl<'a> Analyzer<'a, '_> {
         } else {
             self.embedded(value, e.span(), 0);
         }
-        self.slot_position = slot_position;
     }
 }
 impl<'a> Visit<'a> for Analyzer<'a, '_> {
@@ -1558,12 +1701,6 @@ impl<'a> Visit<'a> for Analyzer<'a, '_> {
     }
     fn visit_function(&mut self, _: &Function<'a>, _: oxc::syntax::scope::ScopeFlags) {}
     fn visit_arrow_function_expression(&mut self, _: &ArrowFunctionExpression<'a>) {}
-    fn visit_variable_declarator(&mut self, n: &VariableDeclarator<'a>) {
-        let previous = self.slot_position;
-        self.slot_position = false;
-        walk::walk_variable_declarator(self, n);
-        self.slot_position = previous;
-    }
     fn visit_for_of_statement(&mut self, n: &ForOfStatement<'a>) {
         let n = self.alloc(n);
         self.visit_expression(&n.right);
@@ -1588,17 +1725,20 @@ impl<'a> Visit<'a> for Analyzer<'a, '_> {
         self.visit_statement(&n.body);
         self.bindings = previous;
     }
+    fn visit_statement(&mut self, n: &Statement<'a>) {
+        self.recover(|analyzer| walk::walk_statement(analyzer, n));
+    }
     fn visit_jsx_expression_container(&mut self, n: &JSXExpressionContainer<'a>) {
-        let previous = self.slot_position;
-        self.slot_position = true;
-        walk::walk_jsx_expression_container(self, n);
-        self.slot_position = previous;
+        self.recover(|analyzer| walk::walk_jsx_expression_container(analyzer, n));
     }
     fn visit_identifier_reference(&mut self, id: &IdentifierReference<'a>) {
         let id = self.alloc(id);
         if let Some(symbol) = self.index.symbol(id) {
             if self.phase == Phase::Render && !self.local(symbol) {
-                let value = self.symbol(symbol, &self.bindings.clone(), 0);
+                let mut value = self.symbol(symbol, &self.bindings.clone(), 0);
+                // Passing a captured object reads none of its properties; member reads,
+                // here or in the helpers it reaches, are checked where they happen.
+                value.ambient.clear();
                 self.check_value(&value, id.span);
             }
         } else if id.name != "Date" {
@@ -1614,7 +1754,21 @@ impl<'a> Visit<'a> for Analyzer<'a, '_> {
             return;
         }
         self.visit_expression(&call.callee);
-        for argument in &call.arguments {
+        if self.error.is_some() {
+            return;
+        }
+        let mut callee = self.expression_value(&call.callee);
+        // observe(source, render) subscribes to a source; it does not read its current state.
+        let observed = matches!(&callee.kind, Kind::Import(module, path)
+            if self.framework(module) && path.last().is_some_and(|name| name == "observe"));
+        for (position, argument) in call.arguments.iter().enumerate() {
+            if observed
+                && position == 0
+                && let Some(expression) = argument.as_expression()
+            {
+                self.visit_source_reference(expression);
+                continue;
+            }
             match argument {
                 Argument::SpreadElement(spread) => self.visit_expression(&spread.argument),
                 _ => {
@@ -1627,12 +1781,27 @@ impl<'a> Visit<'a> for Analyzer<'a, '_> {
         if self.error.is_some() {
             return;
         }
-        let callee = self.expression_value(&call.callee);
+        // Set/Map methods always exist, so `props.add?.()` is an optional callback prop.
+        if call.optional
+            && matches!(&callee.kind, Kind::Member(_, method)
+                if matches!(method.as_str(), "add" | "set" | "delete" | "clear"))
+        {
+            let reads = std::mem::take(&mut callee.reads);
+            callee = Value::unknown("an optional callback");
+            callee.reads = reads;
+        }
         let arguments = call
             .arguments
             .iter()
-            .filter_map(Argument::as_expression)
-            .map(|e| self.expression_value(e))
+            .enumerate()
+            .filter_map(|(position, argument)| {
+                let e = argument.as_expression()?;
+                Some(if observed && position == 0 {
+                    Value::new(Kind::Opaque)
+                } else {
+                    self.expression_value(e)
+                })
+            })
             .collect::<Vec<_>>();
         self.invoke(callee, &arguments, call.span, self.phase);
     }
@@ -1756,7 +1925,7 @@ impl<'a> Visit<'a> for Analyzer<'a, '_> {
         let n = self.alloc(n);
         if let Some(JSXAttributeValue::ExpressionContainer(container)) = &n.value {
             if let Some(e) = container.expression.as_expression() {
-                self.attribute_value(e);
+                self.recover(|analyzer| analyzer.attribute_value(e));
             }
         } else {
             walk::walk_jsx_attribute(self, n);

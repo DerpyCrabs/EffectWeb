@@ -8,7 +8,9 @@ import * as Scope from 'effect/Scope';
 import * as Exit from 'effect/Exit';
 import { uiRuntime, type UiRuntime } from './runtime.js';
 export { Portal, type PortalProps } from './dom.js';
+/** Setup may return nothing, a cleanup, a disposable, or an Effect finalized with the element. */
 type Work<R = never> =
+  | void
   | (() => void)
   | { dispose: () => void; update?: () => void }
   | Effect.Effect<unknown, unknown, R | Scope.Scope>;
@@ -85,6 +87,7 @@ export const makeDomBinding = <T extends Element, A, R = never>(
     });
   });
 /** Allocate the lifetime before acquisition so reentrant publications can update or close it. */
+const noCleanup = () => {};
 export function prepareMount<T extends Element>(
   element: T,
   mount: DomMount<T>,
@@ -92,7 +95,7 @@ export function prepareMount<T extends Element>(
   runtime?: UiRuntime<never>,
 ) {
   let data = mount.data;
-  let work: Work | undefined;
+  let work: Exclude<Work, void> | undefined;
   let fiber: Fiber.Fiber<unknown, unknown> | undefined;
   const resourceScope = Scope.makeUnsafe();
   let started = false;
@@ -140,7 +143,8 @@ export function prepareMount<T extends Element>(
       if (started || disposed) return;
       started = true;
       try {
-        work = mount.acquire(element, () => data);
+        // Setup without a cleanup still settles close() through the synchronous release path.
+        work = mount.acquire(element, () => data) ?? noCleanup;
         if (Effect.isEffect(work)) {
           const acquisition = Scope.provide(work, resourceScope);
           fiber = runtime

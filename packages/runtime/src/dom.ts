@@ -6,6 +6,8 @@ import { protectSnapshot, type Snapshot } from './snapshot.js';
 import { validateIdentities } from './collection.js';
 import { runAll, reportError, reportSafely, type ReportError } from './errors.js';
 import { eventEffects } from './effectEvent.js';
+// Internal listener ownership, available to compiled output and runtime contract checks.
+export { eventEffects };
 import { traceBinding, type BindingSource } from './diagnostics.js';
 import type { Rows } from './index.js';
 import type { Identity } from './collection.js';

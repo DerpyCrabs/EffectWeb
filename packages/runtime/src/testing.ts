@@ -1,7 +1,10 @@
 import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
-import type { CommandSlot, Program, RunningProgram } from './program.js';
+import type { CommandSlot, Program, RunningProgram, Send } from './program.js';
 import { defaultUiRuntime, type UiRuntime } from './runtime.js';
+import { mountView, type Mounted, type View } from './dom.js';
+import { protectSnapshot, type Snapshot } from './snapshot.js';
+import type { ReportError } from './errors.js';
 
 /** Program inspection and controlled Effect execution with application-owned services. */
 export interface ProgramDriver<M, Msg, R = never> extends Program<M, Msg> {
@@ -65,4 +68,51 @@ export function controlledEffect<A, E = never>() {
     fail: (error: E) => settle(Effect.fail(error)),
     die: (defect: unknown) => settle(Effect.failCause(Cause.die(defect))),
   };
+}
+
+export interface RenderedView<M, E> extends Mounted {
+  /** Publish new props or model, as a parent or program would. */
+  readonly update: (next: M | Snapshot<M>) => void;
+  /** Messages sent by the view, in order. */
+  readonly sent: readonly E[];
+}
+
+/**
+ * Mount a view or component with fixed input for a test or browser fixture.
+ * Messages are recorded in `sent` and forwarded to `options.send`.
+ */
+export function renderView<M, E = never>(
+  parent: Node,
+  definition: View<M, E>,
+  model: M | Snapshot<M>,
+  options: { readonly send?: Send<E>; readonly onError?: ReportError } = {},
+): RenderedView<M, E> {
+  let current = protectSnapshot(model) as Snapshot<M>;
+  const listeners = new Set<(value: Snapshot<M>) => void>();
+  const sent: E[] = [];
+  const mounted = mountView(
+    parent,
+    definition,
+    {
+      model: () => current,
+      subscribe: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      send: (message: E) => {
+        sent.push(message);
+        options.send?.(message);
+      },
+    },
+    options.onError ? { onError: options.onError } : {},
+  );
+  return Object.assign(() => mounted.dispose(), {
+    dispose: mounted.dispose,
+    close: mounted.close,
+    sent,
+    update: (next: M | Snapshot<M>) => {
+      current = protectSnapshot(next) as Snapshot<M>;
+      for (const listener of listeners) listener(current);
+    },
+  });
 }

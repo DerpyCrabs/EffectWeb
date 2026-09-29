@@ -1,4 +1,5 @@
 mod analysis;
+mod list_identity;
 mod lower;
 mod query_diagnostics;
 mod render_lint;
@@ -79,7 +80,8 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                 let ImportDeclarationSpecifier::ImportSpecifier(specifier) = specifier else {
                     continue;
                 };
-                if specifier.imported.name() == "view" && dom {
+                // Slots are render callbacks too; lint them as independent render roots.
+                if matches!(specifier.imported.name().as_str(), "view" | "slot") && dom {
                     views.insert(specifier.local.symbol_id.get().unwrap());
                 }
                 if specifier.imported.name() == "query" && query {
@@ -128,15 +130,78 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                     .type_annotations
                     .insert(id.symbol_id.get().unwrap(), model);
             }
-            if let Some(issue) = render_lint::check(&index, function, &options) {
+            for issue in render_lint::check(&index, function, &options) {
                 let mut diagnostic =
                     lower::diagnostic(source, filename, issue.span, &issue.message);
                 diagnostic.code = if issue.unprovable { "EW2001" } else { "EW1003" }.into();
                 if issue.unprovable {
                     diagnostic.category = "unprovable-dependency".into();
                 }
-                diagnostics.push(diagnostic);
+                // A shared helper reached from several views reports its issue once.
+                if !diagnostics.iter().any(|d: &lower::Diagnostic| {
+                    d.line == diagnostic.line
+                        && d.column == diagnostic.column
+                        && d.message == diagnostic.message
+                }) {
+                    diagnostics.push(diagnostic);
+                }
             }
+        }
+    }
+    if options.diagnostics_only && options.lint {
+        let mut rows = list_identity::MapRows::default();
+        rows.visit_program(&program);
+        for span in rows.spans {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "Rows rendered with .map(...) have positional identity: removing or reordering rows moves component state, focus, drafts and running work to another row. Render keyed rows with list(entities(rows), render) or list(collection(identity).from(rows), render).",
+            );
+            diagnostic.code = "EW3001".into();
+            diagnostic.category = "identity".into();
+            diagnostic.severity = "warning".into();
+            diagnostics.push(diagnostic);
+        }
+        let mut bindings = list_identity::InlineBindings::new(&program, import_source);
+        bindings.visit_program(&program);
+        for span in bindings.spans {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "This DOM binding's setup function is created during render, so the element's resource is released and acquired again on every update. Declare the function once outside the view: const setup = (element, input) => ...; then use={domBinding(data, setup)} or const host = domMount(setup).",
+            );
+            diagnostic.code = "EW3002".into();
+            diagnostic.category = "identity".into();
+            diagnostic.severity = "warning".into();
+            diagnostics.push(diagnostic);
+        }
+        for span in bindings.sources_inline {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "This source is created during render, so observe unsubscribes and subscribes again on every update. Create it once outside the view (const total = mapSource(owner.source, (s) => s.total)) and observe that.",
+            );
+            diagnostic.code = "EW3004".into();
+            diagnostic.category = "identity".into();
+            diagnostic.severity = "warning".into();
+            diagnostics.push(diagnostic);
+        }
+        let mut slots = list_identity::InlineSlots::new(&program, import_source);
+        slots.visit_program(&program);
+        for span in slots.spans {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "commandSlot(...) creates a new slot on every call, so this work never replaces or drops earlier work. Declare the slot once (const saveSlot = commandSlot('save')) or use a keyed family (const rowSlot = commandSlots('row'); rowSlot(id)).",
+            );
+            diagnostic.code = "EW3003".into();
+            diagnostic.category = "identity".into();
+            diagnostic.severity = "warning".into();
+            diagnostics.push(diagnostic);
         }
     }
     let mut compiler = lower::Lower::new(source, filename, options.development);

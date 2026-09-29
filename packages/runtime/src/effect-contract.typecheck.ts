@@ -1,6 +1,5 @@
 import { Effect } from 'effect';
 import { eventEffects, effectEvent } from './effectEvent.js';
-import { keyedTasks, type TaskOutcome } from './keyed-tasks.js';
 import { modelOwner } from './owner.js';
 import { program, commandSlot } from './program.js';
 import { makeQueryCache } from './cache.js';
@@ -12,19 +11,11 @@ export function effectContracts() {
   const cache = makeQueryCache();
   const driver = programDriver(source);
   const slot = commandSlot('work');
-  const tasks = keyedTasks(owner, {
-    name: 'save',
-    policy: 'queue',
-    run: (_key: string, input: number) => Effect.succeed(input),
-  });
-  const outcome: Effect.Effect<TaskOutcome<number, never>> = tasks.submit('id', 1).outcome;
   const lifetime: Effect.Effect<void, AggregateError> = Effect.gen(function* () {
     yield* source.awaitIdle(slot);
     yield* source.awaitStopped();
     yield* driver.awaitSlot(slot);
     yield* driver.run(Effect.void);
-    yield* tasks.drain('id');
-    yield* outcome;
     yield* source.close();
     yield* owner.close();
     yield* cache.close();

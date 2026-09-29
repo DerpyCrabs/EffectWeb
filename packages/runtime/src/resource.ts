@@ -5,8 +5,6 @@ import * as Effect from 'effect/Effect';
 import type * as Scope from 'effect/Scope';
 import * as Option from 'effect/Option';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
-import type { UiLoad } from './load.js';
-import { loadEffect } from './load.js';
 import { component } from './component.js';
 import type { UiRuntime } from './runtime.js';
 import type { View } from './dom.js';
@@ -36,7 +34,9 @@ export function resourceComponent<Props, A, E = unknown, R = never>(
   definition: {
     request: (
       props: Snapshot<Props>,
-    ) => { key: string; load: () => UiLoad<A, E, R | Scope.Scope>; delay?: number } | undefined;
+    ) =>
+      | { key: string; load: () => Effect.Effect<A, E, R | Scope.Scope>; delay?: number }
+      | undefined;
     view: View<ResourceModel<Props, A, E>, ResourceMessage>;
   } & ([Exclude<R, Scope.Scope>] extends [never]
     ? { runtime?: UiRuntime<R> }
@@ -67,8 +67,8 @@ export function resourceComponent<Props, A, E = unknown, R = never>(
           commandLoad,
           () => {
             const work = selected.delay
-              ? Effect.sleep(selected.delay).pipe(Effect.andThen(loadEffect(selected.load)))
-              : loadEffect(selected.load);
+              ? Effect.sleep(selected.delay).pipe(Effect.andThen(Effect.suspend(selected.load)))
+              : Effect.suspend(selected.load);
             return runtime
               ? runtime.provideScoped(work)
               : (work as Effect.Effect<A, E, Scope.Scope>);

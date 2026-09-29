@@ -1,7 +1,7 @@
 import { Context, Effect, Option, Scope } from 'effect';
 import { query, type Query } from './query.js';
 import { makeQueryCache } from './cache.js';
-import { queryResource } from './session.js';
+import { lifetime, observeQuery } from './session.js';
 import type { Snapshot } from './snapshot.js';
 import { infiniteQuery, infiniteResource } from './infinite-query.js';
 import { makeUiRuntime } from './runtime.js';
@@ -50,7 +50,7 @@ export function querySnapshotArguments() {
   });
   const cache = makeQueryCache();
   const args: Snapshot<Args> = { ids: ['a'], filters: [{ tags: ['open'] }] };
-  const resource = queryResource({ cache }, data);
+  const resource = observeQuery(lifetime(), cache, data, () => {});
   resource.select(args);
   cache.invalidateQuery(data, args);
   const fetched = cache.prefetch(data, args);
@@ -86,7 +86,7 @@ export function querySnapshotArguments() {
   });
   const arrayCache = makeQueryCache();
   const readonlyIds: readonly string[] = ['a'];
-  queryResource({ cache: arrayCache }, arrayQuery).select(readonlyIds);
+  observeQuery(lifetime(), arrayCache, arrayQuery, () => {}).select(readonlyIds);
   const arrayResult = arrayCache.prefetch(arrayQuery, readonlyIds);
   arrayCache.invalidateQuery(arrayQuery, readonlyIds);
   arrayCache.setQueryData(arrayQuery, readonlyIds, 1);
@@ -113,7 +113,7 @@ export function effectArgumentEncoding() {
   void [missing, encoded];
 }
 
-export function queryResourceScopes() {
+export function observedQueryScopes() {
   class Storage extends Context.Service<Storage, { readonly read: Effect.Effect<string> }>()(
     'QueryTypecheck/Storage',
   ) {}
@@ -128,7 +128,7 @@ export function queryResourceScopes() {
   const cache = makeQueryCache();
   const prefetched: Effect.Effect<string> = cache.prefetch(scoped, true);
   const explicit: Effect.Effect<string> = cache.prefetch(explicitlyTyped, 'one');
-  queryResource({ cache }, scoped).select(true);
+  observeQuery(lifetime(), cache, scoped, () => {}).select(true);
   const pages = infiniteQuery({
     name: 'scoped-pages',
     initial: 0,
@@ -149,7 +149,7 @@ export function queryResourceScopes() {
   // @ts-expect-error Owning the query Scope must not erase an application's service requirement.
   const missingService = cache.prefetch(requiringStorage, true);
   // @ts-expect-error A query observation must also retain application service requirements.
-  queryResource({ cache }, requiringStorage);
+  observeQuery(lifetime(), cache, requiringStorage, () => {});
   const provided: Effect.Effect<string, never, Storage | Scope.Scope> = Effect.gen(function* () {
     const runtime = yield* makeUiRuntime<Storage>();
     const owned = makeQueryCache(runtime);

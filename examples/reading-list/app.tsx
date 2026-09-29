@@ -2,7 +2,7 @@ import { list as renderList } from 'effectweb';
 import { commandSlot } from 'effectweb';
 import { Cause, Context, Effect } from 'effect';
 import { collection, effectCommand, mountView, view, type Command } from 'effectweb';
-import { uiRuntime } from 'effectweb/runtime';
+import { uiRuntime } from 'effectweb';
 
 const commandSave = commandSlot('save');
 const commandLoad = commandSlot('load');

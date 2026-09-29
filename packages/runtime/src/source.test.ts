@@ -1,8 +1,9 @@
 import { Context, Effect, Stream, SubscriptionRef } from 'effect';
 import * as Atom from 'effect/unstable/reactivity/Atom';
 import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
-import { expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
+  clock,
   fromAtom,
   fromStream,
   fromSubscriptionRef,
@@ -134,4 +135,29 @@ it('batches projections and repeats invalidation during refresh without publishi
   await Promise.resolve();
   expect(values).toEqual([2]);
   source.dispose();
+});
+
+describe('clock', () => {
+  it('ticks only while observed and publishes the current time', () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      const minute = clock(60_000);
+      expect(minute.model()).toBe(1_000);
+      const seen: number[] = [];
+      const stop = minute.subscribe((now) => seen.push(now));
+      vi.advanceTimersByTime(120_000);
+      expect(seen).toEqual([61_000, 121_000]);
+      expect(minute.model()).toBe(121_000);
+      stop();
+      expect(vi.getTimerCount()).toBe(0);
+      vi.advanceTimersByTime(60_000);
+      expect(seen).toHaveLength(2);
+      expect(minute.model()).toBe(181_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('rejects a non-positive interval', () => {
+    expect(() => clock(0)).toThrow(RangeError);
+  });
 });

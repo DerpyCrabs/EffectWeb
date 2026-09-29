@@ -8,7 +8,7 @@ import { fromStream, type Source } from './source.js';
 import * as Stream from 'effect/Stream';
 import { defineTasks } from './tasks.js';
 import { resourceComponent } from './resource.js';
-import { lazyView, modelOwner, keyedTasks } from './index.js';
+import { lazyView } from './advanced.js';
 
 class Storage extends Context.Service<Storage, { readonly save: Effect.Effect<void, 'offline'> }>()(
   'ScopedTypecheck/Storage',
@@ -93,12 +93,3 @@ void [
   missingLazyService,
   missingTaskService,
 ];
-const keyedOwner = modelOwner({});
-const scopedKeyed = keyedTasks(keyedOwner, { name: 'scoped', policy: 'replace', run: scopedLoad });
-// @ts-expect-error Keyed tasks also retain application service requirements.
-const missingKeyedService = keyedTasks(keyedOwner, {
-  name: 'missing',
-  policy: 'replace',
-  run: serviceLoad,
-});
-void [scopedKeyed, missingKeyedService];

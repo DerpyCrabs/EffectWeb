@@ -6,11 +6,14 @@ EffectWeb separates state transitions and scoped Effect work from snapshot views
 
 The runtime is `effectweb`; compiler tooling and integrations use the `@effectweb` npm scope. All packages share one release version.
 
+**Start with [AUTHORING.md](packages/runtime/AUTHORING.md).** It is the guide for people and coding agents: which API to use for each job, list identity, Effect ownership, and a pre-merge checklist. It ships inside the `effectweb` package (`node_modules/effectweb/AUTHORING.md`), so point your agent instructions at it.
+
 ## Packages
 
-- `effectweb`: views, immutable programs, tasks, async presentation, query cache, DOM lifetimes, and test helpers.
+- `effectweb`: views, keyed lists, components, controllers, owned Effect commands, queries, async presentation and DOM lifetimes. `effectweb/advanced` holds adapter-building, session and rendering-optimization APIs; `effectweb/testing` holds test helpers.
 - `@effectweb/compiler`: Rust/Oxc compiler and the `@effectweb/compiler/vite` plugin. Native binaries install as optional platform dependencies; application developers do not need Rust.
 - [`@effectweb/lucide`](packages/lucide): precompiled Lucide views, per-icon imports, optional Effect-based lazy loading, and raw SVG builders.
+- Adapters: [`@effectweb/tanstack-router`](packages/tanstack-router) (typed `<Link>`), [`@effectweb/tanstack-form`](packages/tanstack-form), [`@effectweb/tanstack-table`](packages/tanstack-table), [`@effectweb/keycloak`](packages/keycloak), [`@effectweb/json-render`](packages/json-render) and [`@effectweb/antd-icons`](packages/antd-icons).
 
 The runtime currently requires **Effect 4.0.0-rc.112**. Compiler tooling requires Node.js 22.14+. The release workflow builds glibc Linux x64/arm64, macOS x64/arm64, and Windows x64 binaries. musl Linux and other architectures have no prebuilt package.
 
@@ -34,18 +37,19 @@ export default defineConfig({ plugins: [effectweb()] });
 Use `"jsx": "preserve"`, `"jsxImportSource": "effectweb"`, and `"moduleResolution": "Bundler"` in TypeScript. The plugin handles JSX before Vite transforms TypeScript and deduplicates Effect across linked packages.
 
 ```tsx
-import { Effect, SubscriptionRef } from 'effect';
-import { fromSubscriptionRef, mount, view } from 'effectweb';
+import { Effect } from 'effect';
+import { makeModelOwner, mount, view } from 'effectweb';
 
 Effect.runFork(
   Effect.scoped(
     Effect.gen(function* () {
-      const count = yield* SubscriptionRef.make(0);
-      const source = yield* fromSubscriptionRef(count);
-      const Counter = view<number>((value) => (
-        <button onClick={() => SubscriptionRef.update(count, (n) => n + 1)}>Count: {value}</button>
+      const owner = yield* makeModelOwner({ count: 0 });
+      const Counter = view<{ readonly count: number }>((model) => (
+        <button onClick={() => owner.patch({ count: model.count + 1 })}>
+          Count: {model.count}
+        </button>
       ));
-      yield* mount(document.getElementById('app')!, Counter, source);
+      yield* mount(document.getElementById('app')!, Counter, owner.source);
       return yield* Effect.never;
     }),
   ),

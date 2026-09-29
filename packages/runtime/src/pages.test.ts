@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { pages, type PagesMessage, type PagesModel } from './pages.js';
 import { mapCommand, program } from './program.js';
 import { available, resourceError } from './resource.js';
-import type { UiLoad, UiPage } from './load.js';
+import type { UiPage } from './load.js';
 
 type Item = { id: number };
 type Page = UiPage<Item, number>;
-type Input = { key?: string; load: (cursor: number | undefined) => UiLoad<Page> };
+type Input = { key?: string; load: (cursor: number | undefined) => Effect.Effect<Page, unknown> };
 type Model = PagesModel<Input, Item, number>;
 type Message = PagesMessage<Item, number> | { type: 'Context'; input: Input; refresh?: boolean };
 const page = (ids: number[], next?: number): Page => ({ items: ids.map((id) => ({ id })), next });

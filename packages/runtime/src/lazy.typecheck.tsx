@@ -1,6 +1,7 @@
 /* oxlint-disable effecttsgo/missing-effect-context -- Negative lazy loader service contracts. */
 import { Cause, Context, Effect } from 'effect';
-import { lazyView, uiRuntime, view, ViewBinding, type View } from './index.js';
+import { uiRuntime, view, ViewBinding, type View } from './index.js';
+import { lazyView } from './advanced.js';
 
 type Model = { title: string };
 type Message = { type: 'Click'; title: string };

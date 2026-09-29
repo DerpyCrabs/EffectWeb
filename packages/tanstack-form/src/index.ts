@@ -1,7 +1,7 @@
 import { FormApi, type DeepKeys, type DeepValue } from '@tanstack/form-core';
 import { Effect } from 'effect';
-import { projectionSource, type Source } from 'effectweb';
-import { shareValue } from 'effectweb/share';
+import type { Source } from 'effectweb';
+import { projectionSource, shareValue } from 'effectweb/advanced';
 
 export type FieldErrors<T> = Partial<Record<DeepKeys<T>, string>>;
 export interface FormSnapshot<T> {

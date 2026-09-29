@@ -5,7 +5,6 @@ import {
   type Slot,
   defineTasks,
   localComponent,
-  programView,
   program,
   domMount,
   errorBoundary,
@@ -18,6 +17,7 @@ import {
   type DomMount,
   type Snapshot,
 } from 'effectweb';
+import { programView } from 'effectweb/advanced';
 
 interface Props {
   id: string;
@@ -384,7 +384,7 @@ export async function staleBoundaryCleanupFixture() {
 }
 
 export async function lazyCloseFixture() {
-  const { lazyView } = await import('effectweb');
+  const { lazyView } = await import('effectweb/advanced');
   const host = document.createElement('div');
   document.body.append(host);
   let release!: () => void;
@@ -418,7 +418,7 @@ export async function lazyCloseFixture() {
 }
 
 export async function lazyFinalizerFailureFixture() {
-  const { lazyView } = await import('effectweb');
+  const { lazyView } = await import('effectweb/advanced');
   const host = document.createElement('div');
   const errors: string[] = [];
   const Lazy = lazyView<Props>(() =>

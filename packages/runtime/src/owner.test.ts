@@ -1,4 +1,4 @@
-import { commandSlot } from './program.js';
+import { commandSlot, commandSlots } from './program.js';
 import { Context, Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
 import { modelOwner } from './owner.js';
@@ -178,5 +178,22 @@ it('exposes only controller-selected fields with immutable published values', ()
     owner.fields('missing');
   };
   void typingOnly;
+  owner.dispose();
+});
+
+it('replaces work per key through a declared slot family', async () => {
+  const rowSlot = commandSlots('row');
+  expect(rowSlot(1)).toBe(rowSlot(1));
+  expect(rowSlot(1)).not.toBe(rowSlot(2));
+  const owner = modelOwner({ done: [] as string[] });
+  const finish = (label: string) =>
+    Effect.sleep(5).pipe(
+      Effect.andThen(Effect.sync(() => owner.edit('done', (done) => [...done, label]))),
+    );
+  owner.run(rowSlot(1), finish('1a'), 'replace');
+  owner.run(rowSlot(2), finish('2a'), 'replace');
+  owner.run(rowSlot(1), finish('1b'), 'replace');
+  await Effect.runPromise(owner.awaitIdle());
+  expect([...owner.read().done].sort()).toEqual(['1b', '2a']);
   owner.dispose();
 });

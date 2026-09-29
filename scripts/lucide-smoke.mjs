@@ -113,7 +113,7 @@ const icons = {${auditNames}};
 import * as data from '@effectweb/lucide/data';
 import { buildLucideIconElement, buildLucideSvg, buildLucideDataUri } from '@effectweb/lucide/build';
 import { Scope } from 'effectweb/dom';
-import { domMount } from 'effectweb/mount';
+import { domMount } from 'effectweb';
 const check = (value, message) => { if (!value) throw new Error(message); };
 const shape = element => [element.localName,
   Object.fromEntries([...element.attributes].filter(a => a.name !== 'key').map(a => [a.name, a.value]).sort()),

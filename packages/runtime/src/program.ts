@@ -18,6 +18,24 @@ declare const slotType: unique symbol;
 export type CommandSlot = symbol & { readonly [slotType]: true };
 export const commandSlot = (name: string): CommandSlot => Symbol(name) as CommandSlot;
 
+/**
+ * A family of slots keyed by domain identity, e.g. one debounced request per row.
+ * Declare the family once (module or controller scope); the same key always returns
+ * the same slot, so `replace` and `drop` apply per key. Calling `commandSlot` inside
+ * a handler instead creates a fresh slot per call, which never replaces earlier work.
+ */
+export function commandSlots(name: string): (key: string | number) => CommandSlot {
+  const slots = new Map<string | number, CommandSlot>();
+  return (key) => {
+    let slot = slots.get(key);
+    if (!slot) {
+      slot = commandSlot(`${name}:${key}`);
+      slots.set(key, slot);
+    }
+    return slot;
+  };
+}
+
 /** A slot owns either one completion or a stream of progress/events, canceled together. */
 export type Command<Message, R = never> = {
   readonly slot: CommandSlot;

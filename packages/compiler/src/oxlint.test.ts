@@ -61,6 +61,24 @@ const Random = view(model => <p>{Math["random"]()}</p>);`;
     expect(reports[1]!.message).toContain('randomness');
   });
 
+  it('reports every independent finding in one view', () => {
+    const text = `import { view } from 'effectweb';
+const Busy = view((model) => {
+  const sorted = model.items.sort();
+  return (
+    <p title={String(Date.now())}>
+      {sorted.join(',')}
+      {Math.random()}
+    </p>
+  );
+});`;
+    expect(lint(text, 'busy.tsx').map((d) => [d.line, d.code])).toEqual([
+      [3, 'EW1003'],
+      [5, 'EW1003'],
+      [7, 'EW1003'],
+    ]);
+  });
+
   it('reports lint findings in later views without affecting compilation', () => {
     const diagnostics = lint(source, 'views.tsx');
     expect(diagnostics).toHaveLength(2);
@@ -247,4 +265,126 @@ it('checks scalar views in .ts through the same correctness rule', () => {
     .Program();
   expect(reports).toHaveLength(1);
   expect(reports[0]!.message).toContain('randomness');
+});
+
+describe('optional identity lint: keyed rows', () => {
+  const run = (text: string) => {
+    const reports: { loc: { line: number }; message: string }[] = [];
+    plugin.rules.identity
+      .create({
+        filename: 'rows.tsx',
+        sourceCode: { text },
+        options: [],
+        report: (report) => reports.push(report),
+      })
+      .Program();
+    return reports;
+  };
+
+  it('reports .map rows containing components or form controls', () => {
+    const text = `import { view, list, entities } from 'effectweb';
+import { Row } from './Row';
+const A = view(m => <ul>{m.rows.map(r => <Row row={r} />)}</ul>);
+const B = view(m => <ul>{m.rows.map((r) => (<li><input value={r.name} /></li>))}</ul>);
+const C = view(m => <ul>{m.rows.map(function (r) { if (r.hidden) return null; return <li>{r.edit ? <textarea /> : r.name}</li>; })}</ul>);
+const D = view(m => <ul>{m.rows.map(r => <li>{r.name}</li>)}</ul>);
+const E = view(m => <ul>{['a', 'b'].map(k => <Row row={k} />)}</ul>);
+const F = view(m => <ul>{list(entities(m.rows), r => <Row row={r} />)}</ul>);
+const G = view(m => <ul>{m.rows.map(r => <li contentEditable>{r.name}</li>)}</ul>);
+const H = view(m => <ul>{(['a', 'b'] as const).map(k => <Row row={k} />)}</ul>);
+const I = view(m => <ul>{(m.wide ? ['a', 'b'] : ['a']).filter(k => k !== m.skip).map(k => <Row row={k} />)}</ul>);
+const J = view(m => <ul>{(m.wide ? m.rows : ['a']).map(k => <Row row={k} />)}</ul>);`;
+    const reports = run(text);
+    expect(reports.map((report) => report.loc.line)).toEqual([3, 4, 5, 9, 11, 12]);
+    expect(reports[0]!.message).toContain('[EW3001]');
+    expect(reports[0]!.message).toContain('list(entities(rows), render)');
+  });
+
+  it.each([
+    "['a', 'b'].filter(k => k !== m.skip)",
+    "['a', 'b'].slice(m.start)",
+    "(m.flip ? ['b', 'a'] : ['a', 'b'])",
+    '[...m.rows]',
+  ])('warns when literal-derived rows can shift: %s', (rows) => {
+    const text = `import {view} from 'effectweb';view(m=><div>{${rows}.map(k=><input value={k}/>)}</div>);`;
+    expect(run(text).some((report) => report.message.includes('[EW3001]'))).toBe(true);
+  });
+
+  it('is a warning that never affects compilation or other rules', () => {
+    const text = `import { view } from 'effectweb';
+import { Row } from './Row';
+const A = view(m => <ul>{m.rows.map(r => <Row row={r} />)}</ul>);`;
+    expect(lint(text, 'rows.tsx').map((d) => [d.code, d.severity, d.category])).toEqual([
+      ['EW3001', 'warning', 'identity'],
+    ]);
+    expect(diagnose(text, 'rows.tsx')).toEqual([]);
+    expect(() => compile(text, 'rows.tsx')).not.toThrow();
+  });
+});
+
+describe('optional identity lint: stable bindings', () => {
+  it('reports DOM binding setup functions created during render', () => {
+    const text = `import { view, domMount, domBinding as bind } from 'effectweb';
+const setup = (element, points) => () => {};
+const focus = domMount((element) => element.focus());
+const A = view(m => <canvas use={bind(m.points, setup)} />);
+const B = view(m => <canvas use={bind(m.points, (element, points) => () => {})} />);
+const C = view(m => { const host = domMount(() => () => {}); return <input use={host} />; });
+const D = view(m => <input use={focus} />);
+const E = () => <input use={domMount(function () { return () => {}; })} />;`;
+    const reports: { loc: { line: number }; message: string }[] = [];
+    plugin.rules.identity
+      .create({
+        filename: 'bindings.tsx',
+        sourceCode: { text },
+        options: [],
+        report: (report) => reports.push(report),
+      })
+      .Program();
+    expect(reports.map((report) => report.loc.line)).toEqual([5, 6, 8]);
+    expect(reports[0]!.message).toContain('[EW3002]');
+    expect(lint(text, 'bindings.tsx').filter((d) => d.code === 'EW3002')).toHaveLength(3);
+    expect(diagnose(text, 'bindings.tsx')).toEqual([]);
+  });
+});
+
+describe('optional identity lint: stable slots', () => {
+  it('reports slots created while dispatching work', () => {
+    const text = `import { commandSlot as slot, commandSlots, effectCommand } from 'effectweb';
+const saveSlot = slot('save');
+const rowSlot = commandSlots('row');
+export function controller(owner) {
+  const local = slot('local');
+  const save = () => owner.run(saveSlot, work, 'replace');
+  const row = (id) => owner.run(rowSlot(id), work, 'replace');
+  const bad = (id) => owner.run(slot(\`row-\${id}\`), work, 'replace');
+  const command = () => effectCommand(slot('x'), () => work, { policy: 'replace' });
+  return { save, row, bad, command, local };
+}`;
+    expect(
+      lint(text, 'slots.ts')
+        .filter((d) => d.code === 'EW3003')
+        .map((d) => d.line),
+    ).toEqual([8, 9]);
+  });
+});
+
+describe('optional identity lint: stable sources', () => {
+  it('reports sources created while rendering an observation', () => {
+    const text = `import { view, observe, mapSource, clock } from 'effectweb';
+const minute = clock(60_000);
+export function make(owner) {
+  const total = mapSource(owner.source, (s) => s.total);
+  const A = view(() => <p>{observe(total, (t) => t)}</p>);
+  const B = view(() => <p>{observe(mapSource(owner.source, (s) => s.total), (t) => t)}</p>);
+  const C = view(() => <p>{observe(minute, (now) => now)}</p>);
+  const D = view(() => <p>{observe(clock(1000), (now) => now)}</p>);
+  return [A, B, C, D];
+}`;
+    expect(
+      lint(text, 'sources.tsx')
+        .filter((d) => d.code === 'EW3004')
+        .map((d) => d.line),
+    ).toEqual([6, 8]);
+  });
 });

@@ -19,4 +19,4 @@ This example uses `defineField`, `program`, and compiled `view`. The program own
 
 Submission is an application decision: this example validates every field, waits for availability, then sends only parsed domain values to `save`. Edits cancel a pending submission; reset cancels both validation and saving. Labels, help text, error IDs, `aria-describedby`, `aria-invalid`, and live status messages are ordinary JSX. No generated control markup or additional JSX syntax is required.
 
-Browser coverage lives in `tests/browser/profile-form.spec.ts`; reducer and cancellation tests live in `packages/runtime/src/form.test.ts`. The existing `inputText`, `inputChecked`, `inputNumber`, and `submit` adapters remain compatible. Use `inputText` for numeric drafts that must retain incomplete input or formatting; `inputNumber` is still useful when only a native parsed number is needed.
+Browser coverage lives in `tests/browser/profile-form.spec.ts`; reducer and cancellation tests live in `packages/runtime/src/form.test.ts`. Inputs read `event.currentTarget.value` directly; keep numeric fields as text drafts so incomplete input and formatting survive until parsing.

@@ -1,4 +1,5 @@
-import { mountView, patchModel, program, view } from 'effectweb';
+import { mountView, program, view } from 'effectweb';
+import { patchModel } from 'effectweb/advanced';
 
 export function mountControls(parent: HTMLElement) {
   type Model = { text: string; checked: boolean | undefined };

@@ -1,6 +1,7 @@
 import { Effect, type Scope } from 'effect';
 import type { RouterHistory } from '@tanstack/history';
-import { projectionSource, type Source } from 'effectweb';
+import type { Source } from 'effectweb';
+import { projectionSource } from 'effectweb/advanced';
 import {
   RouterCore,
   createNonReactiveMutableStore,
@@ -120,3 +121,4 @@ export const mountRouter = <Router extends AnyRouter>(
     });
     return source.source;
   });
+export { createLink, linkTarget, type LinkProps } from './link.js';

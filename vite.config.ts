@@ -63,6 +63,7 @@ export default defineConfig({
       'effecttsgo/any-unknown-in-error-context': 'off',
       'effecttsgo/floating-effect': 'error',
       'effectweb/valid-view': 'error',
+      'effectweb/identity': 'warn',
     },
     overrides: [
       {

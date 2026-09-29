@@ -7,7 +7,7 @@ import { modelOwner } from './owner.js';
 import { resourceError } from './resource.js';
 import { Cause } from 'effect';
 import { makeQueryCache } from './cache.js';
-import { queryResource, observeQuery, sessionGroup } from './session.js';
+import { lifetime, queryResource, observeQuery, sessionGroup } from './session.js';
 
 it('selects typed query arguments, shares across sessions, and clears values across account changes', async () => {
   let account = 'first';
@@ -258,4 +258,29 @@ it('releases a session group and its subscriptions when subscription setup fails
   };
   expect(() => sessionGroup([first, second, third], () => {})).toThrow(problem);
   expect(events).toEqual(['first unsubscribe', 'third dispose', 'second dispose', 'first dispose']);
+});
+
+it('lets a lifetime own queries and cleanups in reverse order', () => {
+  const cache = makeQueryCache();
+  const scope = lifetime();
+  const changed = vi.fn();
+  const order: string[] = [];
+  scope.add(() => order.push('first'));
+  const resource = observeQuery(
+    scope,
+    cache,
+    query({ name: 'n', load: (n: number) => Effect.succeed(n * 2) }),
+    changed,
+  );
+  scope.add(() => order.push('last'));
+  resource.select(2);
+  expect(Option.getOrUndefined(AsyncResult.value(resource.read()))).toBe(4);
+  expect(changed).toHaveBeenCalled();
+  scope.dispose();
+  expect(order).toEqual(['last', 'first']);
+  expect(scope.disposed).toBe(true);
+  expect(resource.read()).toEqual(AsyncResult.initial());
+  scope.add(() => order.push('late'));
+  expect(order).toEqual(['last', 'first', 'late']);
+  cache.dispose();
 });

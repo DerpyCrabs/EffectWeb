@@ -2,13 +2,13 @@ import { Cause } from 'effect';
 import {
   domMount,
   fromPromise,
-  lazyView,
   mountView,
   program,
   view,
   ViewBinding,
   type Program,
 } from 'effectweb';
+import { lazyView } from 'effectweb/advanced';
 import type { LazyMessage, LazyModel } from './lazyViewModule';
 
 const Pending = view<LazyModel, LazyMessage>((model, send) => (

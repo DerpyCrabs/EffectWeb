@@ -12,10 +12,15 @@ const results = new WeakMap<
   Source,
   { text: string; diagnostics: Map<string, readonly Diagnostic[]> }
 >();
-function rule(category: Diagnostic['category'] | 'errors' | 'render-safety') {
+function rule(category: Diagnostic['category'] | 'errors' | 'render-safety' | 'bindings') {
+  const heuristic =
+    category === 'render-safety' || category === 'unprovable-dependency' || category === 'identity';
   return {
     meta: {
-      type: category !== 'performance' ? ('problem' as const) : ('suggestion' as const),
+      type:
+        category === 'performance' || category === 'identity'
+          ? ('suggestion' as const)
+          : ('problem' as const),
       schema: [
         {
           type: 'object',
@@ -34,7 +39,6 @@ function rule(category: Diagnostic['category'] | 'errors' | 'render-safety') {
             cached = { text: context.sourceCode.text, diagnostics: new Map() };
             results.set(context.sourceCode, cached);
           }
-          const heuristic = category === 'render-safety' || category === 'unprovable-dependency';
           const key = `${context.filename}\0${importSource}\0${heuristic}`;
           let diagnostics = cached.diagnostics.get(key);
           if (!diagnostics) {
@@ -68,9 +72,11 @@ function rule(category: Diagnostic['category'] | 'errors' | 'render-safety') {
                 ? ['EW1000', 'EW1003', 'EW2001'].includes(diagnostic.code)
                 : category === 'unprovable-dependency'
                   ? diagnostic.code === 'EW2002' || diagnostic.code === 'EW1000'
-                  : category === 'errors'
-                    ? diagnostic.severity === 'error'
-                    : diagnostic.category === category;
+                  : category === 'identity'
+                    ? diagnostic.category === 'identity' || diagnostic.code === 'EW1000'
+                    : category === 'errors'
+                      ? diagnostic.severity === 'error'
+                      : diagnostic.category === category;
             if (!selected) continue;
             context.report({
               loc: { line: diagnostic.line, column: diagnostic.column - 1 },
@@ -88,5 +94,6 @@ export default {
     'valid-view': rule('errors'),
     'render-safety': rule('render-safety'),
     'query-key': rule('unprovable-dependency'),
+    identity: rule('identity'),
   },
 };

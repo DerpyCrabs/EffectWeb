@@ -5,6 +5,7 @@ const MountPublication = view<{ count: number }, number>((model, send) => (
   <section>
     <b>{model.count}</b>
     <i
+      // oxlint-disable-next-line effectweb/identity -- The fixture measures per-render acquisition.
       use={domMount(() => {
         send(1);
         return () => {};
@@ -114,6 +115,7 @@ const SelfRemoving = view<{ show: boolean }, boolean>((model, send) => (
   <main>
     {model.show && (
       <b
+        // oxlint-disable-next-line effectweb/identity -- The fixture measures per-render acquisition.
         use={domMount(() => {
           send(false);
           return release;

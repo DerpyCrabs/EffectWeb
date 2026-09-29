@@ -7,17 +7,14 @@ import {
   component,
   defineTasks,
   localComponent,
-  pages,
   program,
-  programView,
   resourceComponent,
   slot,
-  taskComponent,
-  taskControls,
   view,
   ViewBinding,
   type Snapshot,
 } from './index.js';
+import { pages, programView } from './advanced.js';
 
 type Item = { name: string; tags: string[] };
 type Props = { items: Item[] };
@@ -88,22 +85,6 @@ export function snapshotComposition(props: Snapshot<Props>) {
 }
 
 export function taskSnapshotBoundaries(props: Snapshot<Props>) {
-  taskComponent<Props, Props, void, number>({
-    init: (input) => input,
-    identity(input) {
-      // @ts-expect-error Identity selection cannot mutate published props.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      input.items.reverse();
-      return input.items[0]?.name;
-    },
-    task: { policy: 'replace', run: (model) => Effect.succeed(model.items.length) },
-    view: view((model, send) => {
-      taskControls<Props, void>(send).patch({ items: model.items });
-      // @ts-expect-error Task result ownership cannot be patched through local fields.
-      taskControls<Props, void>(send).patch({ task: model.task });
-      return null;
-    }),
-  });
   const builder = defineTasks<Props, Props>({
     init(input) {
       // @ts-expect-error Task builder initialization receives immutable parent data.

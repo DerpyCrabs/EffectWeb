@@ -5,12 +5,12 @@ import {
   effectCommand,
   errorBoundary,
   localComponent,
-  mapTransition,
   program,
   uiRuntime,
   view,
   ViewBinding,
 } from './index.js';
+import { mapTransition } from './advanced.js';
 import type { Transition } from './program.js';
 
 class Store extends Context.Service<Store, { readonly count: number }>()('Composition/Store') {}

@@ -9,19 +9,17 @@ import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import * as Atom from 'effect/unstable/reactivity/Atom';
 import * as AtomRegistry from 'effect/unstable/reactivity/AtomRegistry';
 
-import { loadEffect, type UiLoad } from './load.js';
 import { shareData } from './sharing.js';
 import { encodeQueryArguments, type Query, type QueryGroup } from './query.js';
 import { registerCache } from './cache-internals.js';
 import { queryDefinition } from './query-internals.js';
 import { defaultUiRuntime, makeUiRuntime, type UiRuntime } from './runtime.js';
 import { reportError, reportSafely } from './errors.js';
-export { loadEffect, type UiLoad } from './load.js';
 export { shareValue } from './share.js';
 
 interface ResourceEntry {
   atom: Atom.Writable<AsyncResult.AsyncResult<unknown, unknown>, unknown>;
-  load: () => UiLoad<unknown, unknown, Scope.Scope>;
+  load: () => Effect.Effect<unknown, unknown, Scope.Scope>;
   loadedAt?: number;
   query?: object;
   args?: unknown;
@@ -121,7 +119,7 @@ function createQueryCache<R>(
         return Effect.suspend(() => {
           if (stopping) return Effect.interrupt;
           started = true;
-          return loadEffect(() => next.load()).pipe(
+          return Effect.suspend(() => next.load()).pipe(
             Effect.map((value) => {
               const shared = Option.isSome(previous)
                 ? share(previous.value as Snapshot<A>, value as A)

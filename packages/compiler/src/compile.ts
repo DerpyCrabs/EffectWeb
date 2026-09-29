@@ -7,7 +7,7 @@ export interface Diagnostic {
   readonly message: string;
   readonly severity: 'error' | 'warning';
   readonly code: string;
-  readonly category: 'correctness' | 'unprovable-dependency' | 'performance';
+  readonly category: 'correctness' | 'unprovable-dependency' | 'performance' | 'identity';
   readonly remedy: string;
 }
 export interface CompilerOptions {

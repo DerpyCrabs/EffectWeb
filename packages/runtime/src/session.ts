@@ -8,13 +8,22 @@ import * as Atom from 'effect/unstable/reactivity/Atom';
 import type { QueryCache } from './cache.js';
 import { cacheInternals } from './cache-internals.js';
 
+/**
+ * Cleanup for a controller or session that has no model of its own. It is a `DisposableOwner`,
+ * so `observeQuery` and other owned resources can attach to it.
+ */
 export function lifetime() {
   const cleanups: Array<() => void> = [];
   let disposed = false;
+  const add = (cleanup: () => void) => {
+    if (disposed) cleanup();
+    else cleanups.push(cleanup);
+  };
   return {
-    add(cleanup: () => void) {
-      if (disposed) cleanup();
-      else cleanups.push(cleanup);
+    add,
+    own<A extends { dispose(): void }>(resource: A): A {
+      add(() => resource.dispose());
+      return resource;
     },
     dispose() {
       if (disposed) return;
@@ -25,11 +34,6 @@ export function lifetime() {
       return disposed;
     },
   };
-}
-export type Read<A> = () => A;
-export interface SessionContext<R = never> {
-  readonly cache: QueryCache<R>;
-  readonly changed: () => void;
 }
 
 /** One owned selection and immutable observation of a shared query resource. */

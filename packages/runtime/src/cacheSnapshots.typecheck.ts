@@ -2,7 +2,7 @@ import { Effect } from 'effect';
 import { makeQueryCache } from './cache.js';
 import { query } from './query.js';
 import { available } from './resource.js';
-import { observeQuery, queryResource } from './session.js';
+import { lifetime, observeQuery } from './session.js';
 import { modelOwner } from './owner.js';
 
 export function cachedSnapshotTypes() {
@@ -33,7 +33,7 @@ export function cachedSnapshotTypes() {
     value.names.push('bad');
     return value;
   });
-  const resource = queryResource({ cache }, people);
+  const resource = observeQuery(lifetime(), cache, people, () => {});
   resource.subscribe((result) => {
     // @ts-expect-error Subscribers receive immutable success values.
     // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.

@@ -29,13 +29,17 @@ The runtime freezes published plain objects and arrays in every build without ch
 
 Diagnostics include `code`, `category`, `severity`, source `file`/`line`/`column` (one-based UTF-16 columns), and an actionable `remedy`:
 
-| Code   | Category              | Meaning and remedy                                                                                                                                                 |
-| ------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| EW1000 | correctness           | Lint could not parse the file or load the native compiler. Fix syntax or installation.                                                                             |
-| EW1001 | correctness           | Unsupported intrinsic JSX syntax, such as `key`, `ref`, or `innerHTML`. Use explicit lists or owned DOM bindings.                                                  |
-| EW1003 | correctness           | Optional render-safety lint found potentially impure work. Review it and move side effects into owned work.                                                        |
-| EW2001 | unprovable-dependency | Optional render-safety lint found a potentially mutable capture. Review its ownership; compilation itself accepts ordinary JavaScript captures.                    |
-| EW2002 | unprovable-dependency | Query-key lint found a custom `key`. Remove it; every request argument participates in cache identity. The public query types and runtime also reject custom keys. |
+| Code   | Category              | Meaning and remedy                                                                                                                                                                                                                                                                                                     |
+| ------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| EW1000 | correctness           | Lint could not parse the file or load the native compiler. Fix syntax or installation.                                                                                                                                                                                                                                 |
+| EW1001 | correctness           | Unsupported intrinsic JSX syntax, such as `key`, `ref`, or `innerHTML`. Use explicit lists or owned DOM bindings.                                                                                                                                                                                                      |
+| EW1003 | correctness           | Optional render-safety lint found potentially impure work. Review it and move side effects into owned work.                                                                                                                                                                                                            |
+| EW2001 | unprovable-dependency | Optional render-safety lint found a potentially mutable capture. Review its ownership; compilation itself accepts ordinary JavaScript captures.                                                                                                                                                                        |
+| EW2002 | unprovable-dependency | Query-key lint found a custom `key`. Remove it; every request argument participates in cache identity. The public query types and runtime also reject custom keys.                                                                                                                                                     |
+| EW3001 | identity              | Identity lint found `.map(...)` rows containing components or form controls. Their identity is positional, so removing or reordering rows moves state, focus and running work to another row. Use `list(entities(rows), render)` or `list(collection(identity).from(rows), render)`. Literal option arrays are exempt. |
+| EW3002 | identity              | Identity lint found `domMount(fn)` or `domBinding(data, fn)` with a function created during render. The function is the binding identity, so the resource is released and acquired on every update. Declare it once outside the view.                                                                                  |
+| EW3003 | identity              | Identity lint found `commandSlot(...)` created inside a function and passed straight to `run`/`effectCommand`. Every call gets a new slot, so `replace`/`drop` never apply and stale requests race newer ones. Declare slots once, or use `commandSlots(name)(key)`.                                                   |
+| EW3004 | identity              | Identity lint found `observe(mapSource(...))` or `observe(clock(...))` inside a view. The source is new on every render, so the observation resubscribes each update. Create the source once outside the view.                                                                                                         |
 
 `effectweb/query-key` recognizes imported `query` definitions, including aliases and `effectweb/query`, with literal custom keys. Types and the runtime cover definitions assembled outside that lint analysis. Supply service instances through the Effect environment. For example:
 
@@ -45,9 +49,10 @@ Diagnostics include `code`, `category`, `severity`, source `file`/`line`/`column
   "rules": {
     "effectweb/valid-view": "error",
     "effectweb/query-key": "error",
+    "effectweb/identity": "warn",
     "effectweb/render-safety": "warn"
   }
 }
 ```
 
-Remove `effectweb/render-safety` when heuristic advice is not wanted. TypeScript checks props, snapshots, and Effect service/error contracts; the compiler does not load or check the consumer's TypeScript project.
+`effectweb/identity` reports warnings for row, DOM-binding and command-slot identity mistakes the compiler cannot reject (EW3001–EW3004); like render safety, it never changes generated code. Remove `effectweb/render-safety` when heuristic advice is not wanted. TypeScript checks props, snapshots, and Effect service/error contracts; the compiler does not load or check the consumer's TypeScript project.

@@ -1,17 +1,6 @@
 import { Cause, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
-import {
-  AsyncContent,
-  domMount,
-  inputText,
-  inputChecked,
-  inputNumber,
-  submit,
-  mountView,
-  program,
-  slot,
-  view,
-} from 'effectweb';
+import { AsyncContent, domMount, submit, mountView, program, slot, view } from 'effectweb';
 
 export function mountAsyncContent(parent: HTMLElement) {
   type Model = { result: AsyncResult.AsyncResult<number | undefined, string>; delay: number };
@@ -67,18 +56,25 @@ export function mountForm(parent: HTMLElement) {
   type Model = { text: string; checked: boolean; number: number | undefined; submitted: number };
   const View = view<Model, Partial<Model>>((model, send) => (
     <form onSubmit={submit(() => send({ submitted: model.submitted + 1 }))}>
-      <input aria-label="Text" value={model.text} onInput={inputText((text) => send({ text }))} />
+      <input
+        aria-label="Text"
+        value={model.text}
+        onInput={(event) => send({ text: event.currentTarget.value })}
+      />
       <input
         aria-label="Checked"
         type="checkbox"
         checked={model.checked}
-        onChange={inputChecked((checked) => send({ checked }))}
+        onChange={(event) => send({ checked: event.currentTarget.checked })}
       />
       <input
         aria-label="Number"
         type="number"
         value={model.number ?? ''}
-        onInput={inputNumber((number) => send({ number }))}
+        onInput={(event) => {
+          const number = event.currentTarget.valueAsNumber;
+          send({ number: Number.isNaN(number) ? undefined : number });
+        }}
       />
       <input
         aria-label="Native event"

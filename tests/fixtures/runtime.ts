@@ -16,6 +16,18 @@ export {
   attribute,
   literal,
 } from 'effectweb/dom';
-export * from 'effectweb/program';
+export {
+  program,
+  makeProgram,
+  actionCommand,
+  effectCommand,
+  commandSlot,
+  commandSlots,
+  type Command,
+  type Program,
+  type Send,
+  type Transition,
+} from 'effectweb';
+export { mapCommand, mapTransition } from 'effectweb/advanced';
 
 export { domBinding, entities, list, sequence } from 'effectweb';

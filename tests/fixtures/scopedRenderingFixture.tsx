@@ -5,21 +5,23 @@ import {
   component,
   defineTasks,
   effectCommand,
-  lazyView,
   resourceComponent,
   collection,
   list,
   ViewBinding,
-  fromSubscriptionRef,
-  listView,
-  makeDomMount,
-  makeEffectHandler,
   makeProgram,
   mapSource,
   mount,
   observe,
   view,
 } from 'effectweb';
+import {
+  fromSubscriptionRef,
+  lazyView,
+  listView,
+  makeDomMount,
+  makeEffectHandler,
+} from 'effectweb/advanced';
 
 export async function mountScopedRendering(parent: HTMLElement, optimized = true) {
   const lifetime = Scope.makeUnsafe();

@@ -1,13 +1,6 @@
 import { Cause, Deferred, Effect, Exit, Fiber } from 'effect';
-import {
-  makeDomMount,
-  mount,
-  programView,
-  query,
-  scopedQueryCache,
-  view,
-  type Mounted,
-} from 'effectweb';
+import { mount, query, view, type Mounted } from 'effectweb';
+import { makeDomMount, programView, scopedQueryCache } from 'effectweb/advanced';
 
 const describeExit = (exit: Exit.Exit<unknown, unknown>) =>
   Exit.isSuccess(exit)
