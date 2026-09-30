@@ -236,9 +236,9 @@ import { Editor } from './safeAuthoringFixture';
 import { createLazyViewFixture } from './lazyViewFixture';
 import { mountPortal } from './portalFixture';
 import { mountIdentityFixture, mountRecoveryFixture } from './recoveryFixture';
-import { mountInheritedContext, mountEffectSetup, mountScopedRendering, checkObservationDisposal } from './scopedRenderingFixture';
+import { mountInheritedContext, mountScopedRendering, checkObservationDisposal } from './scopedRenderingFixture';
 import { failedRenderCleanup, mountClosingExit } from './mountLifecycleFixture';
-Object.assign(window, { failedRenderCleanup, mountClosingExit, mountInheritedContext, mountEffectSetup, mountScopedRendering, checkObservationDisposal, mountAuthoring, mountContracts, ownershipContracts, Editor, createLazyViewFixture, mountPortal, mountIdentityFixture, mountRecoveryFixture });
+Object.assign(window, { failedRenderCleanup, mountClosingExit, mountInheritedContext, mountScopedRendering, checkObservationDisposal, mountAuthoring, mountContracts, ownershipContracts, Editor, createLazyViewFixture, mountPortal, mountIdentityFixture, mountRecoveryFixture });
 const name: IconName = 'camera';
 // @ts-expect-error Unknown icon names must fail at compile time.
 const badName: IconName = 'not-a-lucide-icon';
@@ -688,12 +688,6 @@ try {
     host.querySelector('#ambient-task').click();
     const labels = [...host.children].map((node) => node.textContent);
     await close();
-    const setup = await window.mountEffectSetup(host);
-    host.querySelector('button').click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const count = host.textContent;
-    await setup.closeMount();
-    await setup.close();
     const rows = await window.mountScopedRendering(host);
     const before = rows.evaluations();
     rows.send({ type: 'select', id: 500 });
@@ -702,12 +696,10 @@ try {
     const disposal = await window.checkObservationDisposal(host);
     const empty = host.childNodes.length === 0;
     host.remove();
-    return { labels, count, releases: setup.releases, evaluated, disposal, empty };
+    return { labels, evaluated, disposal, empty };
   });
   assert.deepEqual(scoped, {
     labels: ['application', 'application', 'application'],
-    count: '5',
-    releases: ['dom', 'view'],
     evaluated: 2,
     disposal: { beforeClose: 1, afterClose: 1 },
     empty: true,

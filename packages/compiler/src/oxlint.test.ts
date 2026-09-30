@@ -47,7 +47,7 @@ describe('optional render-safety lint', () => {
 const Safe = view(model => <p>{[...model.items].sort().join(',')}</p>);
 const Bad = view(model => <p>{model.items["sort"]().join(',')}</p>);
 const Random = view(model => <p>{Math["random"]()}</p>);`;
-    const reports: { loc: { line: number }; message: string }[] = [];
+    const reports: { loc?: { line: number }; message: string }[] = [];
     plugin.rules['render-safety']
       .create({
         filename: 'arrays.tsx',
@@ -56,7 +56,7 @@ const Random = view(model => <p>{Math["random"]()}</p>);`;
         report: (diagnostic) => reports.push(diagnostic),
       })
       .Program();
-    expect(reports.map((report) => report.loc.line)).toEqual([3, 4]);
+    expect(reports.map((report) => report.loc?.line)).toEqual([3, 4]);
     expect(reports[0]!.message).toContain('mutating method sort');
     expect(reports[1]!.message).toContain('randomness');
   });
@@ -114,7 +114,7 @@ const C=view(model=><p ref={model.ref}/>);`;
   });
 
   it('does not reuse diagnostics after an editor changes a file', () => {
-    const reports: { loc: { line: number; column: number }; message: string }[] = [];
+    const reports: { loc?: { line: number; column: number }; message: string }[] = [];
     const context = {
       filename: 'views.tsx',
       sourceCode: { text: source },
@@ -122,7 +122,7 @@ const C=view(model=><p ref={model.ref}/>);`;
       report: (d: (typeof reports)[number]) => reports.push(d),
     };
     plugin.rules['render-safety'].create(context).Program();
-    expect(reports.map((d) => d.loc.line)).toEqual([2, 4]);
+    expect(reports.map((d) => d.loc?.line)).toEqual([2, 4]);
     reports.length = 0;
     plugin.rules['render-safety']
       .create({
@@ -277,7 +277,7 @@ it('checks scalar views in .ts through the same correctness rule', () => {
 
 describe('optional identity lint: keyed rows', () => {
   const run = (text: string) => {
-    const reports: { loc: { line: number }; message: string }[] = [];
+    const reports: { loc?: { line: number }; message: string }[] = [];
     plugin.rules.identity
       .create({
         filename: 'rows.tsx',
@@ -295,7 +295,7 @@ import { Field } from './Field';
 const A = view(m => <div>{[['id', 'Id'], ['name', 'Name']].map(([k, l]) => <Field id={k} label={l} />)}</div>);
 const B = view(m => <div>{[{ id: 'a', label: \`A\` }].map(o => <Field id={o.id} label={o.label} />)}</div>);
 const C = view(m => <div>{[[m.key, 'Label']].map(([k, l]) => <Field id={k} label={l} />)}</div>);`;
-    expect(run(text).map((report) => report.loc.line)).toEqual([5]);
+    expect(run(text).map((report) => report.loc?.line)).toEqual([5]);
   });
 
   it('reports .map rows containing components or form controls', () => {
@@ -312,7 +312,7 @@ const H = view(m => <ul>{(['a', 'b'] as const).map(k => <Row row={k} />)}</ul>);
 const I = view(m => <ul>{(m.wide ? ['a', 'b'] : ['a']).filter(k => k !== m.skip).map(k => <Row row={k} />)}</ul>);
 const J = view(m => <ul>{(m.wide ? m.rows : ['a']).map(k => <Row row={k} />)}</ul>);`;
     const reports = run(text);
-    expect(reports.map((report) => report.loc.line)).toEqual([3, 4, 5, 9, 11, 12]);
+    expect(reports.map((report) => report.loc?.line)).toEqual([3, 4, 5, 9, 11, 12]);
     expect(reports[0]!.message).toContain('[EW3001]');
     expect(reports[0]!.message).toContain('list(entities(rows), render)');
   });
@@ -327,7 +327,7 @@ const J = view(m => <ul>{(m.wide ? m.rows : ['a']).map(k => <Row row={k} />)}</u
     expect(run(text).some((report) => report.message.includes('[EW3001]'))).toBe(true);
   });
 
-  it('is a warning that never affects compilation or other rules', () => {
+  it('never affects compilation or other rules', () => {
     const text = `import { view } from 'effectweb';
 import { Row } from './Row';
 const A = view(m => <ul>{m.rows.map(r => <Row row={r} />)}</ul>);`;
@@ -349,7 +349,7 @@ const B = view(m => <canvas use={bind(m.points, (element, points) => () => {})} 
 const C = view(m => { const host = domMount(() => () => {}); return <input use={host} />; });
 const D = view(m => <input use={focus} />);
 const E = () => <input use={domMount(function () { return () => {}; })} />;`;
-    const reports: { loc: { line: number }; message: string }[] = [];
+    const reports: { loc?: { line: number }; message: string }[] = [];
     plugin.rules.identity
       .create({
         filename: 'bindings.tsx',
@@ -358,7 +358,7 @@ const E = () => <input use={domMount(function () { return () => {}; })} />;`;
         report: (report) => reports.push(report),
       })
       .Program();
-    expect(reports.map((report) => report.loc.line)).toEqual([5, 6, 8]);
+    expect(reports.map((report) => report.loc?.line)).toEqual([5, 6, 8]);
     expect(reports[0]!.message).toContain('[EW3002]');
     expect(lint(text, 'bindings.tsx').filter((d) => d.code === 'EW3002')).toHaveLength(3);
     expect(diagnose(text, 'bindings.tsx')).toEqual([]);
@@ -404,4 +404,126 @@ export function make(owner) {
         .map((d) => d.line),
     ).toEqual([6, 8]);
   });
+
+  it('reports collections and slot families created while rendering', () => {
+    const text = `import { view, list, collection, commandSlots } from 'effectweb';
+const byCode = collection((row) => row.code);
+const quotes = commandSlots('quote');
+export const A = view((m) => <ul>{list(byCode.from(m.rows), (r) => <li>{r.code}</li>)}</ul>);
+export const B = view((m) => <ul>{list(collection((row) => row.code).from(m.rows), (r) => <li>{r.code}</li>)}</ul>);
+export const C = view((m) => <button onClick={() => m.run(commandSlots('quote')(m.id))}>{m.id}</button>);
+export const D = view((m) => <button onClick={() => m.run(quotes(m.id))}>{m.id}</button>);`;
+    expect(
+      lint(text, 'constructors.tsx')
+        .filter((d) => d.code === 'EW3004')
+        .map((d) => d.line),
+    ).toEqual([5, 6]);
+  });
+});
+
+describe('optional identity lint: positional rows and fresh slots', () => {
+  const codes = (text: string, file: string, options = {}) =>
+    lint(text, file, options).map((d) => `${d.code}@${d.line}`);
+
+  it('reports sequence rows with editable controls or filtered components', () => {
+    const text = `import { view, list, sequence } from 'effectweb';
+import { Row } from './Row';
+export const A = view((m) => <ul>{list(sequence(m.rows), (r) => <li><input value={r.t} /></li>)}</ul>);
+export const B = view((m) => <ul>{list(sequence(m.rows.filter((r) => r.t)), (r) => <Row t={r.t} />)}</ul>);
+export const C = view((m) => <ul>{list(sequence(m.rows), (r) => <Row t={r.t} />)}</ul>);
+export const D = view((m) => <ul>{list(sequence(m.rows), (r) => <input disabled value={r.t} />)}</ul>);
+export const E = view((m) => <ul>{list(sequence(m.rows.slice(0, m.count)), (r) => <Row t={r.t} />)}</ul>);
+export const F = view(() => <ul>{list(sequence(['a', 'b']), (r) => <input value={r} />)}</ul>);`;
+    expect(codes(text, 'rows.tsx')).toEqual(['EW3005@3', 'EW3005@4']);
+  });
+
+  it('reports identity derived from the row index, except as a fallback', () => {
+    const text = `import { collection } from 'effectweb';
+export const a = collection((row, index) => \`\${row.at}:\${index}\`);
+export const b = collection(function (row, index) { return index; });
+export const c = collection((row, index) => row.id || \`unsaved:\${index}\`);
+export const d = collection((row) => row.id);`;
+    expect(codes(text, 'collections.ts')).toEqual(['EW3006@2', 'EW3006@3']);
+  });
+
+  it('reports a slot created and run by the same call, but not a controller slot', () => {
+    const text = `import { commandSlot } from 'effectweb';
+export const save = (owner, work) => {
+  const slot = commandSlot('save');
+  owner.run(slot, work, 'replace');
+};
+export function controller(owner, work) {
+  const slot = commandSlot('save');
+  const slots = new Map();
+  slots.set('save', slot);
+  return { save: () => owner.run(slot, work, 'replace') };
+}
+export const twice = (owner, first, second) => {
+  const slot = commandSlot('reply');
+  owner.run(slot, first, 'replace');
+  owner.run(slot, second, 'replace');
+};`;
+    expect(codes(text, 'slots.ts')).toEqual(['EW3003@3']);
+  });
+
+  it('checks views declared with function expressions', () => {
+    const text = `import { view } from 'effectweb';
+export const A = view(function (m) { return <b>{Date.now() - m.a}</b>; });`;
+    expect(codes(text, 'function.tsx')).toEqual(['EW1003@2']);
+  });
+
+  it('checks files importing only adapter packages and every JSX file without a foreign pragma', () => {
+    const adapter = `import { Icon } from '@effectweb/lucide';
+export const rows = (m) => <ul>{m.rows.map((r) => <input value={r.id} />)}</ul>;`;
+    expect(codes(adapter, 'adapter.tsx')).toEqual(['EW3001@2']);
+    const local = `import { Row } from './Row';
+export const rows = (m) => <ul>{m.rows.map((r) => <Row id={r.id} />)}</ul>;`;
+    expect(codes(local, 'local.tsx')).toEqual(['EW3001@2']);
+    expect(compile(local, 'local.tsx').code).not.toContain('<ul>');
+    const foreign = `/** @jsxImportSource react */
+export const rows = (m) => <ul>{m.rows.map((r) => <input key={r.id} />)}</ul>;`;
+    expect(codes(foreign, 'foreign.tsx')).toEqual([]);
+    expect(compile(foreign, 'foreign.tsx').code).toBe(foreign);
+  });
+
+  it('reports identity derived from the row index in an inline list identity', () => {
+    const text = `import { view, list } from 'effectweb';
+export const A = view((m) => <ul>{list(m.rows, (row, index) => index, (row) => <li>{row.t}</li>)}</ul>);
+export const B = view((m) => <ul>{list(m.rows, (row) => row.id, (row) => <li>{row.t}</li>)}</ul>);`;
+    expect(codes(text, 'inline.tsx')).toEqual(['EW3006@2']);
+  });
+});
+
+it('rejects hook-style names for functions and constants', () => {
+  const reports: { message: string }[] = [];
+  const visitors = plugin.rules['no-hook-names'].create({
+    filename: 'names.ts',
+    sourceCode: { text: '' },
+    options: [],
+    report: (report) => reports.push(report),
+  });
+  visitors.FunctionDeclaration({ id: { type: 'Identifier', name: 'useWorkspace' } });
+  visitors.VariableDeclarator({ id: { type: 'Identifier', name: 'useFileIcon' } });
+  visitors.VariableDeclarator({ id: { type: 'Identifier', name: 'userName' } });
+  visitors.VariableDeclarator({ id: { type: 'ObjectPattern' } });
+  visitors.FunctionDeclaration({ id: null });
+  expect(reports.map((report) => report.message.slice(0, 22))).toEqual([
+    '[EW3007] useWorkspace ',
+    '[EW3007] useFileIcon r',
+  ]);
+});
+
+it('publishes the same preset rules for JSON and JavaScript configurations', async () => {
+  const { effectwebLint } = await import('./preset.js');
+  const json = (await import('./oxlint-preset.json', { with: { type: 'json' } })).default;
+  expect(effectwebLint.rules).toEqual(json.rules);
+  expect(
+    Object.keys(plugin.rules)
+      .map((name) => `effectweb/${name}`)
+      .sort(),
+  ).toEqual(
+    Object.keys(json.rules)
+      .filter((name) => name.startsWith('effectweb/'))
+      .sort(),
+  );
 });

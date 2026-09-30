@@ -4,18 +4,101 @@
 use oxc::{
     ast::ast::*,
     ast_visit::{Visit, walk},
-    span::Span,
+    span::{GetSpan, Span},
 };
 
 const FORM_CONTROLS: [&str; 3] = ["input", "textarea", "select"];
 
-#[derive(Default)]
+/// Local names of runtime exports imported from the runtime package or its subpaths.
+fn imported(program: &Program<'_>, import_source: &str, names: &[&str]) -> Vec<(String, String)> {
+    let mut found = vec![];
+    for statement in &program.body {
+        let Statement::ImportDeclaration(import) = statement else {
+            continue;
+        };
+        let source = import.source.value.as_str();
+        if source != import_source && !source.starts_with(&format!("{import_source}/")) {
+            continue;
+        }
+        for specifier in import.specifiers.iter().flatten() {
+            if let ImportDeclarationSpecifier::ImportSpecifier(specifier) = specifier
+                && names.contains(&specifier.imported.name().as_str())
+            {
+                found.push((
+                    specifier.imported.name().to_string(),
+                    specifier.local.name.to_string(),
+                ));
+            }
+        }
+    }
+    found
+}
+
 pub struct MapRows {
     pub spans: Vec<Span>,
+    /// `sequence(rows)` whose positional rows hold form controls or filtered components.
+    pub positional: Vec<Span>,
+    /// `collection((item, index) => ...)` or `list(rows, (item, index) => ..., render)`
+    /// deriving identity from the row position.
+    pub indexed: Vec<Span>,
+    sequences: Vec<String>,
+    collections: Vec<String>,
+    lists: Vec<String>,
+}
+impl MapRows {
+    pub fn new(program: &Program<'_>, import_source: &str) -> Self {
+        let names = imported(program, import_source, &["sequence", "collection", "list"]);
+        let locals = |name: &str| {
+            names
+                .iter()
+                .filter(|(imported, _)| imported == name)
+                .map(|(_, local)| local.clone())
+                .collect()
+        };
+        Self {
+            spans: vec![],
+            positional: vec![],
+            indexed: vec![],
+            sequences: locals("sequence"),
+            collections: locals("collection"),
+            lists: locals("list"),
+        }
+    }
+    fn named(call: &CallExpression<'_>, names: &[String]) -> bool {
+        matches!(call.callee.without_parentheses(), Expression::Identifier(id)
+            if names.iter().any(|name| name == id.name.as_str()))
+    }
 }
 
 impl<'a> Visit<'a> for MapRows {
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        if let Some(Expression::CallExpression(rows)) = call
+            .arguments
+            .first()
+            .and_then(Argument::as_expression)
+            .map(Expression::without_parentheses)
+            && Self::named(rows, &self.sequences)
+            && let Some(input) = rows.arguments.first().and_then(Argument::as_expression)
+            && !static_rows(input)
+            && let Some(callback) = call.arguments.get(1).and_then(Argument::as_expression)
+            && (returns_row(callback, controls)
+                || (derived_rows(input) && returns_row(callback, stateful)))
+        {
+            self.positional.push(rows.span);
+        }
+        if Self::named(call, &self.collections)
+            && let Some(callback) = call.arguments.first().and_then(Argument::as_expression)
+            && uses_index(callback)
+        {
+            self.indexed.push(call.span);
+        }
+        if Self::named(call, &self.lists)
+            && call.arguments.len() == 3
+            && let Some(identity) = call.arguments.get(1).and_then(Argument::as_expression)
+            && uses_index(identity)
+        {
+            self.indexed.push(identity.span());
+        }
         if let Some(member) = call.callee.without_parentheses().as_member_expression()
             && member.static_property_name() == Some("map")
             // Literal option arrays never reorder; positional identity is exact there.
@@ -64,7 +147,84 @@ fn literal(expression: &Expression<'_>) -> bool {
     }
 }
 
+/// Rows selected from a longer array: their positions shift whenever the selection changes.
+fn derived_rows(expression: &Expression<'_>) -> bool {
+    match expression.without_parentheses() {
+        Expression::CallExpression(call) => call
+            .callee
+            .without_parentheses()
+            .as_member_expression()
+            .is_some_and(|member| {
+                // A prefix keeps every remaining row at its position.
+                let prefix = matches!(
+                    call.arguments.first().and_then(Argument::as_expression),
+                    Some(Expression::NumericLiteral(start)) if start.value == 0.0
+                );
+                match member.static_property_name() {
+                    Some("filter") => true,
+                    Some("slice") => !prefix,
+                    _ => derived_rows(member.object()),
+                }
+            }),
+        Expression::TSAsExpression(e) => derived_rows(&e.expression),
+        Expression::TSSatisfiesExpression(e) => derived_rows(&e.expression),
+        Expression::TSNonNullExpression(e) => derived_rows(&e.expression),
+        _ => false,
+    }
+}
+
+/// An identity callback reading its index parameter keys rows by position.
+fn uses_index(callback: &Expression<'_>) -> bool {
+    struct Reads<'n>(&'n str, bool);
+    impl<'a> Visit<'a> for Reads<'_> {
+        fn visit_identifier_reference(&mut self, id: &IdentifierReference<'a>) {
+            if id.name.as_str() == self.0 {
+                self.1 = true;
+            }
+        }
+        // Position as the fallback for rows that have no identity yet is a deliberate choice.
+        fn visit_logical_expression(&mut self, logical: &LogicalExpression<'a>) {
+            self.visit_expression(&logical.left);
+        }
+    }
+    let (parameter, mut reads) = match callback.without_parentheses() {
+        Expression::ArrowFunctionExpression(function) => {
+            let Some(BindingPattern::BindingIdentifier(id)) = function
+                .params
+                .items
+                .get(1)
+                .map(|parameter| &parameter.pattern)
+            else {
+                return false;
+            };
+            let mut reads = Reads(id.name.as_str(), false);
+            reads.visit_arrow_function_body(&function.body);
+            return reads.1;
+        }
+        Expression::FunctionExpression(function) => {
+            let Some(BindingPattern::BindingIdentifier(id)) = function
+                .params
+                .items
+                .get(1)
+                .map(|parameter| &parameter.pattern)
+            else {
+                return false;
+            };
+            (function, Reads(id.name.as_str(), false))
+        }
+        _ => return false,
+    };
+    if let Some(body) = &parameter.body {
+        reads.visit_function_body(body);
+    }
+    reads.1
+}
+
 fn returns_stateful_row(callback: &Expression<'_>) -> bool {
+    returns_row(callback, stateful)
+}
+
+fn returns_row(callback: &Expression<'_>, stateful: fn(&Expression<'_>) -> bool) -> bool {
     let body = match callback.without_parentheses() {
         Expression::ArrowFunctionExpression(function) => {
             if let Some(expression) = function.get_expression() {
@@ -81,18 +241,21 @@ fn returns_stateful_row(callback: &Expression<'_>) -> bool {
         },
         _ => return false,
     };
-    let mut returns = Returns::default();
+    let mut returns = Returns {
+        found: false,
+        stateful,
+    };
     returns.visit_function_body(body);
     returns.found
 }
 
-#[derive(Default)]
 struct Returns {
     found: bool,
+    stateful: fn(&Expression<'_>) -> bool,
 }
 impl<'a> Visit<'a> for Returns {
     fn visit_return_statement(&mut self, statement: &ReturnStatement<'a>) {
-        if statement.argument.as_ref().is_some_and(stateful) {
+        if statement.argument.as_ref().is_some_and(self.stateful) {
             self.found = true;
         }
     }
@@ -113,6 +276,49 @@ fn stateful(expression: &Expression<'_>) -> bool {
         }
         _ => false,
     }
+}
+
+/// Markup holding an editable form control. Disabled and read-only controls keep no draft.
+fn controls(expression: &Expression<'_>) -> bool {
+    match expression.without_parentheses() {
+        Expression::JSXElement(element) => element_controls(element),
+        Expression::JSXFragment(fragment) => children_controls(&fragment.children),
+        Expression::ConditionalExpression(conditional) => {
+            controls(&conditional.consequent) || controls(&conditional.alternate)
+        }
+        Expression::LogicalExpression(logical) => {
+            controls(&logical.left) || controls(&logical.right)
+        }
+        _ => false,
+    }
+}
+
+fn has_attribute(element: &JSXElement<'_>, names: &[&str]) -> bool {
+    element.opening_element.attributes.iter().any(|attribute| {
+        matches!(attribute, JSXAttributeItem::Attribute(attribute)
+            if matches!(&attribute.name, JSXAttributeName::Identifier(name)
+                if names.iter().any(|expected| name.name.eq_ignore_ascii_case(expected))))
+    })
+}
+
+fn element_controls(element: &JSXElement<'_>) -> bool {
+    if let JSXElementName::Identifier(name) = &element.opening_element.name
+        && FORM_CONTROLS.contains(&name.name.as_str())
+    {
+        return !has_attribute(element, &["disabled", "readonly"]);
+    }
+    has_attribute(element, &["contenteditable"]) || children_controls(&element.children)
+}
+
+fn children_controls(children: &[JSXChild<'_>]) -> bool {
+    children.iter().any(|child| match child {
+        JSXChild::Element(element) => element_controls(element),
+        JSXChild::Fragment(fragment) => children_controls(&fragment.children),
+        JSXChild::ExpressionContainer(container) => {
+            container.expression.as_expression().is_some_and(controls)
+        }
+        _ => false,
+    })
 }
 
 fn element_stateful(element: &JSXElement<'_>) -> bool {
@@ -154,7 +360,7 @@ pub struct InlineBindings {
     views: Vec<String>,
     mounts: Vec<String>,
     bindings: Vec<String>,
-    observes: Vec<String>,
+    /// Constructors whose result must outlive a render: sources, collections, slot families.
     sources: Vec<String>,
     depth: usize,
 }
@@ -166,7 +372,6 @@ impl InlineBindings {
             views: vec![],
             mounts: vec![],
             bindings: vec![],
-            observes: vec![],
             sources: vec![],
             depth: 0,
         };
@@ -187,8 +392,9 @@ impl InlineBindings {
                     "view" => found.views.push(local),
                     "domMount" => found.mounts.push(local),
                     "domBinding" => found.bindings.push(local),
-                    "observe" => found.observes.push(local),
-                    "mapSource" | "clock" => found.sources.push(local),
+                    "mapSource" | "clock" | "collection" | "commandSlots" => {
+                        found.sources.push(local)
+                    }
                     _ => {}
                 }
             }
@@ -227,16 +433,10 @@ impl<'a> Visit<'a> for InlineBindings {
             if argument.is_some_and(inline_function) {
                 self.spans.push(call.span);
             }
-            // observe(mapSource(...)) builds a new source, and a new subscription, per render.
-            if self.observes.iter().any(|o| o == name)
-                && let Some(Expression::CallExpression(inner)) = call
-                    .arguments
-                    .first()
-                    .and_then(Argument::as_expression)
-                    .map(Expression::without_parentheses)
-                && Self::callee(inner).is_some_and(|n| self.sources.iter().any(|s| s == n))
-            {
-                self.sources_inline.push(inner.span);
+            // A source, collection or slot family built during render is new on every
+            // update: its subscription, row cache or cancellation identity never carries over.
+            if self.sources.iter().any(|s| s == name) {
+                self.sources_inline.push(call.span);
             }
         }
         if is_view {
@@ -262,6 +462,8 @@ pub struct InlineSlots {
     pub spans: Vec<Span>,
     slots: Vec<String>,
     depth: usize,
+    /// Slots created by each enclosing function, by local name.
+    frames: Vec<Vec<(String, Span, usize)>>,
 }
 impl InlineSlots {
     pub fn new(program: &Program<'_>, import_source: &str) -> Self {
@@ -286,20 +488,71 @@ impl InlineSlots {
             spans: vec![],
             slots,
             depth: 0,
+            frames: vec![],
         }
+    }
+    /// Work run twice on one local slot shares it; a single run cannot.
+    fn leave(&mut self) {
+        for (_, span, runs) in self.frames.pop().unwrap_or_default() {
+            if runs == 1 {
+                self.spans.push(span);
+            }
+        }
+    }
+    fn creates_slot(&self, expression: &Expression<'_>) -> Option<Span> {
+        if let Expression::CallExpression(inner) = expression.without_parentheses()
+            && let Expression::Identifier(id) = inner.callee.without_parentheses()
+            && self.slots.iter().any(|slot| slot == id.name.as_str())
+        {
+            return Some(inner.span);
+        }
+        None
+    }
+}
+/// `owner.run(slot, ...)`, `effectCommand(slot, ...)` and `actionCommand(slot, ...)`.
+fn runs_slot(call: &CallExpression<'_>) -> bool {
+    match call.callee.without_parentheses() {
+        Expression::Identifier(id) => {
+            matches!(id.name.as_str(), "effectCommand" | "actionCommand")
+        }
+        callee => callee
+            .as_member_expression()
+            .is_some_and(|member| member.static_property_name() == Some("run")),
     }
 }
 impl<'a> Visit<'a> for InlineSlots {
+    fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'a>) {
+        if let BindingPattern::BindingIdentifier(id) = &declarator.id
+            && let Some(span) = declarator
+                .init
+                .as_ref()
+                .and_then(|init| self.creates_slot(init))
+            && let Some(frame) = self.frames.last_mut()
+        {
+            frame.push((id.name.to_string(), span, 0));
+        }
+        walk::walk_variable_declarator(self, declarator);
+    }
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
         if self.depth > 0 {
             for argument in &call.arguments {
-                if let Some(Expression::CallExpression(inner)) = argument
-                    .as_expression()
-                    .map(Expression::without_parentheses)
-                    && let Expression::Identifier(id) = inner.callee.without_parentheses()
-                    && self.slots.iter().any(|slot| slot == id.name.as_str())
+                let Some(argument) = argument.as_expression() else {
+                    continue;
+                };
+                if let Some(span) = self.creates_slot(argument) {
+                    self.spans.push(span);
+                }
+                // A slot created and run once by the same invocation is just as fresh. Closures
+                // that capture a controller's slot run later and share it.
+                if runs_slot(call)
+                    && let Expression::Identifier(id) = argument.without_parentheses()
+                    && let Some(slot) = self.frames.last_mut().and_then(|frame| {
+                        frame
+                            .iter_mut()
+                            .find(|(name, _, _)| name == id.name.as_str())
+                    })
                 {
-                    self.spans.push(inner.span);
+                    slot.2 += 1;
                 }
             }
         }
@@ -307,12 +560,16 @@ impl<'a> Visit<'a> for InlineSlots {
     }
     fn visit_function(&mut self, function: &Function<'a>, flags: oxc::syntax::scope::ScopeFlags) {
         self.depth += 1;
+        self.frames.push(vec![]);
         walk::walk_function(self, function, flags);
+        self.leave();
         self.depth -= 1;
     }
     fn visit_arrow_function_expression(&mut self, function: &ArrowFunctionExpression<'a>) {
         self.depth += 1;
+        self.frames.push(vec![]);
         walk::walk_arrow_function_expression(self, function);
+        self.leave();
         self.depth -= 1;
     }
 }

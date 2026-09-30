@@ -1,14 +1,9 @@
-import { expect, test } from '@playwright/test';
+// @vitest-environment happy-dom
+import { expect, it } from 'vitest';
 
-test('ordinary props, explicit dispatch and spreads update without replacing DOM or leaking bindings', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/authoringFixture.tsx';
-    const { mountAuthoring } = (await import(
-      path
-    )) as typeof import('../fixtures/authoringFixture');
+it('ordinary props, explicit dispatch and spreads update without replacing DOM or leaking bindings', async () => {
+  const result = await (async () => {
+    const { mountAuthoring } = await import('../fixtures/authoringFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const f = mountAuthoring(host);
@@ -70,7 +65,7 @@ test('ordinary props, explicit dispatch and spreads update without replacing DOM
     };
     host.remove();
     return result;
-  });
+  })();
   expect(result).toEqual({
     before: {
       ordinary: ['first:', 'child:explicit'],

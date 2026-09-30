@@ -1,4 +1,4 @@
-import { list as renderList } from 'effectweb';
+import { list } from 'effectweb';
 import { mountView, program, view } from 'effectweb';
 
 export function mountCopiedArrays(parent: HTMLElement) {
@@ -46,7 +46,7 @@ export function mountDependencies(parent: HTMLElement) {
     return (
       <section data-default={label}>
         <header>{helperAgain()}</header>
-        {renderList(model.values, (value) => (
+        {list(model.values, (value) => (
           <p data-row={value}>{alias}</p>
         ))}
         <output>{count}</output>

@@ -4,6 +4,7 @@ import * as Effect from 'effect/Effect';
 import type { View } from './dom.js';
 import { compiled, Scope, viewRegion } from './dom.js';
 import type { Program, Transition } from './program.js';
+import type { Source } from './source.js';
 import { mapCommand, program } from './program.js';
 import { patchModel } from './state.js';
 import { reportSafely } from './errors.js';
@@ -106,6 +107,54 @@ export function component<Props, Model extends { readonly props: Props }, Messag
     }),
     definition.identity,
   );
+}
+
+export interface ViewController<Props, Model> {
+  readonly source: Source<Model>;
+  /** New props from the parent; called after every publication that changes them. */
+  readonly receive: (props: Snapshot<Props>) => void;
+  readonly dispose: () => void;
+  /** Capture DOM state before the view is torn down. */
+  readonly beforeDispose?: () => void;
+  /** Teardown that waits for asynchronous finalizers; `dispose` is used when absent. */
+  readonly close?: () => Effect.Effect<void, unknown>;
+}
+/**
+ * A feature controller created from the view's props and disposed with the view. Use it when
+ * a view needs a controller object (`modelOwner`, queries, subscriptions) rather than named
+ * messages. `identity` recreates the controller when the entity changes.
+ */
+export function controllerView<Props, Model>(definition: {
+  readonly identity?: (props: Snapshot<Props>) => unknown;
+  readonly create: (
+    props: Snapshot<Props>,
+    runtime: UiRuntime<never>,
+  ) => ViewController<Props, Model>;
+  readonly view: View<Model, never>;
+}): View<Props, never> {
+  const controllers = new WeakMap<Program<Model, never>, ViewController<Props, Model>>();
+  return programView<Props, Model, never>({
+    ...(definition.identity ? { identity: definition.identity } : {}),
+    create(props, runtime) {
+      const controller = definition.create(props, runtime);
+      const source: Program<Model, never> = {
+        model: controller.source.model,
+        subscribe: controller.source.subscribe,
+        send: () => {},
+        dispose: controller.dispose,
+        ...(controller.close ? { close: controller.close } : {}),
+      };
+      controllers.set(source, controller);
+      return source;
+    },
+    receive(source, props) {
+      controllers.get(source)?.receive(props);
+    },
+    beforeDispose(source) {
+      controllers.get(source)?.beforeDispose?.();
+    },
+    view: definition.view,
+  });
 }
 
 /** Mount an existing program without introducing a second state owner. */

@@ -1,14 +1,9 @@
-import { expect, test } from '@playwright/test';
+// @vitest-environment happy-dom
+import { expect, it } from 'vitest';
 
-test('early returns and grouped switch cases preserve state and close branch lifetimes', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/controlFlowFixture.tsx';
-    const { mountControlFlow } = (await import(
-      path
-    )) as typeof import('../fixtures/controlFlowFixture');
+it('early returns and grouped switch cases preserve state and close branch lifetimes', async () => {
+  const result = await (async () => {
+    const { mountControlFlow } = await import('../fixtures/controlFlowFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountControlFlow(host);
@@ -42,7 +37,7 @@ test('early returns and grouped switch cases preserve state and close branch lif
     const disposed = { remaining: host.childNodes.length, ...source.lifetime };
     host.remove();
     return { grouped, failure, restored, loading, fallthrough, nested, disposed };
-  });
+  })();
   expect(result).toEqual({
     grouped: { same: true, text: 'SECOND:1', caption: 'changed', mounted: 1, disposed: 0 },
     failure: { text: 'unavailable', mounted: 1, disposed: 1 },
@@ -54,15 +49,9 @@ test('early returns and grouped switch cases preserve state and close branch lif
   });
 });
 
-test('grouped default labels keep source-order precedence and preserve fallback DOM', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/controlFlowFixture.tsx';
-    const { mountDefaultGroup } = (await import(
-      path
-    )) as typeof import('../fixtures/controlFlowFixture');
+it('grouped default labels keep source-order precedence and preserve fallback DOM', async () => {
+  const result = await (async () => {
+    const { mountDefaultGroup } = await import('../fixtures/controlFlowFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountDefaultGroup(host);
@@ -76,6 +65,6 @@ test('grouped default labels keep source-order precedence and preserve fallback 
     source.dispose();
     host.remove();
     return { same, retained, other };
-  });
+  })();
   expect(result).toEqual({ same: true, retained: 'draft', other: 'Other' });
 });

@@ -1,18 +1,15 @@
-import { expect, test } from '@playwright/test';
+// @vitest-environment happy-dom
+import { expect, it } from 'vitest';
 
-test('failed mounting joins child release before releasing view dependencies', async ({ page }) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/mountLifecycleFixture.tsx';
-    const { failedRenderCleanup } = (await import(
-      path
-    )) as typeof import('../fixtures/mountLifecycleFixture');
+it('failed mounting joins child release before releasing view dependencies', async () => {
+  const result = await (async () => {
+    const { failedRenderCleanup } = await import('../fixtures/mountLifecycleFixture');
     const parent = document.createElement('div');
     document.body.append(parent);
     const result = await failedRenderCleanup(parent);
     parent.remove();
     return result;
-  });
+  })();
   expect(result).toEqual({
     result: 'Failure',
     whileClosing: ['child release started'],
@@ -23,21 +20,15 @@ test('failed mounting joins child release before releasing view dependencies', a
 });
 
 for (const action of ['close', 'dispose', 'reentrant-dispose', 'failure', 'interrupt'] as const) {
-  test(`${action} preserves the first closing exit and joins DOM and view cleanup once`, async ({
-    page,
-  }) => {
-    await page.goto('/');
-    const result = await page.evaluate(async (action) => {
-      const path = '/tests/fixtures/mountLifecycleFixture.tsx';
-      const { mountClosingExit } = (await import(
-        path
-      )) as typeof import('../fixtures/mountLifecycleFixture');
+  it(`${action} preserves the first closing exit and joins DOM and view cleanup once`, async () => {
+    const result = await (async (action) => {
+      const { mountClosingExit } = await import('../fixtures/mountLifecycleFixture');
       const parent = document.createElement('div');
       document.body.append(parent);
       const result = await mountClosingExit(parent, action);
       parent.remove();
       return result;
-    }, action);
+    })(action);
     const exit =
       action === 'failure'
         ? 'application failed'
@@ -58,14 +49,10 @@ for (const action of ['close', 'dispose', 'reentrant-dispose', 'failure', 'inter
   });
 }
 
-test('the cache joins retained query scopes before its parent closes', async ({ page }) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/mountLifecycleFixture.tsx';
-    const { queryScopeCleanup } = (await import(
-      path
-    )) as typeof import('../fixtures/mountLifecycleFixture');
+it('the cache joins retained query scopes before its parent closes', async () => {
+  const result = await (async () => {
+    const { queryScopeCleanup } = await import('../fixtures/mountLifecycleFixture');
     return await queryScopeCleanup();
-  });
+  })();
   expect(result).toEqual({ retained: true, pending: true, releasedBeforeParentClose: 1 });
 });

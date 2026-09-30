@@ -55,7 +55,7 @@ export interface ModelOwner<Model extends object, R = never> extends DisposableO
   readonly dispose: () => void;
 }
 
-type Options = { name?: string; onDefect?: ReportError };
+type Options = { onDefect?: ReportError };
 export function modelOwner<Model extends object>(
   initial: Model,
   options?: Options,
@@ -84,7 +84,6 @@ export function modelOwner<Model extends object, R>(
   let resourcesDisposed = false;
   const source = program<Model, Batch>({
     initial,
-    ...(options.name ? { name: options.name } : {}),
     ...(options.onDefect ? { onDefect: options.onDefect } : {}),
     ...(options.runtime
       ? {

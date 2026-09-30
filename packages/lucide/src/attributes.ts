@@ -20,7 +20,6 @@ export function iconAttributes(props: LucideProps, names: string, width: number,
     title,
     children: _children,
     class: className,
-    className: alternateClassName,
     ...attributes
   } = props;
   const labelled = Boolean(title || attributes['aria-label'] || attributes['aria-labelledby']);
@@ -37,6 +36,6 @@ export function iconAttributes(props: LucideProps, names: string, width: number,
     'aria-hidden': labelled ? undefined : true,
     role: labelled ? 'img' : undefined,
     ...attributes,
-    class: ['lucide', names, className, alternateClassName].filter(Boolean).join(' '),
+    class: ['lucide', names, className].filter(Boolean).join(' '),
   };
 }

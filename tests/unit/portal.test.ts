@@ -1,12 +1,9 @@
-import { expect, test } from '@playwright/test';
+// @vitest-environment happy-dom
+import { expect, it } from 'vitest';
 
-test('portal targets retain their child state and events through updates and movement', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/portalFixture.tsx';
-    const { mountPortal } = (await import(path)) as typeof import('../fixtures/portalFixture');
+it('portal targets retain their child state and events through updates and movement', async () => {
+  const result = await (async () => {
+    const { mountPortal } = await import('../fixtures/portalFixture');
     const parent = document.createElement('main');
     const first = document.createElement('aside');
     const second = document.createElement('aside');
@@ -59,7 +56,7 @@ test('portal targets retain their child state and events through updates and mov
     second.remove();
     fullscreen.remove();
     return { initial, updated, moved, externalMove, bodyDefault, finalText, disposed };
-  });
+  })();
   expect(result).toEqual({
     initial: { placed: true, parentEmpty: true },
     updated: { same: true, text: 'updated:1' },
@@ -83,13 +80,9 @@ test('portal targets retain their child state and events through updates and mov
   });
 });
 
-test('portal content uses the target SVG namespace and foreignObject HTML context', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/portalFixture.tsx';
-    const { mountSvgPortal } = (await import(path)) as typeof import('../fixtures/portalFixture');
+it('portal content uses the target SVG namespace and foreignObject HTML context', async () => {
+  const result = await (async () => {
+    const { mountSvgPortal } = await import('../fixtures/portalFixture');
     const parent = document.createElement('main');
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     document.body.append(parent, svg);
@@ -108,7 +101,7 @@ test('portal content uses the target SVG namespace and foreignObject HTML contex
     parent.remove();
     svg.remove();
     return { rendered, remaining };
-  });
+  })();
   expect(result).toEqual({
     rendered: {
       circle: 'http://www.w3.org/2000/svg',
@@ -120,11 +113,9 @@ test('portal content uses the target SVG namespace and foreignObject HTML contex
   });
 });
 
-test('portal cleanup can unmount its owner during a namespace change', async ({ page }) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/portalFixture.tsx';
-    const { mountPortal } = (await import(path)) as typeof import('../fixtures/portalFixture');
+it('portal cleanup can unmount its owner during a namespace change', async () => {
+  const result = await (async () => {
+    const { mountPortal } = await import('../fixtures/portalFixture');
     const parent = document.createElement('main');
     const html = document.createElement('aside');
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -144,6 +135,6 @@ test('portal cleanup can unmount its owner during a namespace change', async ({ 
     html.remove();
     svg.remove();
     return remaining;
-  });
+  })();
   expect(result).toEqual({ parent: 0, html: 0, svg: 0, lifetime: { mounted: 1, disposed: 1 } });
 });

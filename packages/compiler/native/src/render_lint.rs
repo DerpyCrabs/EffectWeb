@@ -28,7 +28,7 @@ enum Ownership {
     Deep,
 }
 #[derive(Clone, Copy)]
-enum Callable<'a> {
+pub enum Callable<'a> {
     Arrow(&'a ArrowFunctionExpression<'a>),
     Function(&'a Function<'a>),
 }
@@ -152,11 +152,11 @@ impl Issue {
         }
     }
 }
-pub fn check<'a>(
-    index: &Index<'a, '_>,
-    function: &'a ArrowFunctionExpression<'a>,
-    options: &Options,
-) -> Vec<Issue> {
+pub fn check<'a>(index: &Index<'a, '_>, function: Callable<'a>, options: &Options) -> Vec<Issue> {
+    let parameters = match function {
+        Callable::Arrow(function) => &function.params,
+        Callable::Function(function) => &function.params,
+    };
     let mut analyzer = Analyzer {
         index,
         options,
@@ -164,7 +164,7 @@ pub fn check<'a>(
         attribute_phase: Phase::Event,
         bindings: Rc::new(BTreeMap::new()),
         receiver: None,
-        scopes: vec![function.span],
+        scopes: vec![function.span()],
         resolving: HashSet::new(),
         checking: HashSet::new(),
         error: None,
@@ -176,7 +176,7 @@ pub fn check<'a>(
         ambient_mutated: false,
     };
     let mut bindings = BTreeMap::new();
-    for (position, parameter) in function.params.items.iter().enumerate() {
+    for (position, parameter) in parameters.items.iter().enumerate() {
         let mut value = Value::data();
         if position == 0 {
             value.reads.extend(
@@ -192,7 +192,14 @@ pub fn check<'a>(
     }
     analyzer.bindings = Rc::new(bindings);
     analyzer.issues.extend(analyzer.error.take());
-    analyzer.recover(|analyzer| analyzer.visit_arrow_function_body(&function.body));
+    analyzer.recover(|analyzer| match function {
+        Callable::Arrow(function) => analyzer.visit_arrow_function_body(&function.body),
+        Callable::Function(function) => {
+            if let Some(body) = &function.body {
+                analyzer.visit_function_body(body);
+            }
+        }
+    });
     analyzer.issues
 }
 /// A function under analysis, keyed by the ownership of its arguments.

@@ -16,6 +16,23 @@ use serde::Serialize;
 use std::collections::HashSet;
 /// Query definitions live in this package; EW2002 checks its `query` calls.
 pub const QUERY_PACKAGE: &str = "@effectweb/query";
+/// Adapter and icon packages render through the same runtime as their importer.
+const ADAPTER_SCOPE: &str = "@effectweb/";
+
+fn contains_jsx(program: &Program<'_>) -> bool {
+    struct Jsx(bool);
+    impl<'a> Visit<'a> for Jsx {
+        fn visit_jsx_element(&mut self, _: &JSXElement<'a>) {
+            self.0 = true;
+        }
+        fn visit_jsx_fragment(&mut self, _: &JSXFragment<'a>) {
+            self.0 = true;
+        }
+    }
+    let mut found = Jsx(false);
+    found.visit_program(program);
+    found.0
+}
 
 #[derive(Serialize)]
 struct Output {
@@ -51,8 +68,10 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
         text.split_once("@jsxImportSource")
             .and_then(|(_, tail)| tail.split_whitespace().next())
     });
-    let opted_in = pragma.map_or_else(|| program.body.iter().any(|statement| {
-        matches!(statement, Statement::ImportDeclaration(import) if import.source.value == import_source || import.source.value == QUERY_PACKAGE || import.source.value.starts_with(&format!("{import_source}/")))
+    // Every JSX file belongs to EffectWeb unless a pragma names another runtime. Files
+    // without JSX opt in by importing the runtime, an adapter package, or a subpath.
+    let opted_in = pragma.map_or_else(|| contains_jsx(&program) || program.body.iter().any(|statement| {
+        matches!(statement, Statement::ImportDeclaration(import) if import.source.value == import_source || import.source.value.starts_with(ADAPTER_SCOPE) || import.source.value.starts_with(&format!("{import_source}/")))
     }), |pragma| pragma == import_source);
     if !opted_in {
         return serde_json::to_string(&Output {
@@ -117,14 +136,19 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
             if !index.symbol(id).is_some_and(|id| views.contains(&id)) {
                 continue;
             }
-            let Some(Expression::ArrowFunctionExpression(function)) =
-                call.arguments.first().and_then(Argument::as_expression)
-            else {
-                continue;
-            };
+            let (function, parameters) =
+                match call.arguments.first().and_then(Argument::as_expression) {
+                    Some(Expression::ArrowFunctionExpression(function)) => {
+                        (render_lint::Callable::Arrow(function), &function.params)
+                    }
+                    Some(Expression::FunctionExpression(function)) => {
+                        (render_lint::Callable::Function(function), &function.params)
+                    }
+                    _ => continue,
+                };
             if let Some(arguments) = &call.type_arguments
                 && let Some(model) = arguments.params.first()
-                && let Some(parameter) = function.params.items.first()
+                && let Some(parameter) = parameters.items.first()
                 && parameter.type_annotation.is_none()
                 && let BindingPattern::BindingIdentifier(id) = &parameter.pattern
             {
@@ -151,8 +175,32 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
         }
     }
     if options.diagnostics_only && options.lint {
-        let mut rows = list_identity::MapRows::default();
+        let mut rows = list_identity::MapRows::new(&program, import_source);
         rows.visit_program(&program);
+        for span in rows.positional {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "sequence(...) gives these rows positional identity, but they hold editable controls or are selected from a longer array: removing or filtering rows moves drafts, focus and component state to another row. Key them with entities(rows) or collection(identity).from(rows).",
+            );
+            diagnostic.code = "EW3005".into();
+            diagnostic.category = "identity".into();
+            diagnostic.severity = "warning".into();
+            diagnostics.push(diagnostic);
+        }
+        for span in rows.indexed {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "This collection derives identity from the row index, so deleting a middle row gives its identity to the next row. Use a domain identity (row.id, a composite of stable fields), or sequence(rows) when rows are purely positional.",
+            );
+            diagnostic.code = "EW3006".into();
+            diagnostic.category = "identity".into();
+            diagnostic.severity = "warning".into();
+            diagnostics.push(diagnostic);
+        }
         for span in rows.spans {
             let mut diagnostic = lower::diagnostic(
                 source,
@@ -184,7 +232,7 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                 source,
                 filename,
                 span,
-                "This source is created during render, so observe unsubscribes and subscribes again on every update. Create it once outside the view (const total = mapSource(owner.source, (s) => s.total)) and observe that.",
+                "This is created during render, so every update rebuilds it: a source resubscribes, a collection loses its row cache, and a slot family loses its cancellation identity. Create it once at module or controller scope (const total = mapSource(owner.source, (s) => s.total); const byCode = collection(...); const slots = commandSlots(name)) and use that inside the view, or write the identity inline with list(rows, identity, render).",
             );
             diagnostic.code = "EW3004".into();
             diagnostic.category = "identity".into();

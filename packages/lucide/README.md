@@ -25,7 +25,7 @@ Import shared types with `import type { LucideIcon, LucideProps } from '@effectw
 - `size`: number or CSS length, default `24`; `width` and `height` override it individually.
 - `color`: default `currentColor`; `strokeWidth`: default `2`. Native `stroke` and `stroke-width` attributes take precedence.
 - `absoluteStrokeWidth`: adds `vector-effect="non-scaling-stroke"` to geometry, including with CSS dimensions.
-- `class`, `className`, `classList`, `style`, native SVG attributes, `data-*`, and `aria-*`.
+- `class`, `classList`, `style`, native SVG attributes, `data-*`, and `aria-*`.
 - Native events, capture handlers, EffectWeb event effects, `use` lifetimes, and compiled JSX children follow the normal EffectWeb contracts.
 - `title`: an SVG `<title>` that updates with the model.
 

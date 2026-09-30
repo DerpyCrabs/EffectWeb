@@ -7,7 +7,7 @@ test('failed bindings, branches and cleanups leave siblings usable and release a
   const result = await page.evaluate(async () => {
     const domPath = '/tests/fixtures/runtime.ts',
       programPath = '/tests/fixtures/runtime.ts';
-    const { compiled, element, text, branch, mountView } = (await import(
+    const { compiled, element, text, mountView } = (await import(
       domPath
     )) as typeof import('effectweb/dom');
     const { program } = (await import(programPath)) as typeof import('effectweb');
@@ -19,6 +19,20 @@ test('failed bindings, branches and cleanups leave siblings usable and release a
     });
     const host = document.createElement('div');
     document.body.append(host);
+    const recovering = compiled<number, never>((child, parent, before) => {
+      child.cleanups.push(
+        () => {
+          disposed.push(1);
+          throw new Error('cleanup');
+        },
+        () => {
+          disposed.push(2);
+        },
+      );
+      if (child.value === 1) throw new Error('branch');
+      element(parent, before, 'aside').textContent = 'recovered';
+    });
+    const place = recovering as unknown as (value: number) => ReturnType<typeof recovering>;
     const view = compiled<number, number>((scope, parent, before) => {
       const first = element(parent, before, 'output');
       first.id = 'first';
@@ -32,25 +46,12 @@ test('failed bindings, branches and cleanups leave siblings usable and release a
           return scope.value;
         },
       );
-      branch(
+      text(
         scope,
         parent,
         before,
-        () => scope.value > 0,
-        (child, parent, before) => {
-          child.cleanups.push(
-            () => {
-              disposed.push(1);
-              throw new Error('cleanup');
-            },
-            () => {
-              disposed.push(2);
-            },
-          );
-          if (child.value === 1) throw new Error('branch');
-          element(parent, before, 'aside').textContent = 'recovered';
-        },
-        () => {},
+        () => [scope.value],
+        () => (scope.value > 0 ? place(scope.value) : null),
       );
       const second = element(parent, before, 'output');
       second.id = 'second';
@@ -91,44 +92,6 @@ test('failed bindings, branches and cleanups leave siblings usable and release a
     disposed: [2, 1, 2, 1],
     errorCount: 4,
     children: 0,
-  });
-});
-
-test('static templates clone independently in HTML and SVG namespaces', async ({ page }) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/runtime.ts';
-    const { template, element, attribute, literal } = (await import(
-      path
-    )) as typeof import('effectweb/dom');
-    let builds = 0;
-    const stamp = template((parent, before) => {
-      builds++;
-      const root = element(parent, before, 'a');
-      attribute(root, 'class', 'static');
-      literal(root, null, 'Original');
-    });
-    const html = document.createElement('div'),
-      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    stamp(html, null);
-    html.firstElementChild!.textContent = 'Changed';
-    stamp(html, null);
-    stamp(svg, null);
-    stamp(svg, null);
-    return {
-      builds,
-      html: html.textContent,
-      svg: svg.textContent,
-      htmlNS: html.firstElementChild!.namespaceURI,
-      svgNS: svg.firstElementChild!.namespaceURI,
-    };
-  });
-  expect(result).toEqual({
-    builds: 2,
-    html: 'ChangedOriginal',
-    svg: 'OriginalOriginal',
-    htmlNS: 'http://www.w3.org/1999/xhtml',
-    svgNS: 'http://www.w3.org/2000/svg',
   });
 });
 

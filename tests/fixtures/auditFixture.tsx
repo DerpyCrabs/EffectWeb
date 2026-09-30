@@ -53,3 +53,19 @@ export function mountControls(parent: HTMLElement) {
     },
   };
 }
+
+export function mountConstrainedControls(parent: HTMLElement) {
+  type Model = { value: number; max: number };
+  const source = program<Model, Partial<Model>>({
+    initial: { value: 150, max: 200 },
+    update: (model, changes) => ({ model: patchModel(model, changes) }),
+  });
+  const View = view<Model>((model) => (
+    <section>
+      <input aria-label="Value first" type="range" value={model.value} min={0} max={model.max} />
+      <input aria-label="Value last" type="range" min={0} max={model.max} value={model.value} />
+    </section>
+  ));
+  mountView(parent, View, source);
+  return source;
+}

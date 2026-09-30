@@ -12,7 +12,10 @@ export default defineConfig({
       '!packages/runtime/src/**/*.{test,typecheck}.{ts,tsx}',
     ],
   },
-  test: { environment: 'node', include: ['packages/*/src/**/*.test.ts'] },
+  test: {
+    environment: 'node',
+    include: ['packages/*/src/**/*.test.ts', 'tests/unit/**/*.test.ts'],
+  },
   lint: {
     ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**', 'vendor/**'],
     plugins: ['typescript', 'unicorn', 'oxc', 'effecttsgo'],
@@ -63,7 +66,8 @@ export default defineConfig({
       'effecttsgo/any-unknown-in-error-context': 'off',
       'effecttsgo/floating-effect': 'error',
       'effectweb/valid-view': 'error',
-      'effectweb/identity': 'warn',
+      'effectweb/identity': 'error',
+      'effectweb/no-hook-names': 'error',
     },
     overrides: [
       {

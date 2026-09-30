@@ -1,6 +1,6 @@
 import { Cause, Deferred, Effect, Exit, Fiber } from 'effect';
-import { mount, view, type Mounted } from 'effectweb';
-import { makeDomMount, programView } from 'effectweb/advanced';
+import { domMount, mount, view, type Mounted } from 'effectweb';
+import { programView } from 'effectweb/advanced';
 import { query, scopedQueryCache } from '@effectweb/query';
 
 const describeExit = (exit: Exit.Exit<unknown, unknown>) =>
@@ -76,7 +76,7 @@ export async function mountClosingExit(
         order.push('view released');
       }),
     );
-    const binding = yield* makeDomMount((_element: HTMLButtonElement) =>
+    const binding = domMount((_element: HTMLButtonElement) =>
       Effect.acquireRelease(Deferred.succeed(acquired, undefined), (_, exit) =>
         Effect.gen(function* () {
           exits.push({ owner: 'DOM', exit: describeExit(exit) });

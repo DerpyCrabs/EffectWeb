@@ -150,3 +150,35 @@ test('leaves composition edits alone until composition ends and drops pending wo
     disposed: 'detached',
   });
 });
+
+test('a control value is applied under its constraints, whatever the attribute order', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const values = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLInputElement>('input[type=range]')].map(
+        (input) => input.value,
+      ),
+    );
+  await page.evaluate(async () => {
+    const path = '/tests/fixtures/auditFixture.tsx';
+    const { mountConstrainedControls } = (await import(
+      path
+    )) as typeof import('../fixtures/auditFixture');
+    const source = mountConstrainedControls(document.body);
+    Object.assign(window, { constrained: source });
+  });
+  expect(await values()).toEqual(['150', '150']);
+  const send = (changes: { value?: number; max?: number }) =>
+    page.evaluate((changes) => {
+      (window as unknown as { constrained: { send(changes: object): void } }).constrained.send(
+        changes,
+      );
+    }, changes);
+  // The browser clamps to the narrower range; widening it again restores the model value.
+  await send({ max: 100 });
+  expect(await values()).toEqual(['100', '100']);
+  await send({ max: 300 });
+  expect(await values()).toEqual(['150', '150']);
+});

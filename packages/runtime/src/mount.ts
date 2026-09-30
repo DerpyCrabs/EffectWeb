@@ -6,7 +6,7 @@ import * as Effect from 'effect/Effect';
 import * as Fiber from 'effect/Fiber';
 import * as Scope from 'effect/Scope';
 import * as Exit from 'effect/Exit';
-import { uiRuntime, type UiRuntime } from './runtime.js';
+import type { UiRuntime } from './runtime.js';
 export { Portal, type PortalProps } from './dom.js';
 /** Setup may return nothing, a cleanup, a disposable, or an Effect finalized with the element. */
 type Work<R = never> =
@@ -55,37 +55,32 @@ export function domBinding<T extends Element, A, R = never>(
   };
 }
 
-/** Describe a DOM acquisition in Effect setup; services are captured once, resources belong to the element. */
-export const makeDomMount = <T extends Element, R = never>(
-  start: (element: T) => Work<R>,
-): Effect.Effect<DomMount<T>, never, R> =>
-  Effect.map(Effect.context<R>(), (context) => {
-    const runtime = uiRuntime(context);
-    return {
-      identity: start,
-      data: undefined,
-      acquire: (element: T) => {
-        const work = start(element);
-        return Effect.isEffect(work) ? runtime.provideScoped(work) : work;
-      },
+export interface DomHandle<T extends Element> {
+  /** Pass as `use={handle.mount}` on exactly one element at a time. */
+  readonly mount: DomMount<T>;
+  /** The element while it is mounted, for event handlers and controller work. */
+  readonly element: () => T | undefined;
+}
+/**
+ * A controller-held reference to one element. There are no refs in views; a handle is declared
+ * in the controller, attached with `use`, and read where the controller needs the element.
+ * `attached` runs after the element is in the document and may return a cleanup.
+ */
+export function domHandle<T extends Element>(
+  attached?: (element: T) => void | (() => void),
+): DomHandle<T> {
+  let current: T | undefined;
+  const mount = domMount<T>((element) => {
+    current = element;
+    const cleanup = attached?.(element);
+    return () => {
+      if (current === element) current = undefined;
+      cleanup?.();
     };
   });
+  return { mount, element: () => current };
+}
 
-/** Capture services once and bind changing inputs without replacing the acquisition lifetime. */
-export const makeDomBinding = <T extends Element, A, R = never>(
-  acquire: (element: T, input: () => Snapshot<A>) => Work<R>,
-): Effect.Effect<(data: A | Snapshot<A>) => DomMount<T>, never, R> =>
-  Effect.map(Effect.context<R>(), (context) => {
-    const runtime = uiRuntime(context);
-    return (data) => ({
-      identity: acquire,
-      data,
-      acquire: (element, input) => {
-        const work = acquire(element, input as () => Snapshot<A>);
-        return Effect.isEffect(work) ? runtime.provideScoped(work) : work;
-      },
-    });
-  });
 /** Allocate the lifetime before acquisition so reentrant publications can update or close it. */
 const noCleanup = () => {};
 export function prepareMount<T extends Element>(

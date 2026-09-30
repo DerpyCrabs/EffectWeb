@@ -1,16 +1,11 @@
-import { expect, test } from '@playwright/test';
+// @vitest-environment happy-dom
+import { expect, it } from 'vitest';
 
-test('compiled hosts and events preserve their owners through reentrant and attribute updates', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/ownershipFixture.tsx';
-    const { ownershipContracts } = (await import(
-      path
-    )) as typeof import('../fixtures/ownershipFixture');
+it('compiled hosts and events preserve their owners through reentrant and attribute updates', async () => {
+  const result = await (async () => {
+    const { ownershipContracts } = await import('../fixtures/ownershipFixture');
     return ownershipContracts();
-  });
+  })();
   expect(result.blurDraft).toBe('unfinished draft');
   expect(result.publishedDraft).toBe('published edit');
   expect(result.initialPublication).toEqual({ model: { count: 1 }, dom: '11' });

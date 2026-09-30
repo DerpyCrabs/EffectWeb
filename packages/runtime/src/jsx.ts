@@ -194,7 +194,7 @@ export namespace JSX {
   type AttributeKey<K extends string> =
     Lowercase<K> extends keyof HtmlAttributes
       ? K | Lowercase<K>
-      : K extends 'className' | 'htmlFor' | 'acceptCharset' | 'httpEquiv'
+      : K extends 'htmlFor' | 'acceptCharset' | 'httpEquiv'
         ? K | Lowercase<K>
         : never;
   type DomAttributes<T> = {
@@ -223,7 +223,6 @@ export namespace JSX {
     > & {
       children?: Element | undefined;
       class?: string | undefined;
-      className?: string | undefined;
       classList?: Record<string, boolean | undefined> | undefined;
       style?: string | CSSProperties | undefined;
       use?: DomMount<T & globalThis.Element> | undefined;

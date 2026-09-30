@@ -124,7 +124,7 @@ impl<'s> Lower<'s> {
         let expression = &self.source[span.start as usize..span.end as usize];
         let location = diagnostic(self.source, self.filename, span, "");
         serde_json::json!({ "file": self.filename, "line": location.line, "column": location.column,
-            "expression": expression, "dependencies": [expression] })
+            "expression": expression })
     }
     fn expression(&self, span: Span) -> String {
         let mut edits = self

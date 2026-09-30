@@ -32,7 +32,6 @@
   ],
   "booleanish": ["contenteditable", "draggable", "spellcheck"],
   "aliases": {
-    "className": "class",
     "tabIndex": "tabindex",
     "htmlFor": "for",
     "contentEditable": "contenteditable",

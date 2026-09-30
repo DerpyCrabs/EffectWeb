@@ -10,7 +10,6 @@ import {
   view,
   ViewBinding,
 } from './index.js';
-import { mapTransition } from './advanced.js';
 import type { Transition } from './program.js';
 
 class Store extends Context.Service<Store, { readonly count: number }>()('Composition/Store') {}
@@ -24,19 +23,11 @@ const transition: Transition<{ rows: { count: number }[] }, number, Store> = {
   model: { rows: [{ count: 0 }] },
   commands: [command],
 };
-const lifted = mapTransition(transition, {
-  model: (model) => {
-    // @ts-expect-error The borrowed child snapshot cannot be mutated by its parent mapper.
-    model.rows[0]!.count++;
-    return { child: model };
-  },
-  message: (count) => ({ type: 'Count' as const, count }),
-});
-runtime.program({ initial: lifted.model, update: () => lifted });
+runtime.program({ initial: transition.model, update: () => transition });
 program({
-  initial: lifted.model,
-  // @ts-expect-error Lifting cannot erase the commands' required services.
-  update: () => lifted,
+  initial: transition.model,
+  // @ts-expect-error A program cannot erase the commands' required services.
+  update: () => transition,
 });
 
 const Child = view<{ count: number }, 'Increment'>((model, send) => (

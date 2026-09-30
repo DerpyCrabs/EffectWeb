@@ -1,11 +1,11 @@
 /* oxlint-disable effecttsgo/missing-effect-context -- Negative service-requirement type contracts. */
 import { Context, Effect, Scope } from 'effect';
-import { makeDomBinding, makeDomMount } from './mount.js';
-import { makeEffectHandler } from './effectEvent.js';
+import { domMount } from './mount.js';
+import { effectEvent } from './effectEvent.js';
 import { mount } from './render.js';
 import { view } from './dom.js';
-import { fromStream, type Source } from './source.js';
-import * as Stream from 'effect/Stream';
+import { uiRuntime } from './runtime.js';
+import type { Source } from './source.js';
 import { defineTasks } from './tasks.js';
 import { lazyView } from './advanced.js';
 
@@ -13,11 +13,15 @@ class Storage extends Context.Service<Storage, { readonly save: Effect.Effect<vo
   'ScopedTypecheck/Storage',
 ) {}
 const setup = Effect.gen(function* () {
-  const save = yield* makeEffectHandler((_event: MouseEvent) =>
-    Effect.flatMap(Storage, (service) => service.save),
+  const runtime = uiRuntime(yield* Effect.context<Storage>());
+  const save = effectEvent(
+    'drop',
+    (_event: MouseEvent) => Effect.flatMap(Storage, (service) => service.save),
+    runtime,
   );
-  const binding = yield* makeDomMount((_element: HTMLButtonElement) =>
-    Effect.acquireRelease(Storage, () => Effect.void),
+  const binding = domMount(
+    (_element: HTMLButtonElement) => Effect.acquireRelease(Storage, () => Effect.void),
+    runtime,
   );
   return view<number>((count) => (
     <button use={binding} onClick={save}>
@@ -33,24 +37,12 @@ const missingService: Effect.Effect<unknown> = Effect.scoped(mounted);
 const provided = Effect.scoped(mounted).pipe(Effect.provideService(Storage, { save: Effect.void }));
 // @ts-expect-error Direct JSX callbacks cannot erase a required service.
 const missingEventService = <button onClick={() => Storage} />;
-const binding = makeDomBinding((_element: HTMLInputElement, _input: () => string) => Storage);
-const bindingRequirements: Effect.Effect<unknown, never, Storage> = binding;
-// @ts-expect-error Erroring streams need an explicit error-as-value policy before observation.
-const failedStream = fromStream(Stream.fail('offline'), 0);
 const dispatched = view<number, 'increment'>((count, send) => (
   <button onClick={() => send('increment')}>{count}</button>
 ));
 // @ts-expect-error A view that dispatches messages requires a dispatcher at the boundary.
 const missingDispatch = mount(document.createElement('div'), dispatched, source);
-void [
-  requirements,
-  missingService,
-  missingEventService,
-  bindingRequirements,
-  provided,
-  failedStream,
-  missingDispatch,
-];
+void [requirements, missingService, missingEventService, provided, missingDispatch];
 
 // Adapter work scopes belong to the operation; application services remain explicit.
 const scopedLoad = () => Effect.acquireRelease(Effect.succeed('value'), () => Effect.void);

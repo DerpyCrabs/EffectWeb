@@ -105,23 +105,17 @@ test('conditional removal releases listeners; optional data and remounts remain 
   expect(result).toEqual({ selected: -1, nodes: 0 });
 });
 
-test('duplicate identities fail explicitly and clean up a partial mount', async ({ page }) => {
+test('repeated values in a plain array render as separate rows', async ({ page }) => {
+  await page.goto('/');
   const result = await page.evaluate(async () => {
     const fixturePath = '/tests/fixtures/fixture.tsx';
     const fixture = (await import(fixturePath)) as typeof import('../fixtures/fixture');
     const host = document.createElement('div');
     document.body.append(host);
-    try {
-      fixture.mountPrimitiveList(host, ['duplicate', 'duplicate']);
-      return 'missing error';
-    } catch (error) {
-      return { error: String(error), children: host.childNodes.length };
-    }
+    fixture.mountPrimitiveList(host, ['duplicate', 'duplicate']);
+    return host.textContent;
   });
-  expect(result).toEqual({
-    error: expect.stringContaining('Duplicate collection identity'),
-    children: 0,
-  });
+  expect(result).toBe('duplicateduplicate');
 });
 
 test('one event sees one snapshot across multiple dispatches, including an extracted helper', async ({

@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import { effectCommand, program } from './program.js';
 import { uiRuntime } from './runtime.js';
 import { programDriver, controlledEffect } from './testing.js';
-import { observePrograms } from './diagnostics.js';
 
 const commandRead = commandSlot('read');
 const commandDelay = commandSlot('delay');
@@ -139,24 +138,6 @@ describe('public program test driver', () => {
     expect(source.model()).toBe(23);
     source.dispose();
   });
-});
-
-it('bounds metadata history and never stores message payloads or model values', async () => {
-  const history = observePrograms(3);
-  const source = program({
-    name: 'test',
-    initial: { secret: 'private' },
-    update: (_model, message: { type: 'Change'; text: string }) => ({
-      model: { secret: message.text },
-    }),
-  });
-  for (let n = 0; n < 5; n++) source.send({ type: 'Change', text: 'sensitive-message' });
-  expect(history.events()).toHaveLength(3);
-  expect(history.events()[0]).toMatchObject({ name: 'test', kind: 'update', message: 'Change' });
-  expect(JSON.stringify(history.events())).not.toContain('sensitive');
-  history.dispose();
-  source.dispose();
-  expect(history.events()).toHaveLength(3);
 });
 
 it('keeps shared services alive while event and DOM owners cancel their own fibers', async () => {

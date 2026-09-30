@@ -1,6 +1,6 @@
 {
   "name": "effectweb-workspace",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "workspaces": [
     "packages/runtime",
@@ -41,6 +41,7 @@
     "@playwright/test": "1.62.1",
     "@types/node": "^26.2.0",
     "effect": "4.0.0-rc.112",
+    "happy-dom": "20.14.5",
     "idb": "8.0.3",
     "oxfmt": "0.62.0",
     "oxlint": "1.77.0",

@@ -121,6 +121,7 @@ export function propertyOnlyDomState() {
   // @ts-expect-error Scroll position is a property, not a content attribute.
   const scroll = <div scrollTop={10} />;
   // @ts-expect-error Markup content uses compiled children or owned DOM integration.
+  // oxlint-disable-next-line effectweb/valid-view -- Negative type contract deliberately uses the rejected attribute.
   const html = <div innerHTML="<b>ignored</b>" />;
   const form = <form acceptCharset="UTF-8" />;
   const input = <input form="editor" list="choices" />;

@@ -20,7 +20,15 @@ export {
 } from './dom.js';
 export { mount } from './render.js';
 export type { JSX } from './jsx.js';
-export { Portal, domBinding, domMount, type DomMount, type PortalProps } from './mount.js';
+export {
+  Portal,
+  domBinding,
+  domMount,
+  domHandle,
+  type DomMount,
+  type DomHandle,
+  type PortalProps,
+} from './mount.js';
 export { AsyncContent, type AsyncContentProps } from './AsyncContent.js';
 export { available, resourceError } from './result.js';
 export { errorBoundary } from './boundary.js';
@@ -29,9 +37,10 @@ export { errorBoundary } from './boundary.js';
 export { collection, entities, sequence, type Rows, type Collection } from './collection.js';
 
 // Component state
-export { component, localComponent } from './component.js';
+export { component, localComponent, controllerView, type ViewController } from './component.js';
 export {
   defineTasks,
+  ownedTasks,
   type TaskDefinition,
   type TasksModel,
   type TasksMessage,

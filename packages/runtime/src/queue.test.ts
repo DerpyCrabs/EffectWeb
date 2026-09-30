@@ -14,19 +14,18 @@ it.each(['queue', 'latest-queued'] as const)(
     const app = modelOwner({});
     const pending = controlledEffect<void>();
     const calls: string[] = [];
-    const actions = defineTasks(app, {
-      save: {
-        slot: commandSave,
-        policy,
-        run: (text: string) => {
+    const save = (text: string) =>
+      app.run(
+        commandSave,
+        Effect.suspend(() => {
           calls.push(text);
           return pending.effect;
-        },
-      },
-    });
-    actions.save('first');
-    actions.save('second');
-    actions.save('third');
+        }),
+        policy,
+      );
+    save('first');
+    save('second');
+    save('third');
     let idle = false;
     const wait = Effect.runPromise(app.awaitIdle()).then(() => {
       idle = true;
@@ -429,20 +428,18 @@ it('captures queued argument references and lets callers submit an owned immutab
   const owner = modelOwner({});
   const gate = controlledEffect<void>();
   const seen: string[] = [];
-  const tasks = defineTasks(owner, {
-    save: {
-      slot: commandSave,
-      policy: 'queue',
-      run: (input: { text: string }) =>
-        Effect.sync(() => {
-          seen.push(input.text);
-        }),
-    },
-  });
+  const save = (input: { text: string }) =>
+    owner.run(
+      commandSave,
+      Effect.sync(() => {
+        seen.push(input.text);
+      }),
+      'queue',
+    );
   owner.run(commandSave, gate.effect, 'queue');
   const draft = { text: 'accepted' };
-  tasks.save({ ...draft });
-  tasks.save(draft);
+  save({ ...draft });
+  save(draft);
   draft.text = 'edited later';
   gate.succeed(undefined);
   await Effect.runPromise(owner.awaitIdle());

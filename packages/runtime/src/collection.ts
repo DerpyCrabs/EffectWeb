@@ -22,7 +22,7 @@ export function validateIdentities<A, K>(
     const previous = seen.get(key);
     if (previous !== undefined)
       throw new Error(
-        `Duplicate collection identity at indices ${previous} and ${index}. Identity must be unique within the collection; use a composite domain identity when IDs are only locally unique.`,
+        `Duplicate collection identity ${JSON.stringify(key)} at indices ${previous} and ${index}. Identity must be unique within the collection; use a composite domain identity when IDs are only locally unique.`,
       );
     seen.set(key, index);
     return key;
@@ -97,7 +97,8 @@ function makeCollection<A>(identity: (item: A, index: number) => Identity) {
 }
 
 export interface Collection<A> {
-  from(this: void, items: readonly (A | Snapshot<A>)[]): Rows<Snapshot<A>>;
+  /** Identity reads `A`; rows keep the full type of the items supplied. */
+  from<B extends A | Snapshot<A> = A>(this: void, items: readonly B[]): Rows<Snapshot<B>>;
   share<B extends A | Snapshot<A>>(
     this: void,
     previous: readonly B[],
@@ -111,6 +112,21 @@ export function collection<A>(
   // Snapshot changes access permissions, not runtime representation. The implementation
   // only borrows supplied items, and never inserts values of a wider type.
   return makeCollection(identity) as unknown as Collection<A>;
+}
+
+/** Rows keyed by an inline identity, for `list(rows, identity, render)`. Nothing is cached. */
+export function keyed<A>(
+  items: readonly A[],
+  identity: (item: A, index: number) => Identity,
+): Rows<A> {
+  return {
+    items,
+    identity,
+    length: items.length,
+    map: (render) => items.map(render),
+    filter: (predicate) => keyed(items.filter(predicate), identity),
+    slice: (start, end) => keyed(items.slice(start, end), identity),
+  };
 }
 
 const positions = collection<unknown>((_item, index) => index);

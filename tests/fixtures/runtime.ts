@@ -10,11 +10,8 @@ export {
   view,
   markup,
   text,
-  branch,
   mountView,
-  template,
   attribute,
-  literal,
 } from 'effectweb/dom';
 export {
   program,
@@ -28,6 +25,5 @@ export {
   type Send,
   type Transition,
 } from 'effectweb';
-export { mapCommand, mapTransition } from 'effectweb/advanced';
 
 export { domBinding, entities, list, sequence } from 'effectweb';

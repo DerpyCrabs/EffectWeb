@@ -37,7 +37,6 @@ describe('Lucide SVG props', () => {
         strokeWidth: 0,
         width: 40,
         class: 'first',
-        className: 'second',
         onClick,
         title: 'Camera',
         children: 'child',
@@ -55,20 +54,12 @@ describe('Lucide SVG props', () => {
       stroke: 'red',
       'stroke-width': 0,
       viewBox: '0 0 20 30',
-      class: 'lucide lucide-camera first second',
+      class: 'lucide lucide-camera first',
       onClick,
       'data-state': 'ready',
       'stroke-linecap': 'square',
     });
-    for (const name of [
-      'size',
-      'color',
-      'strokeWidth',
-      'absoluteStrokeWidth',
-      'title',
-      'children',
-      'className',
-    ])
+    for (const name of ['size', 'color', 'strokeWidth', 'absoluteStrokeWidth', 'title', 'children'])
       expect(attrs).not.toHaveProperty(name);
   });
 });

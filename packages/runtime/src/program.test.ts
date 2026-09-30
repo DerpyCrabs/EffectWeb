@@ -404,3 +404,32 @@ it('isolates independent operation tokens even when their diagnostic names match
   source.dispose();
   await expect.poll(() => stopped).toEqual(['first', 'second']);
 });
+
+it('reports a reducer failure raised by a command completion', async () => {
+  const defects: unknown[] = [];
+  const slot = commandSlot('completion');
+  const source = program<number, 'start' | 'done' | 'next'>({
+    initial: 0,
+    onDefect: (cause) => defects.push(cause),
+    update: (model, message) => {
+      if (message === 'done') throw new Error('reducer failed');
+      if (message === 'next') return { model: model + 1 };
+      return {
+        model,
+        commands: [
+          effectCommand(slot, () => Effect.sleep(1), {
+            policy: 'replace',
+            onSuccess: () => 'done' as const,
+            onFailure: () => 'done' as const,
+          }),
+        ],
+      };
+    },
+  });
+  source.send('start');
+  await Effect.runPromise(source.awaitIdle());
+  expect(defects.map(String)).toEqual(['Error: reducer failed']);
+  source.send('next');
+  expect(source.model()).toBe(1);
+  source.dispose();
+});

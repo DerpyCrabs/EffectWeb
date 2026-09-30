@@ -3,12 +3,18 @@ import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
 import { protectSnapshot, type Snapshot } from './snapshot.js';
 
-import { validateIdentities } from './collection.js';
+import { keyed, validateIdentities } from './collection.js';
 import { runAll, reportError, reportSafely, type ReportError } from './errors.js';
 import { eventEffects } from './effectEvent.js';
 // Internal listener ownership, available to compiled output and runtime contract checks.
 export { eventEffects };
-import { traceBinding, type BindingSource } from './diagnostics.js';
+/** Development metadata naming where a binding was written; used to locate render failures. */
+export interface BindingSource {
+  readonly file: string;
+  readonly line: number;
+  readonly column: number;
+  readonly expression: string;
+}
 import type { Rows } from './index.js';
 import type { Identity } from './collection.js';
 import { jsxComponent, type JSX } from './jsx.js';
@@ -24,6 +30,24 @@ const bindingLocation = (source: BindingLocation | undefined) =>
   typeof source === 'function' ? source() : source;
 type Cleanup = () => void;
 type Build<M, E> = (scope: Scope<M, E>, parent: Node, before: Node | null) => void;
+// Development builds know where each binding was written. Name the innermost one in its
+// failure, so a report identifies the view instead of only the renderer's stack.
+const located = new WeakSet<object>();
+function locate(error: unknown, source: BindingLocation | undefined): unknown {
+  if (!source || !(error instanceof Error) || located.has(error)) return error;
+  const binding = bindingLocation(source);
+  if (!binding) return error;
+  located.add(error);
+  try {
+    error.message += `\n    in {${binding.expression}} (${binding.file}:${binding.line}:${binding.column})`;
+  } catch {
+    // A frozen error keeps its own message.
+  }
+  return error;
+}
+function locatedReport(report: ReportError, source: BindingLocation | undefined): ReportError {
+  return source && bindingLocation(source) ? (error) => report(locate(error, source)) : report;
+}
 const equal = (a: readonly unknown[], b: readonly unknown[]) =>
   a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
 
@@ -62,14 +86,21 @@ export class Scope<M, E> {
   ) {}
   watch(dependencies: Dependencies, apply: () => void, source?: BindingLocation) {
     let previous = dependencies();
-    apply();
-    traceBinding(bindingLocation(source), undefined, previous, 'binding');
+    const update = source
+      ? () => {
+          try {
+            apply();
+          } catch (error) {
+            throw locate(error, source);
+          }
+        }
+      : apply;
+    update();
     if (!previous.length) return;
     const run = () => {
       const next = dependencies();
       if (!equal(previous, next)) {
-        apply();
-        traceBinding(bindingLocation(source), previous, next, 'binding');
+        update();
         previous = next;
       }
     };
@@ -218,15 +249,31 @@ function contentDefinition<A>(build: Build<A, never>): ContentDefinition {
       const scope = new Scope(value as A, unboundSend, report, settlement);
       const fragment = buildFragment(parent);
       const range = markers(fragment, null);
-      scope.cleanups.push(() => remove(range.start, range.end));
       try {
         build(scope, fragment, range.end);
-        if (!scope.disposed) parent.insertBefore(fragment, before);
       } catch (error) {
         scope.dispose();
         throw error;
       }
-      return { set: (value) => scope.set(value as A), dispose: () => scope.dispose() };
+      // A single element is its own stable range. Markers stay for text, empty or multiple roots.
+      let start: Node = range.start;
+      let end: Node = range.end;
+      const only = range.start.nextSibling;
+      if (only instanceof Element && only.nextSibling === range.end) {
+        range.start.remove();
+        range.end.remove();
+        start = end = only;
+      }
+      if (!scope.disposed) parent.insertBefore(fragment, before);
+      return {
+        set: (value) => scope.set(value as A),
+        dispose() {
+          if (scope.disposed) return;
+          const removedByAncestor = detaching;
+          detached(() => scope.dispose());
+          if (!removedByAncestor) remove(start, end);
+        },
+      };
     },
   };
 }
@@ -254,7 +301,6 @@ export function markup(
           const { children: _children, ...attributes } = scope.value.props;
           return attributes;
         },
-        () => scope.value.sources,
       );
       text(
         scope,
@@ -296,12 +342,34 @@ const listDefinition = contentDefinition<ListValue<unknown>>((scope, parent, bef
     },
   );
 });
-/** Preserve collection identity (or array reference identity) while rendering rows. */
+/**
+ * Render rows with stable identity. Pass `entities(rows)` or a collection's rows, or the array
+ * with an inline identity: `list(rows, (row) => row.id, render)`. A plain array without an
+ * identity keys rows by value.
+ */
 export function list<A>(
   rows: Rows<A> | readonly A[],
   render: (item: A, index: number) => JSX.Element,
+): JSX.Element;
+export function list<A>(
+  rows: readonly A[],
+  identity: (item: A, index: number) => Identity,
+  render: (item: A, index: number) => JSX.Element,
+): JSX.Element;
+export function list<A>(
+  rows: Rows<A> | readonly A[],
+  second: ((item: A, index: number) => JSX.Element) | ((item: A, index: number) => Identity),
+  third?: (item: A, index: number) => JSX.Element,
 ): JSX.Element {
-  return new SlotPlacement(listDefinition, { rows, render });
+  if (third)
+    return new SlotPlacement(listDefinition, {
+      rows: keyed(rows as readonly A[], second as (item: A, index: number) => Identity),
+      render: third,
+    });
+  return new SlotPlacement(listDefinition, {
+    rows,
+    render: second as (item: A, index: number) => JSX.Element,
+  });
 }
 
 /**
@@ -421,6 +489,18 @@ function markers(parent: Node, before: Node | null) {
   parent.insertBefore(start, before);
   parent.insertBefore(end, before);
   return { start, end };
+}
+// While an ancestor removes a whole DOM range, nested content skips its own node removal and
+// listener removal: the nodes leave the document together and are released with it.
+let detaching = false;
+function detached(work: () => void) {
+  const outer = detaching;
+  detaching = true;
+  try {
+    work();
+  } finally {
+    detaching = outer;
+  }
 }
 function remove(start: Node, end: Node) {
   let node: Node | null = start;
@@ -543,7 +623,10 @@ export function mountViewWithSettlement<M, E>(
       if (!Object.is(latest, scope.value)) scope.set(latest);
     } catch (error) {
       settlement.exit = Exit.die(error);
-      runAll([unsubscribe, () => scope.dispose(), () => remove(start, end)], scope.report);
+      runAll(
+        [unsubscribe, () => detached(() => scope.dispose()), () => remove(start, end)],
+        scope.report,
+      );
       throw error;
     }
     let disposed = false;
@@ -552,7 +635,10 @@ export function mountViewWithSettlement<M, E>(
       disposed = true;
       const finish = settlement.begin();
       try {
-        runAll([unsubscribe, () => scope.dispose(), () => remove(start, end)], scope.report);
+        runAll(
+          [unsubscribe, () => detached(() => scope.dispose()), () => remove(start, end)],
+          scope.report,
+        );
       } finally {
         finish();
       }
@@ -659,35 +745,7 @@ export function attribute(element: Element, name: string, value: unknown) {
   }
 }
 
-/** Compiler output for attributes whose unchanged value needs no DOM refresh. */
-export function bindAttribute<M, E>(
-  scope: Scope<M, E>,
-  element: Element,
-  name: string,
-  dependencies: Dependencies,
-  read: () => unknown,
-  source?: BindingLocation,
-) {
-  let previous = dependencies();
-  let value = read();
-  attribute(element, name, value);
-  traceBinding(bindingLocation(source), undefined, previous, 'binding');
-  if (!previous.length) return;
-  // Keep the value cache in the dependency job itself, without an extra closure
-  // for every row. Controlled input properties keep using ordinary watches.
-  scope.jobs.push(() => {
-    const next = dependencies();
-    if (equal(previous, next)) return;
-    const nextValue = read();
-    if (!Object.is(value, nextValue)) {
-      attribute(element, name, nextValue);
-      value = nextValue;
-    }
-    traceBinding(bindingLocation(source), previous, next, 'binding');
-    previous = next;
-  });
-}
-
+const controlConstraints = ['type', 'min', 'max', 'step', 'multiple', 'maxlength', 'maxLength'];
 const controlRestorations = new WeakMap<EventTarget, Set<(type: string) => void>>();
 
 /** Handled edits can change a control even when dispatch publishes no new model. */
@@ -732,6 +790,8 @@ export function bindControl<M, E>(
     },
     source,
   );
+  // Changed constraints republish an equal value; see bindAttributes.
+  if (!select) scope.jobs.push(apply);
   if (select) {
     // The selected value may stay equal while its options change on this publication.
     scope.jobs.push(apply);
@@ -827,7 +887,7 @@ export function text<M, E>(
         }
         const previous = content;
         content = undefined;
-        previous?.mounted.dispose();
+        if (previous) detached(() => previous.mounted.dispose());
         if (scope.disposed) return;
         if (start) clear(start, node);
         else {
@@ -839,7 +899,7 @@ export function text<M, E>(
           node.parentNode!,
           node,
           value.value,
-          scope.report,
+          locatedReport(scope.report, source),
           scope.settlement,
         );
         if (scope.disposed) mounted.dispose();
@@ -852,8 +912,9 @@ export function text<M, E>(
         );
       const next = value == null || typeof value === 'boolean' ? '' : scalar(value);
       if (content) {
-        content.mounted.dispose();
+        const previous = content;
         content = undefined;
+        detached(() => previous.mounted.dispose());
         clear(start!, node);
       }
       if (node.data !== next) node.data = next;
@@ -893,7 +954,7 @@ function mountArray(
   const cells: Array<{ scope: Scope<JSX.Element, never>; start: Comment; end: Comment }> = [];
   let disposed = false;
   const disposeCell = (cell: (typeof cells)[number]) => {
-    cell.scope.dispose();
+    detached(() => cell.scope.dispose());
     remove(cell.start, cell.end);
   };
   const set = (input: unknown) => {
@@ -981,10 +1042,47 @@ export function event<M, E>(
     }
   };
   element.addEventListener(type, listener, capture);
-  scope.cleanups.push(() => {
-    element.removeEventListener(type, listener, capture);
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    if (!detaching) element.removeEventListener(type, listener, capture);
     effects?.dispose();
-  });
+  };
+  scope.cleanups.push(stop);
+  return stop;
+}
+
+/** A replaceable handler with one listener; owned requests end with the handler or element. */
+function eventBinding<M, E>(
+  scope: Scope<M, E>,
+  element: Element,
+  name: string,
+  initial: unknown,
+): Binding {
+  let current = initial as ((event: Event) => JSX.EventResult) | undefined;
+  let stop: Cleanup | undefined;
+  const listen = () => {
+    stop = event(scope, element, name, (event) => current?.(event));
+  };
+  if (current) listen();
+  return {
+    get value() {
+      return current;
+    },
+    set(next) {
+      current = next as typeof current;
+      if (current && !stop) listen();
+      else if (!current && stop) {
+        stop();
+        stop = undefined;
+      }
+    },
+    dispose() {
+      stop?.();
+      stop = undefined;
+    },
+  };
 }
 
 /** The event binding owns its requests; snapshot renders may replace its callback. */
@@ -995,21 +1093,18 @@ export function bindEvent<M, E>(
   dependencies: Dependencies,
   read: () => ((event: Event) => JSX.EventResult) | undefined,
 ) {
-  let current: ReturnType<typeof read>;
-  let owned: Scope<unknown, E> | undefined;
-  scope.cleanups.push(() => owned?.dispose());
+  const binding = eventBinding(scope, element, name, undefined);
+  scope.cleanups.push(() => binding.dispose());
   scope.watch(dependencies, () => {
     const next = read();
-    if (Object.is(current, next)) return;
-    current = next;
-    if (!next) {
-      owned?.dispose();
-      owned = undefined;
-    } else if (!owned) {
-      owned = new Scope(next, scope.send, scope.report, scope.settlement);
-      event(owned, element, name, (event) => current?.(event));
-    }
+    if (!Object.is(binding.value, next)) binding.set(next);
   });
+}
+/** Per-attribute state owned by an element: a value, its replacement and its release. */
+interface Binding {
+  readonly value: unknown;
+  set(value: unknown): void;
+  dispose(): void;
 }
 
 /** Reconcile merged JSX attributes. Each host, event and control owns its cleanup. */
@@ -1018,9 +1113,8 @@ export function bindAttributes<M, E>(
   element: Element,
   dependencies: Dependencies,
   read: () => Readonly<Record<string, unknown>>,
-  sources?: () => Readonly<Record<string, BindingSource>> | undefined,
 ) {
-  const bindings = new Map<string, Scope<unknown, E>>();
+  const bindings = new Map<string, Binding>();
   let previous: Readonly<Record<string, unknown>> = {};
   const isEvent = (name: string) => /^on[A-Z]/u.test(name);
   const isControl = (name: string) =>
@@ -1033,65 +1127,67 @@ export function bindAttributes<M, E>(
     );
     bindings.clear();
   });
+  const bind = (name: string, value: unknown, constrained: boolean) => {
+    const binding = bindings.get(name);
+    if (binding) {
+      // The browser may have clamped an unchanged value under the previous constraints.
+      if (!Object.is(binding.value, value) || constrained) binding.set(value);
+      return;
+    }
+    if (isEvent(name)) {
+      bindings.set(name, eventBinding(scope, element, name, value));
+      return;
+    }
+    const owned = new Scope<unknown, E>(value, scope.send, scope.report, scope.settlement);
+    bindings.set(name, owned);
+    if (name === 'use')
+      attach(
+        owned,
+        element,
+        () => [owned.value],
+        () => owned.value as DomMount | undefined,
+      );
+    else
+      bindControl(
+        owned,
+        element,
+        name,
+        () => [owned.value],
+        () => owned.value,
+      );
+  };
   scope.watch(dependencies, () => {
     const next = read();
-    for (const name of Object.keys(next)) {
-      if (['key', 'ref', 'innerHTML', 'children'].includes(name))
-        throw new Error(
-          `Spread attribute ${name} is unsupported. Use collections, DOM hosts, or JSX children.`,
-        );
-    }
-    for (const name of Object.keys(previous)) {
+    for (const name in previous) {
       if (Object.hasOwn(next, name)) continue;
       bindings.get(name)?.dispose();
       bindings.delete(name);
       if (name !== 'use' && !isEvent(name)) attribute(element, name, undefined);
     }
-    for (const [name, value] of Object.entries(next)) {
-      if (!Object.hasOwn(previous, name) || !Object.is(previous[name], value))
-        traceBinding(
-          sources?.()?.[name],
-          Object.hasOwn(previous, name) ? [previous[name]] : undefined,
-          [value],
-          'binding',
+    // A control's value is constrained by its other attributes (type, min, max, step,
+    // multiple), so controls are applied after everything else whatever order the markup uses.
+    let controls: string[] | undefined;
+    let constrained = false;
+    for (const name in next) {
+      if (name === 'key' || name === 'ref' || name === 'innerHTML' || name === 'children')
+        throw new Error(
+          `Spread attribute ${name} is unsupported. Use collections, DOM hosts, or JSX children.`,
         );
-      if (name !== 'use' && !isEvent(name) && !isControl(name)) {
-        if (!Object.hasOwn(previous, name) || !Object.is(previous[name], value))
-          attribute(element, name, value);
+      if (isControl(name)) {
+        (controls ??= []).push(name);
         continue;
       }
-      let binding = bindings.get(name);
-      if (binding && Object.is(binding.value, value)) continue;
-      if (binding) {
-        binding.set(value);
+      const value = next[name];
+      if (name === 'use' || isEvent(name)) {
+        bind(name, value, false);
         continue;
       }
-      const owned = new Scope<unknown, E>(value, scope.send, scope.report, scope.settlement);
-      bindings.set(name, owned);
-      if (name === 'use')
-        attach(
-          owned,
-          element,
-          () => [owned.value],
-          () => owned.value as DomMount | undefined,
-        );
-      else if (isControl(name))
-        bindControl(
-          owned,
-          element,
-          name,
-          () => [owned.value],
-          () => owned.value,
-        );
-      else
-        bindEvent(
-          owned,
-          element,
-          name,
-          () => [owned.value],
-          () => owned.value as ((event: Event) => JSX.EventResult) | undefined,
-        );
+      if (!Object.hasOwn(previous, name) || !Object.is(previous[name], value)) {
+        if (controlConstraints.includes(name)) constrained = true;
+        attribute(element, name, value);
+      }
     }
+    if (controls) for (const name of controls) bind(name, next[name], constrained);
     previous = next;
   });
   if (element.tagName === 'SELECT')
@@ -1099,39 +1195,6 @@ export function bindAttributes<M, E>(
       const binding = bindings.get('value');
       if (binding) binding.set(binding.value);
     });
-}
-export function branch<M, E>(
-  scope: Scope<M, E>,
-  parent: Node,
-  before: Node | null,
-  choose: () => boolean,
-  yes: Build<M, E>,
-  no: Build<M, E>,
-) {
-  const { start, end } = markers(parent, before);
-  let child: Scope<M, E> | undefined;
-  let active: boolean | undefined;
-  const update = () => {
-    const next = Boolean(choose());
-    if (active !== next) {
-      child?.dispose();
-      clear(start, end);
-      child = new Scope(scope.value, scope.send, scope.report, scope.settlement);
-      const fragment = buildFragment(end.parentNode!);
-      try {
-        (next ? yes : no)(child, fragment, null);
-        end.parentNode!.insertBefore(fragment, end);
-        active = next;
-      } catch (error) {
-        child.dispose();
-        active = undefined;
-        throw error;
-      }
-    } else child!.set(scope.value);
-  };
-  scope.jobs.push(update);
-  scope.cleanups.push(() => child?.dispose());
-  update();
 }
 export function each<M, E, A>(
   scope: Scope<M, E>,
@@ -1149,6 +1212,23 @@ export function each<M, E, A>(
   let previousList: Rows<A> | readonly A[] | undefined;
   let previousOuter: readonly unknown[] = [];
   let previousIdentities: readonly (A | Identity)[] = [];
+  // Plain arrays are keyed by value. Repeated values (tags, lines) are told apart by
+  // their occurrence, so the second "a" stays the second "a".
+  const repeats = new Map<A, A[]>();
+  const valueIdentities = (items: readonly A[]) => {
+    const seen = new Map<A, number>();
+    const identities = items.map((item) => {
+      const count = seen.get(item) ?? 0;
+      seen.set(item, count + 1);
+      if (!count) return item;
+      let tokens = repeats.get(item);
+      if (!tokens) repeats.set(item, (tokens = []));
+      // An opaque token stands in for the repeated value in the row map.
+      return (tokens[count - 1] ??= Symbol('repeated row') as A);
+    });
+    for (const item of repeats.keys()) if (!seen.has(item)) repeats.delete(item);
+    return identities;
+  };
   const update = () => {
     if (scope.disposed) return;
     const target = end.parentNode!;
@@ -1171,10 +1251,13 @@ export function each<M, E, A>(
       target.firstChild === rows.get(previousIdentities[0]!)?.start &&
       target.lastChild === end
     ) {
-      for (const row of rows.values()) {
-        row.scope.dispose();
-        if (scope.disposed) return;
-      }
+      detached(() => {
+        for (const row of rows.values()) {
+          row.scope.dispose();
+          if (scope.disposed) break;
+        }
+      });
+      if (scope.disposed) return;
       target.replaceChildren(end);
       rows.clear();
       previousList = next;
@@ -1182,13 +1265,13 @@ export function each<M, E, A>(
       previousIdentities = [];
       return;
     }
-    const identities = validateIdentities(items, (item, index) =>
-      collection ? collection.identity(item, index) : item,
-    );
+    const identities: readonly (A | Identity)[] = collection
+      ? validateIdentities(items, (item, index) => collection.identity(item, index))
+      : valueIdentities(items);
     const keep = new Set(identities);
     for (const [key, row] of rows) {
       if (keep.has(key)) continue;
-      row.scope.dispose();
+      detached(() => row.scope.dispose());
       if (scope.disposed) return;
       remove(row.start, row.end);
       rows.delete(key);
@@ -1278,7 +1361,9 @@ export function each<M, E, A>(
   };
   scope.jobs.push(update);
   scope.cleanups.push(() => {
-    for (const row of rows.values()) row.scope.dispose();
+    detached(() => {
+      for (const row of rows.values()) row.scope.dispose();
+    });
     rows.clear();
   });
   update();
@@ -1313,7 +1398,8 @@ export function viewRegion<M, E>(
   let definition: View<M, E> | undefined;
   if (!options.manual) scope.jobs.push(() => active?.set(scope.value));
   scope.cleanups.push(() => {
-    active?.dispose();
+    const previous = active;
+    if (previous) detached(() => previous.dispose());
     remove(start, end);
   });
   return (next: View<M, E> | undefined) =>
@@ -1326,7 +1412,7 @@ export function viewRegion<M, E>(
       const previous = active;
       active = undefined;
       definition = undefined;
-      previous?.dispose();
+      if (previous) detached(() => previous.dispose());
       if (scope.disposed) return;
       clear(start, end);
       if (!next) return;
@@ -1401,14 +1487,16 @@ export function portal<M, E>(
   let host: HTMLElement | SVGElement | undefined;
   let child: Scope<M, E> | undefined;
   scope.cleanups.push(() => {
-    child?.dispose();
+    const previous = child;
+    if (previous) detached(() => previous.dispose());
     host?.remove();
   });
   const update = () => {
     const target = mount() ?? document.body;
     const svg = svgChildren(target);
     if (!host || (host.namespaceURI === svgNamespace) !== svg) {
-      child?.dispose();
+      const previous = child;
+      if (previous) detached(() => previous.dispose());
       host?.remove();
       if (scope.disposed) return;
       host = svg
@@ -1442,66 +1530,4 @@ export function portal<M, E>(
   };
   scope.jobs.push(update);
   update();
-}
-
-// HTML parsing supplies the initial nodes. Unusual placements, such as mounting
-// an HTML-named view inside SVG, still follow the same namespace rules as element().
-function placeTemplate(parent: Node, node: Node) {
-  if (node.nodeType !== 1) {
-    parent.appendChild(node);
-    return;
-  }
-  const source = node as Element;
-  const namespace =
-    source.localName === 'svg' || svgChildren(parent)
-      ? svgNamespace
-      : 'http://www.w3.org/1999/xhtml';
-  if (source.namespaceURI === namespace) {
-    parent.appendChild(source);
-    return;
-  }
-  const target = element(parent, null, source.localName);
-  for (const attr of source.attributes) target.setAttribute(attr.name, attr.value);
-  while (source.firstChild) placeTemplate(target, source.firstChild);
-  source.remove();
-}
-
-/** Build static markup once per document/namespace, then clone native nodes at each use. */
-export function template(build: string | ((parent: Node, before: Node | null) => void), depth = 0) {
-  const documents = new WeakMap<Document, Map<boolean, Node>>();
-  return (parent: Node, before: Node | null) => {
-    const doc = parent.ownerDocument ?? document;
-    const svg = svgChildren(parent);
-    let variants = documents.get(doc);
-    if (!variants) {
-      variants = new Map();
-      documents.set(doc, variants);
-    }
-    let fragment = variants.get(svg);
-    if (!fragment) {
-      const host = svg
-        ? doc.createElementNS('http://www.w3.org/2000/svg', 'svg')
-        : doc.createElement('div');
-      if (typeof build === 'string') {
-        const source = doc.createElement('template');
-        source.innerHTML = build;
-        let node = source.content.firstChild!;
-        for (let index = 0; index < depth; index++) node = node.firstChild!;
-        placeTemplate(host, node);
-      } else build(host, null);
-      if (host.firstChild && !host.firstChild.nextSibling) {
-        fragment = host.removeChild(host.firstChild);
-      } else {
-        fragment = doc.createDocumentFragment();
-        while (host.firstChild) fragment.appendChild(host.firstChild);
-      }
-      variants.set(svg, fragment);
-    }
-    const clone = fragment.cloneNode(true);
-    parent.insertBefore(clone, before);
-    return clone;
-  };
-}
-export function literal(parent: Node, before: Node | null, value: string) {
-  parent.insertBefore((parent.ownerDocument ?? document).createTextNode(value), before);
 }

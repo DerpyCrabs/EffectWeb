@@ -1,12 +1,9 @@
-import { expect, test } from '@playwright/test';
+// @vitest-environment happy-dom
+import { expect, it } from 'vitest';
 
-test('compiled children forward, mount independently and preserve captures and local state', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/slotsFixture.tsx';
-    const { mountSlots } = (await import(path)) as typeof import('../fixtures/slotsFixture');
+it('compiled children forward, mount independently and preserve captures and local state', async () => {
+  const result = await (async () => {
+    const { mountSlots } = await import('../fixtures/slotsFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountSlots(host);
@@ -45,7 +42,7 @@ test('compiled children forward, mount independently and preserve captures and l
     const remaining = host.childNodes.length;
     host.remove();
     return { updated, disposedOne, replaced, hidden, remaining };
-  });
+  })();
   expect(result).toEqual({
     updated: {
       first: 'NEXT:1',
@@ -63,11 +60,9 @@ test('compiled children forward, mount independently and preserve captures and l
   });
 });
 
-test('slots retain SVG and foreignObject insertion context', async ({ page }) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/slotsFixture.tsx';
-    const { mountSvgSlots } = (await import(path)) as typeof import('../fixtures/slotsFixture');
+it('slots retain SVG and foreignObject insertion context', async () => {
+  const result = await (async () => {
+    const { mountSvgSlots } = await import('../fixtures/slotsFixture');
     const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     document.body.append(host);
     const source = mountSvgSlots(host);
@@ -84,19 +79,13 @@ test('slots retain SVG and foreignObject insertion context', async ({ page }) =>
     source.dispose();
     host.remove();
     return result;
-  });
+  })();
   expect(result).toEqual({ svg: true, html: true, same: true, row: '10' });
 });
 
-test('derived slot placements survive structural sharing and replacement with other content', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/slotsFixture.tsx';
-    const { mountChangingSlots } = (await import(
-      path
-    )) as typeof import('../fixtures/slotsFixture');
+it('derived slot placements survive structural sharing and replacement with other content', async () => {
+  const result = await (async () => {
+    const { mountChangingSlots } = await import('../fixtures/slotsFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountChangingSlots(host);
@@ -119,7 +108,7 @@ test('derived slot placements survive structural sharing and replacement with ot
     const remaining = host.childNodes.length;
     host.remove();
     return { updated, second, detached, plain, returned, remaining };
-  });
+  })();
   expect(result).toEqual({
     updated: { label: 'two', same: true, value: 'local edit' },
     second: 'two',

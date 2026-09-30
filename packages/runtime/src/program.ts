@@ -1,6 +1,5 @@
 import { protectSnapshot, type Snapshot } from './snapshot.js';
 import { reportError, reportSafely } from './errors.js';
-import { traceProgram, nextProgramId, hasProgramObservers } from './diagnostics.js';
 import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
 import * as Fiber from 'effect/Fiber';
@@ -20,17 +19,23 @@ export const commandSlot = (name: string): CommandSlot => Symbol(name) as Comman
 
 /**
  * A family of slots keyed by domain identity, e.g. one debounced request per row.
- * Declare the family once (module or controller scope); the same key always returns
- * the same slot, so `replace` and `drop` apply per key. Calling `commandSlot` inside
- * a handler instead creates a fresh slot per call, which never replaces earlier work.
+ * Declare the family once (module or controller scope); the same key returns the same slot
+ * for as long as anything holds it, so `replace` and `drop` apply per key. Running work holds
+ * its slot, and a key nobody references any more is released, so long-lived applications do
+ * not accumulate one slot per entity ever seen. Calling `commandSlot` inside a handler instead
+ * creates a fresh slot per call, which never replaces earlier work.
  */
 export function commandSlots(name: string): (key: string | number) => CommandSlot {
-  const slots = new Map<string | number, CommandSlot>();
+  const slots = new Map<string | number, WeakRef<CommandSlot>>();
+  const released = new FinalizationRegistry<string | number>((key) => {
+    if (slots.get(key)?.deref() === undefined) slots.delete(key);
+  });
   return (key) => {
-    let slot = slots.get(key);
+    let slot = slots.get(key)?.deref();
     if (!slot) {
       slot = commandSlot(`${name}:${key}`);
-      slots.set(key, slot);
+      slots.set(key, new WeakRef(slot));
+      released.register(slot, key);
     }
     return slot;
   };
@@ -101,21 +106,6 @@ export interface Transition<Model, Message, R = never> {
   readonly commands?: readonly Command<Message, R>[];
   readonly cancel?: readonly CommandSlot[];
 }
-export function mapTransition<Model, Message, Parent, ParentMessage, R = never>(
-  transition: Transition<Model, Message, R>,
-  maps: {
-    readonly model: (model: Snapshot<Model>) => Parent | Snapshot<Parent>;
-    readonly message: (message: Message) => ParentMessage;
-  },
-): Transition<Parent, ParentMessage, R> {
-  return {
-    model: maps.model(transition.model as Snapshot<Model>),
-    ...(transition.cancel ? { cancel: transition.cancel } : {}),
-    ...(transition.commands
-      ? { commands: transition.commands.map((command) => mapCommand(command, maps.message)) }
-      : {}),
-  };
-}
 export interface Program<Model, Message> {
   readonly model: () => Snapshot<Model>;
   readonly send: Send<Message>;
@@ -133,30 +123,10 @@ export interface RunningProgram<Model, Message> extends Program<Model, Message> 
 
 export function program<Model, Message>(options: {
   initial: Model | Snapshot<Model>;
-  name?: string;
   update: (model: Snapshot<Model>, message: Message) => Transition<Model, Message>;
   onDefect?: (cause: unknown) => void;
   runtime?: Pick<UiRuntime<never>, 'runFork'>;
 }): RunningProgram<Model, Message> {
-  const id = nextProgramId();
-  const trace = (
-    kind: import('./diagnostics').ProgramUpdate['kind'],
-    slot?: CommandSlot,
-    message?: Message,
-  ) =>
-    hasProgramObservers() &&
-    traceProgram({
-      program: id,
-      ...(options.name ? { name: options.name } : {}),
-      kind,
-      ...(slot ? { slot: slot.description ?? 'command' } : {}),
-      ...(message &&
-      typeof message === 'object' &&
-      'type' in message &&
-      typeof message.type === 'string'
-        ? { message: message.type }
-        : {}),
-    });
   const waiters = new Set<{ slot: CommandSlot | undefined; done: () => void }>();
   const notify = () => {
     notifyStopped();
@@ -218,7 +188,6 @@ export function program<Model, Message>(options: {
     const previous = running.get(slot);
     running.delete(slot);
     if (previous) {
-      trace('cancel', slot);
       const pending = previous.pending.splice(0);
       for (const command of pending) discard(command, reason);
       for (const task of previous.active) {
@@ -246,7 +215,6 @@ export function program<Model, Message>(options: {
   const start = (command: Command<Message>, group: Group, task: Running) => {
     const valid = () => !disposed && running.get(command.slot) === group && group.active.has(task);
     if (!valid()) return;
-    trace('start', command.slot);
     const effect = command.stream
       ? command.stream.pipe(
           Stream.runForEach((message) =>
@@ -274,9 +242,16 @@ export function program<Model, Message>(options: {
       }
       group.active.delete(task);
       if (!group.active.size && !group.pending.length) running.delete(command.slot);
-      trace(exit._tag === 'Success' ? 'complete' : 'defect', command.slot);
       if (exit._tag === 'Success') {
-        if (Option.isSome(exit.value)) enqueue(exit.value.value, command.slot);
+        if (Option.isSome(exit.value)) {
+          // The reducer runs inside this fiber's observer, where a throw has no caller to
+          // reach. Report it like any other failure of this command.
+          try {
+            enqueue(exit.value.value, command.slot);
+          } catch (error) {
+            reportSafely(options.onDefect ?? reportError, error);
+          }
+        }
       } else reportSafely(options.onDefect ?? reportError, exit.cause);
       if (!disposed && running.get(command.slot) === group && !group.active.size) {
         // Process earlier reducer messages and completion subscribers before choosing the
@@ -310,7 +285,6 @@ export function program<Model, Message>(options: {
         }
         const { message } = queue.shift()!;
         const transition = options.update(current as Snapshot<Model>, message);
-        trace('update', undefined, message);
         for (const slot of transition.cancel ?? []) cancel(slot);
         const next = protectSnapshot(transition.model) as Model;
         if (!Object.is(current, next)) {
@@ -368,7 +342,6 @@ export function program<Model, Message>(options: {
     deferred.length = 0;
     for (const slot of running.keys()) cancel(slot);
     listeners.clear();
-    trace('dispose');
     notify();
   };
   return {
@@ -412,7 +385,6 @@ export function program<Model, Message>(options: {
 /** Construct a program in the current Effect environment and own it in the current scope. */
 export const makeProgram = <Model, Message, R = never>(options: {
   initial: Model | Snapshot<Model>;
-  name?: string;
   update: (model: Snapshot<Model>, message: Message) => Transition<Model, Message, R>;
   onDefect?: (cause: unknown) => void;
 }): Effect.Effect<RunningProgram<Model, Message>, never, R | Scope.Scope> =>

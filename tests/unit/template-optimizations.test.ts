@@ -1,14 +1,9 @@
-import { expect, test } from '@playwright/test';
+// @vitest-environment happy-dom
+import { expect, it } from 'vitest';
 
-test('cloned templates retain dynamic siblings, forwarded props, snapshot captures and Effect events', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/templateOptimizationFixture.tsx';
-    const { mountTemplates } = (await import(
-      path
-    )) as typeof import('../fixtures/templateOptimizationFixture');
+it('cloned templates retain dynamic siblings, forwarded props, snapshot captures and Effect events', async () => {
+  const result = await (async () => {
+    const { mountTemplates } = await import('../fixtures/templateOptimizationFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const first = mountTemplates(host);
@@ -37,7 +32,7 @@ test('cloned templates retain dynamic siblings, forwarded props, snapshot captur
     second.dispose();
     host.remove();
     return { snapshot, order, props, effectCount, stable, text, disposed };
-  });
+  })();
   expect(result).toEqual({
     snapshot: { seen: [0], count: 2, other: 0 },
     order: ['DIV', 'FOOTER'],
@@ -49,15 +44,9 @@ test('cloned templates retain dynamic siblings, forwarded props, snapshot captur
   });
 });
 
-test('templates preserve exact trees, documents and both insertion namespaces', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/templateOptimizationFixture.tsx';
-    const { mountContexts } = (await import(
-      path
-    )) as typeof import('../fixtures/templateOptimizationFixture');
+it('templates preserve exact trees, documents and both insertion namespaces', async () => {
+  const result = await (async () => {
+    const { mountContexts } = await import('../fixtures/templateOptimizationFixture');
     const results = [];
     for (const svg of [false, true]) {
       for (const kind of ['html', 'svg'] as const) {
@@ -88,7 +77,7 @@ test('templates preserve exact trees, documents and both insertion namespaces', 
     };
     fixture.dispose();
     return { results, shapes };
-  });
+  })();
   expect(result.shapes).toEqual({ table: 'TR', paragraph: 'DIV', buttons: 'BUTTON' });
   for (const item of result.results) {
     expect(item.text).toBe('after');

@@ -1,4 +1,4 @@
-import { Context, Effect, Exit, Scope, SubscriptionRef } from 'effect';
+import { Context, Effect, Exit, Scope } from 'effect';
 import {
   available,
   commandSlot,
@@ -9,18 +9,11 @@ import {
   list,
   ViewBinding,
   makeProgram,
-  mapSource,
   mount,
   observe,
   view,
 } from 'effectweb';
-import {
-  fromSubscriptionRef,
-  lazyView,
-  listView,
-  makeDomMount,
-  makeEffectHandler,
-} from 'effectweb/advanced';
+import { lazyView, listView } from 'effectweb/advanced';
 
 export async function mountScopedRendering(parent: HTMLElement, optimized = true) {
   const lifetime = Scope.makeUnsafe();
@@ -78,63 +71,6 @@ export async function mountScopedRendering(parent: HTMLElement, optimized = true
         close: () => Effect.runPromise(Scope.close(lifetime, Exit.void)),
       };
     }).pipe(Scope.provide(lifetime)),
-  );
-}
-
-class Label extends Context.Service<Label, { readonly value: string }>()('fixture/Label') {}
-export async function mountEffectSetup(parent: HTMLElement) {
-  const lifetime = Scope.makeUnsafe();
-  const releases: string[] = [];
-  return await Effect.runPromise(
-    Effect.gen(function* () {
-      const ref = yield* SubscriptionRef.make({ count: 0, unrelated: 0 });
-      const source = yield* fromSubscriptionRef(ref);
-      const selected = mapSource(source, (model) => model.count);
-      let projections = 0;
-      const App = Effect.gen(function* () {
-        yield* Effect.acquireRelease(Effect.void, () =>
-          Effect.sync(() => {
-            releases.push('view');
-          }),
-        );
-        const click = yield* makeEffectHandler(() =>
-          Effect.gen(function* () {
-            const label = yield* Label;
-            yield* SubscriptionRef.update(ref, (model) => ({
-              ...model,
-              count: model.count + label.value.length,
-            }));
-          }),
-        );
-        const binding = yield* makeDomMount((_element: HTMLButtonElement) =>
-          Effect.acquireRelease(Effect.void, () =>
-            Effect.sync(() => {
-              releases.push('dom');
-            }),
-          ),
-        );
-        return view<{}>(() => (
-          <button use={binding} onClick={() => click()}>
-            {observe(selected, (count) => {
-              projections++;
-              return count;
-            })}
-          </button>
-        ));
-      });
-      const staticSource = { model: () => ({}), subscribe: () => () => {} };
-      const mounted = yield* mount(parent, App, staticSource);
-      return {
-        updateUnrelated: () =>
-          Effect.runPromise(
-            SubscriptionRef.update(ref, (model) => ({ ...model, unrelated: model.unrelated + 1 })),
-          ),
-        projections: () => projections,
-        releases,
-        closeMount: () => Effect.runPromise(mounted.close()),
-        close: () => Effect.runPromise(Scope.close(lifetime, Exit.void)),
-      };
-    }).pipe(Effect.provideService(Label, { value: 'label' }), Scope.provide(lifetime)),
   );
 }
 

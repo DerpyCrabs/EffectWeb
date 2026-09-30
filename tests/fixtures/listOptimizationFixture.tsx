@@ -1,4 +1,4 @@
-import { list as renderList } from 'effectweb';
+import { list } from 'effectweb';
 import { collection, mountView, program, view } from 'effectweb';
 import { identity } from './fixtureInstrumentation';
 
@@ -15,7 +15,7 @@ export function mountListOptimization(parent: HTMLElement) {
   const rows = collection<Item>((item) => identity(counters, item.id));
   const View = view<Model, Partial<Model>>((model, send) => (
     <section>
-      {renderList(rows.from(model.items), (item, index) => (
+      {list(rows.from(model.items), (item, index) => (
         <button
           class={model.selected === item.id ? 'selected' : ''}
           data-id={item.id}

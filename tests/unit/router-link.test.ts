@@ -1,10 +1,9 @@
-import { expect, test } from '@playwright/test';
+// @vitest-environment happy-dom
+import { expect, it } from 'vitest';
 
-test('router links render real anchors and navigate in place on plain clicks', async ({ page }) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/routerLinkFixture.tsx';
-    const { mountLinks } = (await import(path)) as typeof import('../fixtures/routerLinkFixture');
+it('router links render real anchors and navigate in place on plain clicks', async () => {
+  const result = await (async () => {
+    const { mountLinks } = await import('../fixtures/routerLinkFixture');
     const parent = document.createElement('main');
     document.body.append(parent);
     const links = await mountLinks(parent);
@@ -27,7 +26,7 @@ test('router links render real anchors and navigate in place on plain clicks', a
     const active = notes!.getAttribute('aria-current');
     await links.close();
     return { initial, afterModified, afterPlain, active };
-  });
+  })();
   expect(result).toEqual({
     initial: {
       href: '/files/notes',
@@ -42,13 +41,9 @@ test('router links render real anchors and navigate in place on plain clicks', a
   });
 });
 
-test('external and download anchors retain native destinations and click behavior', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/routerLinkFixture.tsx';
-    const { mountLinks } = (await import(path)) as typeof import('../fixtures/routerLinkFixture');
+it('external and download anchors retain native destinations and click behavior', async () => {
+  const result = await (async () => {
+    const { mountLinks } = await import('../fixtures/routerLinkFixture');
     const parent = document.createElement('main');
     document.body.append(parent);
     const links = await mountLinks(parent);
@@ -73,7 +68,7 @@ test('external and download anchors retain native destinations and click behavio
     };
     await links.close();
     return value;
-  });
+  })();
   expect(result).toEqual({
     external: 'https://example.com/report?x=1#part',
     download: '',

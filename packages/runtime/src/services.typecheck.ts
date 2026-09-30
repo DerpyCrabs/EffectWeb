@@ -2,7 +2,7 @@ import { commandSlot, type CommandSlot, type TaskPolicy } from './program.js';
 /* oxlint-disable effecttsgo/missing-effect-context -- Negative service-requirement type contracts. */
 import { Context, Effect } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
-import { defineTasks } from './tasks.js';
+import { defineTasks, ownedTasks } from './tasks.js';
 import { uiRuntime } from './runtime.js';
 import { effectCommand, program } from './program.js';
 import { view } from './dom.js';
@@ -109,7 +109,7 @@ modelOwner({ count: 0 }).run(commandSave, Storage, 'replace');
 // @ts-expect-error An unrelated service cannot run in this owner.
 ownedModel.run(commandMissing, Missing, 'replace');
 
-const controllerTasks = defineTasks(ownedModel, {
+const controllerTasks = ownedTasks(ownedModel, {
   save: {
     policy: 'drop',
     run: (text: string, suffix = '!') =>
@@ -123,11 +123,11 @@ controllerTasks.save(1);
 // @ts-expect-error Bound controller task names remain inferred.
 // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
 controllerTasks.missing();
-defineTasks(modelOwner({}), {
+ownedTasks(modelOwner({}), {
   // @ts-expect-error Controller tasks cannot erase missing services.
   save: { policy: 'drop', run: () => Storage },
 });
-defineTasks(ownedModel, {
+ownedTasks(ownedModel, {
   // @ts-expect-error An unrelated service cannot run in this owner.
   missing: { policy: 'drop', run: () => Missing },
 });
@@ -135,7 +135,7 @@ defineTasks(ownedModel, {
 const closedOwner = modelOwner({});
 const genericRun = <A, E>(slot: CommandSlot, effect: Effect.Effect<A, E>, policy: TaskPolicy) =>
   closedOwner.run(slot, effect, policy);
-const genericBound = defineTasks(
+const genericBound = ownedTasks(
   { run: genericRun },
   { save: { policy: 'drop', run: (text: string) => Effect.succeed(text) } },
 );

@@ -1,14 +1,9 @@
-import { expect, test } from '@playwright/test';
+// @vitest-environment happy-dom
+import { expect, it } from 'vitest';
 
-test('copied-array derivations update stable DOM without mutating frozen input', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/dependencyFixture.tsx';
-    const { mountCopiedArrays } = (await import(
-      path
-    )) as typeof import('../fixtures/dependencyFixture');
+it('copied-array derivations update stable DOM without mutating frozen input', async () => {
+  const result = await (async () => {
+    const { mountCopiedArrays } = await import('../fixtures/dependencyFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const fixture = mountCopiedArrays(host);
@@ -30,7 +25,7 @@ test('copied-array derivations update stable DOM without mutating frozen input',
     const remaining = host.childNodes.length;
     host.remove();
     return { ...result, remaining };
-  });
+  })();
   expect(result).toEqual({
     before: ['1,2,3', '2,1,3'],
     after: ['4,6,8', '6,4,8'],
@@ -41,11 +36,8 @@ test('copied-array derivations update stable DOM without mutating frozen input',
   });
 });
 
-test('JSX constants keep declaration bindings through helper and list shadowing', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
+it('JSX constants keep declaration bindings through helper and list shadowing', async () => {
+  const result = await (async () => {
     const fixturePath = '/tests/fixtures/compilerContractFixture.tsx';
     const { mountLexicalCapture } = (await import(
       fixturePath
@@ -68,7 +60,7 @@ test('JSX constants keep declaration bindings through helper and list shadowing'
     source.dispose();
     host.remove();
     return result;
-  });
+  })();
   expect(result).toEqual({
     before: ['outer:OUTER', 'outer:OUTER', 'outer:OUTER', 'outer:OUTER'],
     after: [
@@ -84,11 +76,8 @@ test('JSX constants keep declaration bindings through helper and list shadowing'
   });
 });
 
-test('detached SVG roots, branches, lists and templates retain namespace across updates', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
+it('detached SVG roots, branches, lists and templates retain namespace across updates', async () => {
+  const result = await (async () => {
     const fixturePath = '/tests/fixtures/compilerContractFixture.tsx';
     const { mountSvgContexts } = (await import(
       fixturePath
@@ -119,7 +108,7 @@ test('detached SVG roots, branches, lists and templates retain namespace across 
     const remaining = host.childNodes.length;
     host.remove();
     return { before, after, sameRow, x, svgGraphics, remount, html, remaining };
-  });
+  })();
   expect(result).toEqual({
     before: true,
     after: true,
@@ -132,15 +121,9 @@ test('detached SVG roots, branches, lists and templates retain namespace across 
   });
 });
 
-test('template aliases refresh helper and stable row scopes and parenthesized methods track receivers', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/dependencyFixture.tsx';
-    const { mountDependencies } = (await import(
-      path
-    )) as typeof import('../fixtures/dependencyFixture');
+it('template aliases refresh helper and stable row scopes and parenthesized methods track receivers', async () => {
+  const result = await (async () => {
+    const { mountDependencies } = await import('../fixtures/dependencyFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const source = mountDependencies(host);
@@ -158,7 +141,7 @@ test('template aliases refresh helper and stable row scopes and parenthesized me
     source.dispose();
     host.remove();
     return result;
-  });
+  })();
   expect(result).toEqual({
     before: 'beforebeforebefore1',
     after: 'afterafterafter2',
@@ -168,33 +151,30 @@ test('template aliases refresh helper and stable row scopes and parenthesized me
   });
 });
 
-test('destructured inputs preserve field granularity, defaults, rest and current event captures', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/compilerContractFixture.tsx';
-    const { mountDestructured } = (await import(
-      path
-    )) as typeof import('../fixtures/compilerContractFixture');
+it('destructured inputs preserve field granularity, defaults, rest and current event captures', async () => {
+  const result = await (async () => {
+    const { mountDestructured } = await import('../fixtures/compilerContractFixture');
     const host = document.createElement('div');
     document.body.append(host);
     const fixture = mountDestructured(host);
     const simple = host.querySelector<HTMLButtonElement>('[data-simple]')!;
     const complex = host.querySelector<HTMLButtonElement>('[data-complex]')!;
     const initial = complex.textContent?.trim();
-    const formats = fixture.formats();
+    // Bindings apply to the DOM only when their own inputs change.
+    const mutations = new MutationObserver(() => {});
+    mutations.observe(host, { childList: true, characterData: true, subtree: true });
     fixture.set({ unrelated: 1 });
-    const unchanged = fixture.formats() === formats;
+    const unchanged = mutations.takeRecords().length === 0;
     fixture.set({ title: 'new', user: { name: 'Bob' }, items: ['c', 'b', 'a'] });
+    const mutated = mutations.takeRecords().length > 0;
+    mutations.disconnect();
     complex.click();
     const selected = fixture.model().selected;
     simple.click();
     const result = {
       initial,
       unchanged,
-      initialFormats: formats,
-      formats: fixture.formats(),
+      mutated,
       text: complex.textContent?.trim(),
       selected,
       simpleSelection: fixture.model().selected,
@@ -204,12 +184,11 @@ test('destructured inputs preserve field granularity, defaults, rest and current
     fixture.dispose();
     host.remove();
     return result;
-  });
+  })();
   expect(result).toEqual({
     initial: 'fallback:a:1',
     unchanged: true,
-    initialFormats: 1,
-    formats: 2,
+    mutated: true,
     text: 'new:c:2',
     selected: 'new:Bob:c',
     simpleSelection: 'Bob',

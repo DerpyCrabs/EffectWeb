@@ -10,28 +10,33 @@ This is the guide to read before writing EffectWeb code, whether you are a perso
 
 ## Choose the API
 
-| You need                                                 | Use                                                                                   |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Presentation of props                                    | `view<Props, Message>((model, send) => …)`                                            |
-| Rows that can be added, removed, reordered or edited     | `list(entities(rows), render)`; `collection(identity)` when the key is not `id`       |
-| Static or append-only values without state               | `list(sequence(values), render)` or a plain `.map` of text-only markup                |
-| Local UI fields (open, draft text, tab)                  | `localComponent({ init, view })`                                                      |
-| Local fields plus Effect work (save, search) with status | `defineTasks({ init }).tasks({ … }).view(…)`                                          |
-| Transitions you want to name and test as messages        | `component({ init, update, view })` with `effectCommand`                              |
-| A feature controller shared by several views             | `modelOwner(initial)` (or `makeModelOwner` inside an Effect scope)                    |
-| One debounced/replaced request per row or entity         | `commandSlots('name')(rowId)` with `owner.run` / `effectCommand`                      |
-| An Effect started directly by a click                    | `onClick={effectEvent('drop', () => effect)}` or return the Effect from the handler   |
-| Cached server data                                       | `@effectweb/query`: `query(…)`, then `querySource` in views or `observeQuery`         |
-| Loading/empty/failure presentation                       | `<AsyncContent result={…} content={…} pending={…} failure={…} />`                     |
-| Imperative DOM (focus, charts, observers)                | `use={domMount(setup)}` or `use={domBinding(data, setup)}` with `setup` declared once |
-| Rendering into another element                           | `<Portal mount={element}>…</Portal>`                                                  |
-| Containing a render failure                              | `errorBoundary(view, { fallback })`                                                   |
-| Simple controlled inputs                                 | `onInput={(event) => …event.currentTarget.value}`; `onSubmit={submit(() => …)}`       |
-| Large validated forms                                    | `@effectweb/tanstack-form`                                                            |
-| Routing and links                                        | `@effectweb/tanstack-router` with `createLink(router)`                                |
-| Tests and browser fixtures                               | `renderView`, `programDriver`, `controlledEffect` from `effectweb/testing`            |
+| You need                                                   | Use                                                                                    |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Presentation of props                                      | `view<Props, Message>((model, send) => …)`                                             |
+| Rows that can be added, removed, reordered or edited       | `list(entities(rows), render)`; `list(rows, (row) => row.code, render)` for other keys |
+| Static or append-only values without state                 | `list(sequence(values), render)` or a plain `.map` of text-only markup                 |
+| Local UI fields (open, draft text, tab)                    | `localComponent({ init, view })`                                                       |
+| Local fields plus Effect work (save, search) with status   | `defineTasks({ init }).tasks({ … }).view(…)`                                           |
+| Transitions you want to name and test as messages          | `component({ init, update, view })` with `effectCommand`                               |
+| A feature controller shared by several views               | `modelOwner(initial)` (or `makeModelOwner` inside an Effect scope)                     |
+| Named actions on a controller, each with a policy          | `ownedTasks(owner, { save: { run, policy: 'drop' } })`                                 |
+| A controller created from a view's props, disposed with it | `controllerView({ create, view })`                                                     |
+| One debounced/replaced request per row or entity           | `commandSlots('name')(rowId)` with `owner.run` / `effectCommand`                       |
+| An Effect started directly by a click                      | `onClick={effectEvent('drop', () => effect)}` or return the Effect from the handler    |
+| Cached server data                                         | `@effectweb/query`: `query(…)`, then `querySource` in views or `observeQuery`          |
+| Loading/empty/failure presentation                         | `<AsyncContent result={…} content={…} pending={…} failure={…} />`                      |
+| Imperative DOM (focus, charts, observers)                  | `use={domMount(setup)}` or `use={domBinding(data, setup)}` with `setup` declared once  |
+| An element a controller needs (scroll, focus, measure)     | `const pane = domHandle<HTMLDivElement>()`; `use={pane.mount}`; `pane.element()`       |
+| Rendering into another element                             | `<Portal mount={element}>…</Portal>`                                                   |
+| Containing a render failure                                | `errorBoundary(view, { fallback })`                                                    |
+| Simple controlled inputs                                   | `onInput={(event) => …event.currentTarget.value}`; `onSubmit={submit(() => …)}`        |
+| Large validated forms                                      | `@effectweb/tanstack-form`                                                             |
+| Routing and links                                          | `@effectweb/tanstack-router` with `createLink(router)`                                 |
+| Tests and browser fixtures                                 | `renderView`, `programDriver`, `controlledEffect` from `effectweb/testing`             |
 
 Import from `effectweb`; it covers ordinary applications. `effectweb/advanced` is for writing adapters (`projectionSource`, `shareValue`), explicit render optimizations (`memoView`, `listView`, `lazyView`) and a few composition utilities. Reach for it only when a root API has no equivalent, and prefer Effect's own APIs (`Effect.suspend`, `Scope`) to wrappers. `effectweb/testing` is for tests. Never import `effectweb/dom`, which is the compiler's output target.
+
+Naming: a plain constructor (`modelOwner`, `program`, `mountView`) has a `make*` or Effect counterpart (`makeModelOwner`, `makeProgram`, `mount`) that runs inside an Effect and releases the value with the surrounding scope. Teardown is `dispose()` when synchronous is enough and `close()` when the caller must wait for asynchronous finalizers. Do not name controllers or helpers `use*`; there are no hooks.
 
 ## Views
 
@@ -56,7 +61,7 @@ export const TodoRow = view<Todo, TodoMessage>((todo, send) => (
 
 - A view without messages (`view<Props>`) and every component (`localComponent`, `component`, `defineTasks(…).view`) render as ordinary JSX: `<Disclosure title="More" />`.
 - A view with messages needs its dispatcher: `<ViewBinding view={TodoRow} model={todo} send={send} />`.
-- Helpers are plain functions; call them with values from `model`. Use `class`, not `className`. `key`, `ref` and `innerHTML` are rejected by the compiler (EW1001).
+- Helpers are plain functions; call them with values from `model`. Write `class`, never `className`. `key`, `ref` and `innerHTML` are rejected by the compiler (EW1001).
 - Controlled inputs: bind `value`/`checked` from the model and update in `onInput`/`onChange`, reading the typed `event.currentTarget.value` (or `.checked`, or `.valueAsNumber`, which is `NaN` when empty). If a handler normalizes or rejects the edit, the control is restored to the model value.
 
 ## Lists and identity
@@ -73,11 +78,12 @@ export const TodoList = view<{ readonly todos: readonly Todo[] }, TodoMessage>((
 ));
 ```
 
-- `entities(rows)` keys by `row.id`. Use `const byCode = collection<Row>((row) => row.code)` then `list(byCode.from(rows), render)` for other keys. Keys must be unique; duplicates throw.
-- `list(plainArray, render)` keys by object reference, so editing a row (a new object) remounts it. Prefer `entities`.
-- Do not build identity from an index, as in `` identity: (p) => `${type}-${index}` ``. Deleting a middle row gives its index to the next row.
+- `entities(rows)` keys by `row.id`. For another key, write the identity inline: `list(rows, (row) => row.code, render)`. Declare `const byCode = collection<Row>((row) => row.code)` and `list(byCode.from(rows), render)` only when the same rows are also shared with `byCode.share` or filtered as keyed rows. Keys must be unique; duplicates throw, and the error names the repeated key.
+- `list(plainArray, render)` keys by value: an object row by reference, so editing it (a new object) remounts it, and a repeated string or number by its occurrence. Prefer `entities`.
+- `sequence(rows)` keys by position. Use it for rows that are only presentation (text parts, static options). Rows with editable controls, or rows selected with `.filter(…)`, need a real key (EW3005).
+- Do not build identity from an index, as in ``collection((row, index) => `${row.type}-${index}`)`` (EW3006). Deleting a middle row gives its index to the next row. An index is acceptable only as the fallback for rows that have no identity yet: `(row, index) => row.id || `unsaved:${index}``.
 - `.map` over a literal array (`['a', 'b'].map(…)`) or over rows rendering only text is fine.
-- The `effectweb/identity` lint (EW3001) flags `.map` rows that contain components or form controls.
+- The `effectweb/identity` lint flags `.map` rows that contain components or form controls (EW3001) and the `sequence` and index cases above.
 
 ## Local state
 
@@ -195,10 +201,31 @@ const changeAmount = (id: string, amount: number) => {
 };
 ```
 
-- Declare slots once, at module or controller scope. Calling `commandSlot('x')` inside a handler creates a new slot on every call, so `replace` and `drop` never apply and stale responses can overwrite newer ones (EW3003). Use `commandSlots(name)(key)` for per-row work.
+- Declare slots once, at module or controller scope. Calling `commandSlot('x')` inside a handler (inline or through a local variable) creates a new slot on every call, so `replace` and `drop` never apply and stale responses can overwrite newer ones (EW3003). Use `commandSlots(name)(key)` for per-row work.
 - Policies: `replace` for search/debounce/latest-wins, `drop` for submit buttons (ignore double clicks), `queue` for writes that must all happen in order, `latest-queued` for autosave, `parallel` only for independent work.
 - Interruption is not rollback: an interrupted save may already have reached the server. Serialize writes with `queue`/`latest-queued`.
 - `owner.own(resource)` ties caches and subscriptions to the owner. Call `dispose()` (or yield `close()`) when the feature unmounts. `makeModelOwner` does this with the surrounding Effect scope.
+
+### A controller owned by a view
+
+When a view needs a controller object created from its props (a `modelOwner`, queries, subscriptions), rather than named messages, use `controllerView`. The controller is created on mount, receives new props, and is disposed with the view. `identity` recreates it when the entity changes.
+
+```tsx
+function chatController(props: Snapshot<{ readonly chatId: string }>) {
+  const owner = modelOwner({ chatId: props.chatId, draft: '' });
+  return {
+    source: owner.source,
+    receive: (next: Snapshot<{ readonly chatId: string }>) => owner.patch({ chatId: next.chatId }),
+    dispose: owner.dispose,
+    close: owner.close,
+  };
+}
+export const Chat = controllerView({
+  identity: (props) => props.chatId,
+  create: chatController,
+  view: view<{ readonly chatId: string; readonly draft: string }>((model) => <p>{model.draft}</p>),
+});
+```
 
 ### Effects from events
 
@@ -280,11 +307,30 @@ export const Chart = view<{ readonly points: readonly number[] }>((model) => (
 ));
 ```
 
-Setup may return nothing, a cleanup function, `{ update?, dispose }`, or an Effect finalized with the element. Never create the setup function inside a view (EW3002): it would be released and acquired again on every update. Window/document listeners belong in a `domMount` too, so they are removed with the element.
+Setup may return nothing, a cleanup function, `{ update?, dispose }`, or an Effect finalized with the element. It runs in a microtask after the element is in the document, so a test that mounts and reads the result awaits a microtask first. Never create the setup function inside a view (EW3002): it would be released and acquired again on every update. Window/document listeners belong in a `domMount` too, so they are removed with the element.
+
+When a controller needs an element rather than the element needing work, declare a handle in the controller and read it where needed:
+
+```tsx
+const transcript = domHandle<HTMLDivElement>((element) => {
+  element.scrollTop = element.scrollHeight;
+});
+export const Transcript = view<{ readonly lines: readonly string[] }>((model) => (
+  <div use={transcript.mount}>
+    {list(sequence(model.lines), (line) => (
+      <p>{line}</p>
+    ))}
+  </div>
+));
+export const scrollToEnd = () => {
+  const element = transcript.element();
+  if (element) element.scrollTop = element.scrollHeight;
+};
+```
 
 ## Errors, mounting and services
 
-- Wrap risky subtrees: `errorBoundary(Profile, { fallback: view(({ error }) => …) })`.
+- Wrap risky subtrees: `errorBoundary(Profile, { fallback: view(({ error }) => …) })`. Pass `onError` to `mount`/`mountView` to collect everything else; without it failures only reach the console. In development a render failure ends with the binding that raised it: `in {model.rows} (App.tsx:7:12)`.
 - Mount inside an Effect scope with `yield* mount(parent, App, source)`. Outside Effect, use `mountView` and call the returned `dispose()`.
 - Provide services once with `uiRuntime(context)` or `makeUiRuntime()`, and pass the runtime to programs, owners and components that need `R`.
 
@@ -307,27 +353,24 @@ rendered.dispose();
 
 ## Lint setup
 
+Extend the preset. It enables the five EffectWeb rules (`valid-view`, `query-key`, `identity`, `render-safety`, `no-hook-names`) and blocks imports of the compiler's implementation modules:
+
 ```json
-{
-  "jsPlugins": ["@effectweb/compiler/oxlint"],
-  "rules": {
-    "effectweb/valid-view": "error",
-    "effectweb/query-key": "error",
-    "effectweb/identity": "warn",
-    "effectweb/render-safety": "warn"
-  }
-}
+{ "extends": ["./node_modules/@effectweb/compiler/dist/oxlint-preset.json"] }
 ```
+
+In a JavaScript configuration (for example `lint` in a Vite+ config), spread `effectwebLint` from `@effectweb/compiler/lint-preset` and add project rules after it. Every rule is an error. Every JSX file is EffectWeb's unless it declares another `@jsxImportSource`; files without JSX are checked when they import `effectweb` or an `@effectweb/*` package.
 
 `render-safety` accepts calls to functions passed in through the model, such as `props.filterOptions(items)` or `props.renderRow(row)`. It checks those closures where the parent creates them, so create them from snapshot data rather than passing controller methods that read live state.
 
 ## Checklist before you finish
 
-- [ ] Rows with components or inputs use `list(entities(…))` or `list(collection(…).from(…))`, with no index-based identity.
+- [ ] Rows with components or inputs use `list(entities(…))` or `list(rows, identity, render)`, with no index-based identity.
 - [ ] No mutation of `model`, props or data read from snapshots; updates copy.
 - [ ] Every slot is declared once; per-row work uses `commandSlots`.
 - [ ] Effects run through `owner.run`, `effectCommand`, `defineTasks` or event handlers, never inside `render`/`update`.
 - [ ] Submit-style actions use `drop`; searches use `replace`; writes that must all land use `queue`/`latest-queued`.
-- [ ] `domMount`/`domBinding` setup functions are declared outside views.
+- [ ] `domMount`/`domBinding` setup functions are declared outside views; elements a controller needs come from `domHandle`.
+- [ ] Nothing is named `use*`, and `class` is the only class attribute.
 - [ ] Links are `<Link>` elements, not buttons calling `navigate(path)`.
 - [ ] `npm run check` passes with the EffectWeb lint rules enabled.

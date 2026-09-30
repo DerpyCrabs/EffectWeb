@@ -9,8 +9,10 @@ import {
   commandSlot,
   commandSlots,
   component,
+  controllerView,
   defineTasks,
   domBinding,
+  domHandle,
   domMount,
   effectCommand,
   effectEvent,
@@ -19,6 +21,7 @@ import {
   list,
   localComponent,
   modelOwner,
+  ownedTasks,
   sequence,
   submit,
   view,
@@ -206,6 +209,32 @@ export function orderController() {
   return { source: owner.source, load, changeAmount, dispose: owner.dispose };
 }
 
+// --- Named controller actions --------------------------------------------------
+declare const documents: { save: (text: string) => Effect.Effect<void, Error> };
+export function editorController() {
+  const owner = modelOwner({ text: '' });
+  const actions = ownedTasks(owner, {
+    save: { run: (text: string) => documents.save(text), policy: 'drop' },
+  });
+  return { source: owner.source, save: actions.save, dispose: owner.dispose };
+}
+
+// --- A controller owned by a view ----------------------------------------------
+function chatController(props: Snapshot<{ readonly chatId: string }>) {
+  const owner = modelOwner({ chatId: props.chatId, draft: '' });
+  return {
+    source: owner.source,
+    receive: (next: Snapshot<{ readonly chatId: string }>) => owner.patch({ chatId: next.chatId }),
+    dispose: owner.dispose,
+    close: owner.close,
+  };
+}
+export const Chat = controllerView({
+  identity: (props) => props.chatId,
+  create: chatController,
+  view: view<{ readonly chatId: string; readonly draft: string }>((model) => <p>{model.draft}</p>),
+});
+
 // --- Event handlers that run Effects -------------------------------------------
 declare const clipboard: { copy: (text: string) => Effect.Effect<void, Error> };
 export const CopyButton = view<{ readonly text: string }>((model) => (
@@ -265,6 +294,22 @@ const drawChart = (canvas: HTMLCanvasElement, points: () => Snapshot<readonly nu
 export const Chart = view<{ readonly points: readonly number[] }>((model) => (
   <canvas use={domBinding(model.points, drawChart)} />
 ));
+
+// --- Elements a controller needs -------------------------------------------------
+const transcript = domHandle<HTMLDivElement>((element) => {
+  element.scrollTop = element.scrollHeight;
+});
+export const Transcript = view<{ readonly lines: readonly string[] }>((model) => (
+  <div use={transcript.mount}>
+    {list(sequence(model.lines), (line) => (
+      <p>{line}</p>
+    ))}
+  </div>
+));
+export const scrollToEnd = () => {
+  const element = transcript.element();
+  if (element) element.scrollTop = element.scrollHeight;
+};
 
 // --- Error boundaries ------------------------------------------------------------
 export const SafeProfile = errorBoundary(Profile, {

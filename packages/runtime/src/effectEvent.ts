@@ -4,7 +4,7 @@ import * as Fiber from 'effect/Fiber';
 import type * as Scope from 'effect/Scope';
 import { reportSafely, type ReportError } from './errors.js';
 import type { Settlement } from './settlement.js';
-import { uiRuntime, type UiRuntime } from './runtime.js';
+import type { UiRuntime } from './runtime.js';
 
 const tag = Symbol('Effect event');
 export interface EffectEventRequest {
@@ -36,15 +36,6 @@ export function effectEvent<EventType extends Event, E, R>(
       : (load(event) as Effect.Effect<unknown, E, Scope.Scope>),
   });
 }
-
-/** Capture an operation's services in Effect setup; its event listener supplies the work scope. */
-export const makeEffectHandler = <Args extends readonly unknown[], A, E, R = never>(
-  work: (...args: Args) => Effect.Effect<A, E, R | Scope.Scope>,
-): Effect.Effect<(...args: Args) => Effect.Effect<A, E, Scope.Scope>, never, R> =>
-  Effect.map(Effect.context<R>(), (context) => {
-    const runtime = uiRuntime(context);
-    return (...args) => runtime.provideScoped(Effect.suspend(() => work(...args)));
-  });
 
 /** Internal listener owner, allocated only when an event returns an owned request. */
 export function eventEffects(report: ReportError, settlement?: Settlement) {

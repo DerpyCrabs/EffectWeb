@@ -88,7 +88,7 @@ npm run test:package
 npm run dev:example
 ```
 
-`npm run fmt` uses Oxfmt and rustfmt. `npm run check` includes Oxlint, Effect diagnostics, TypeScript, and Clippy. Rebuild after changing runtime/compiler source; examples and browser tests deliberately consume built packages. Unit tests exercise source modules.
+`npm run fmt` uses Oxfmt and rustfmt. `npm run check` includes Oxlint, Effect diagnostics, TypeScript, and Clippy. Compiler behavior is tested from `packages/compiler/src/*.test.ts` against the built native binary; `test:compiler` runs the crate's own unit tests, which cover only source maps. Rebuild after changing runtime/compiler source; examples and browser tests deliberately consume built packages. Unit tests exercise source modules in Node; a test file that renders starts with `// @vitest-environment happy-dom`. Renderer contract tests in `tests/unit` run the compiled fixtures under happy-dom; only behavior that needs a real browser (focus, input editing, layout, mutation records) stays in `tests/browser`, where tests run in parallel, each in its own page.
 
 `test:package` packs a real release, installs it into a clean temporary project with install scripts disabled, checks exported files and TypeScript, builds with standard Vite, and drives a browser interaction. It verifies the native loader without relying on workspace links or a consumer Rust build.
 

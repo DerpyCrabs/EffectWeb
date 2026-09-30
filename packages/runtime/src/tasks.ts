@@ -1,5 +1,5 @@
 import type { Snapshot } from './snapshot.js';
-import type { ModelOwner, TaskPolicy } from './owner.js';
+import type { TaskPolicy } from './owner.js';
 import * as Effect from 'effect/Effect';
 import type * as Scope from 'effect/Scope';
 import * as Option from 'effect/Option';
@@ -69,23 +69,36 @@ type Init<Props, State> = {
   ) => (State | Snapshot<State>) & { readonly props?: never; readonly tasks?: never };
   /** Changing the component entity also resets editable fields and all its tasks. */
   identity?: (props: Snapshot<Props>) => unknown;
-  name?: string;
 };
-interface ControllerTask<R> {
+interface OwnedTask<R> {
   readonly run: (...args: never[]) => Effect.Effect<unknown, unknown, R>;
   readonly policy: TaskPolicy;
-  /** Actions sharing a slot share cancellation and concurrency rules. Defaults to a fresh operation identity for this definition. */
+  /** Tasks sharing a slot share cancellation and concurrency rules. Defaults to one slot per task. */
   readonly slot?: CommandSlot;
 }
-export function defineTasks<
+/**
+ * Named controller actions that run through `owner.run` with a fixed policy and slot:
+ * `const actions = ownedTasks(owner, { save: { run: save, policy: 'drop' } })` then
+ * `actions.save(text)`. Arguments are passed to `run` when the task starts.
+ */
+export function ownedTasks<
   Owner extends {
     readonly run: (slot: CommandSlot, effect: Effect.Effect<never>, policy: TaskPolicy) => void;
   },
-  T extends Record<string, ControllerTask<Effect.Services<Parameters<Owner['run']>[1]>>>,
+  T extends Record<string, OwnedTask<Effect.Services<Parameters<Owner['run']>[1]>>>,
 >(
   owner: Owner,
   definitions: T,
-): { readonly [K in keyof T]: (...args: Parameters<T[K]['run']>) => void };
+): { readonly [K in keyof T]: (...args: Parameters<T[K]['run']>) => void } {
+  const actions = Object.create(null) as Record<string, (...args: never[]) => void>;
+  for (const [name, task] of Object.entries(definitions)) {
+    const slot = task.slot ?? commandSlot(name);
+    actions[name] = (...args) =>
+      owner.run(slot, Effect.suspend(() => task.run(...args)) as Effect.Effect<never>, task.policy);
+  }
+  return actions as { readonly [K in keyof T]: (...args: Parameters<T[K]['run']>) => void };
+}
+
 export function defineTasks<Props, State extends object, R>(
   definition: Init<Props, State> & { runtime: UiRuntime<R> },
 ): ReturnType<typeof taskBuilder<Props, State, R>>;
@@ -93,24 +106,8 @@ export function defineTasks<Props, State extends object>(
   definition: Init<Props, State>,
 ): ReturnType<typeof taskBuilder<Props, State, never>>;
 export function defineTasks<Props, State extends object, R>(
-  definition:
-    | (Init<Props, State> & { runtime?: UiRuntime<R> })
-    | Pick<ModelOwner<object, R>, 'run'>,
-  definitions?: Record<string, ControllerTask<R>>,
+  definition: Init<Props, State> & { runtime?: UiRuntime<R> },
 ): unknown {
-  if ('run' in definition) {
-    const actions = Object.create(null) as Record<string, (...args: never[]) => void>;
-    for (const [name, task] of Object.entries(definitions!)) {
-      const slot = task.slot ?? commandSlot(name);
-      actions[name] = (...args) =>
-        definition.run(
-          slot,
-          Effect.suspend(() => task.run(...args)),
-          task.policy,
-        );
-    }
-    return actions;
-  }
   return taskBuilder(definition, definition.runtime);
 }
 
@@ -171,7 +168,6 @@ function taskBuilder<Props, State extends object, R>(
         const source: RunningProgram<Model, Internal> = program<Model, Internal>({
           initial: init(props as Snapshot<Props>),
           runtime: ownerRuntime,
-          ...(definition.name ? { name: definition.name } : {}),
           update: (snapshot, message) => {
             // Internal immutable reconstruction retains the declared domain types.
             const model = snapshot as Model;

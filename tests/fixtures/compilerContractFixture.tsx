@@ -1,6 +1,5 @@
-import { list as renderList } from 'effectweb';
+import { list } from 'effectweb';
 import { mountView, program, view } from 'effectweb';
-import { observeBindings } from 'effectweb/advanced';
 
 export function mountLexicalCapture(parent: HTMLElement) {
   type State = { title: string; values: readonly string[]; selected: string };
@@ -25,7 +24,7 @@ export function mountLexicalCapture(parent: HTMLElement) {
         {row({ title: 'inner' })}
         {action('shadow')}
         {indirect('alias')}
-        {renderList(model.values, (model) => (
+        {list(model.values, (model) => (
           <p data-row={model}>{caption}</p>
         ))}
       </section>
@@ -53,12 +52,12 @@ export function mountSvgContexts(parent: Element) {
     <>
       {model.visible && <circle data-dynamic="" cx={model.x} cy="10" r="5" />}
       {model.visible && <rect data-static="" width="5" height="5" />}
-      {renderList(model.rows, (row) => (
+      {list(model.rows, (row) => (
         <circle data-row={row} cx={row} cy="20" r="3" />
       ))}
       <foreignObject width="50" height="50">
         {model.visible && <div data-html="">{model.x}</div>}
-        {renderList(model.rows, (row) => (
+        {list(model.rows, (row) => (
           <p data-html-row={row}>{row}</p>
         ))}
         {model.visible && <span data-html-static="">Static HTML</span>}
@@ -92,16 +91,7 @@ export function mountDestructured(parent: HTMLElement) {
     unrelated: number;
     selected: string;
   };
-  let formats = 0;
   const format = (name: string) => name.toUpperCase();
-  // Count executions through diagnostics so the formatter itself stays pure.
-  const stopObserving = observeBindings((update) => {
-    if (
-      update.source.file.endsWith('compilerContractFixture.tsx') &&
-      update.source.expression === 'format(name)'
-    )
-      formats++;
-  });
   const Simple = view<State, Partial<State>>(({ user: { name } }, send) => (
     <button data-simple="" onClick={() => send({ selected: name })}>
       {format(name)}
@@ -126,9 +116,7 @@ export function mountDestructured(parent: HTMLElement) {
   return {
     model: source.model,
     set: source.send,
-    formats: () => formats,
     dispose() {
-      stopObserving();
       simple();
       complex();
       source.dispose();

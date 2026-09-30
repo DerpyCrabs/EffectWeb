@@ -2,7 +2,6 @@ import { commandSlot } from './program.js';
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { Scope } from './dom.js';
-import { observeBindings } from './diagnostics.js';
 import { program } from './program.js';
 import { sessionGroup } from './session.js';
 
@@ -99,48 +98,4 @@ describe('UI failure isolation', () => {
     expect(dispose).toHaveBeenCalledTimes(1);
     reported.mockRestore();
   });
-});
-
-it('reports changed dependency names without retaining model data', () => {
-  const updates = vi.fn<(update: import('./diagnostics.js').BindingUpdate) => void>();
-  const stop = observeBindings(updates);
-  const scope = new Scope({ title: 'first', count: 0 }, () => {});
-  scope.watch(
-    () => [scope.value.title],
-    () => {},
-    {
-      file: 'test.tsx',
-      line: 2,
-      column: 3,
-      expression: 'model.title',
-      dependencies: ['model.title'],
-    },
-  );
-  scope.set({ title: 'first', count: 1 });
-  expect(updates).toHaveBeenCalledTimes(1);
-  scope.set({ title: 'second', count: 1 });
-  expect(updates.mock.lastCall![0].changed).toEqual(['model.title']);
-  stop();
-  scope.set({ title: 'third', count: 1 });
-  expect(updates).toHaveBeenCalledTimes(2);
-});
-
-it('does not revive a disposed diagnostic observer when another observer stops', () => {
-  const first = vi.fn(),
-    second = vi.fn();
-  const stopFirst = observeBindings(first),
-    stopSecond = observeBindings(second);
-  const scope = new Scope(0, () => {});
-  scope.watch(
-    () => [scope.value],
-    () => {},
-    { file: 'test.tsx', line: 1, column: 1, expression: 'model', dependencies: ['model'] },
-  );
-  stopFirst();
-  stopSecond();
-  first.mockClear();
-  second.mockClear();
-  scope.set(1);
-  expect(first).not.toHaveBeenCalled();
-  expect(second).not.toHaveBeenCalled();
 });

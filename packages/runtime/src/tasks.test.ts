@@ -2,11 +2,9 @@ import { commandSlot } from './program.js';
 import { Context, Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
 import { describe, expect, it } from 'vitest';
-import { defineTasks } from './tasks.js';
+import { defineTasks, ownedTasks } from './tasks.js';
 import { controlledEffect, programDriver } from './testing.js';
 import { uiRuntime } from './runtime.js';
-
-const commandGeneration = commandSlot('generation');
 
 class Store extends Context.Service<
   Store,
@@ -189,12 +187,13 @@ describe('named owned tasks', () => {
   );
 });
 
+const commandGeneration = commandSlot('generation');
 it('binds controller tasks with lazy arguments, shared slots, parallel work and owner disposal', async () => {
   const { modelOwner } = await import('./owner.js');
   const app = modelOwner({ count: 0 });
   const pending = controlledEffect<void>();
   const calls: string[] = [];
-  const actions = defineTasks(app, {
+  const actions = ownedTasks(app, {
     send: {
       slot: commandGeneration,
       policy: 'drop',

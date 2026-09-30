@@ -204,9 +204,9 @@ it.each(['\r', '\r\n', '\u2028', '\u2029'])(
     ]);
   },
 );
-it('resolves an explicitly configured runtime and leaves unrelated modules alone', () => {
+it('resolves an explicitly configured runtime and compiles JSX from any module', () => {
   const source = `import {view} from '@example/ui';export const App=view(model=><b>{model.label}</b>);`;
-  expect(compileSource(source, 'app.tsx').code).toBe(source);
+  expect(compileSource(source, 'app.tsx').code).toContain('effectweb/dom');
   const result = compileSource(source, 'app.tsx', {
     importSource: '@example/ui',
     runtimeModule: 'runtime/dom',
@@ -234,8 +234,8 @@ it('adds source metadata for evaluated JSX values only in development', () => {
   const source = `import {view} from 'effectweb';const App=view(model=><p title={model.title}>{format(model)}</p>);`;
   const dev = compileSource(source, 'app.tsx', { development: true });
   const prod = compileSource(source, 'app.tsx', { development: false });
-  expect(dev.code).toContain('"dependencies": ["format(model)"]');
-  expect(prod.code).not.toContain('dependencies');
+  expect(dev.code).toContain('"expression": "format(model)"');
+  expect(prod.code).not.toContain('"expression"');
   expect(diagnose(source, 'app.tsx')).toEqual([]);
 });
 it('reports original source locations and content in usable source maps', () => {

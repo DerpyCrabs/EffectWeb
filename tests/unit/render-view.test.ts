@@ -1,14 +1,9 @@
-import { expect, test } from '@playwright/test';
+// @vitest-environment happy-dom
+import { expect, it } from 'vitest';
 
-test('renderView mounts components with fixed input, updates, records messages and disposes', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/renderViewFixture.tsx';
-    const { renderFixtures } = (await import(
-      path
-    )) as typeof import('../fixtures/renderViewFixture');
+it('renderView mounts components with fixed input, updates, records messages and disposes', async () => {
+  const result = await (async () => {
+    const { renderFixtures } = await import('../fixtures/renderViewFixture');
     const parent = document.createElement('main');
     document.body.append(parent);
     const { counter, row, closeRow, forwarded, counterHost, rowHost } = renderFixtures(parent);
@@ -23,7 +18,7 @@ test('renderView mounts components with fixed input, updates, records messages a
     counter.dispose();
     await closeRow();
     return { clicked, updated, preserved, sent, forwarded, empty: parent.textContent };
-  });
+  })();
   expect(result).toEqual({
     clicked: 'first:1',
     updated: 'second:1',

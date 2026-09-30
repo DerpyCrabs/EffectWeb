@@ -7,14 +7,7 @@ export type AntDesignIconProps = JSX.IntrinsicElements['svg'] & {
 export type AntDesignIcon = View<AntDesignIconProps, never>;
 
 export function iconAttributes(props: AntDesignIconProps, name: string, viewBox: string) {
-  const {
-    size = '1em',
-    title,
-    children: _children,
-    class: className,
-    className: alternateClassName,
-    ...attributes
-  } = props;
+  const { size = '1em', title, children: _children, class: className, ...attributes } = props;
   const labelled = Boolean(title || attributes['aria-label'] || attributes['aria-labelledby']);
   return {
     xmlns: 'http://www.w3.org/2000/svg',
@@ -26,6 +19,6 @@ export function iconAttributes(props: AntDesignIconProps, name: string, viewBox:
     'aria-hidden': labelled ? undefined : true,
     role: labelled ? 'img' : undefined,
     ...attributes,
-    class: ['anticon', `anticon-${name}`, className, alternateClassName].filter(Boolean).join(' '),
+    class: ['anticon', `anticon-${name}`, className].filter(Boolean).join(' '),
   };
 }
