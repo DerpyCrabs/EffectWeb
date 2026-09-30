@@ -1,8 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
-import ts from 'typescript';
-import { compile } from '../packages/compiler/native.cjs';
+import { transformSync } from 'esbuild';
 
 const require = createRequire(import.meta.url);
 const upstream = dirname(require.resolve('@ant-design/icons-svg/package.json'));
@@ -10,23 +9,29 @@ const directory = 'packages/antd-icons/dist';
 mkdirSync(`${directory}/icons`, { recursive: true });
 
 const transpile = (source) =>
-  ts.transpileModule(source, {
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ESNext,
-      verbatimModuleSyntax: true,
-    },
-  }).outputText;
+  transformSync(source, {
+    target: 'es2022',
+    supported: { 'import-attributes': true },
+    format: 'esm',
+    loader: 'ts',
+    tsconfigRaw: { compilerOptions: { verbatimModuleSyntax: true } },
+  }).code;
 writeFileSync(
   `${directory}/attributes.js`,
   transpile(readFileSync('packages/antd-icons/src/attributes.ts', 'utf8')),
 );
 
+// Geometry ships as data; the shared icon factory builds the markup once per icon.
 function geometry(node) {
-  const attrs = Object.entries(node.attrs)
-    .map(([key, value]) => `${key}={${JSON.stringify(value)}}`)
-    .join(' ');
-  return `<${node.tag} ${attrs}>${(node.children ?? []).map(geometry).join('')}</${node.tag}>`;
+  if (!/^[a-zA-Z][\w-]*$/.test(node.tag)) throw new Error(`Invalid SVG tag: ${node.tag}`);
+  for (const [name, value] of Object.entries(node.attrs)) {
+    if (!/^[a-zA-Z][\w:-]*$/.test(name)) throw new Error(`Invalid SVG attribute: ${name}`);
+    if (typeof value !== 'string' && typeof value !== 'number')
+      throw new Error(`Unsupported SVG attribute value: ${name}`);
+  }
+  return node.children?.length
+    ? { tag: node.tag, attrs: node.attrs, children: node.children.map(geometry) }
+    : { tag: node.tag, attrs: node.attrs };
 }
 
 let count = 0;
@@ -34,26 +39,12 @@ for (const file of readdirSync(`${upstream}/lib/asn`).sort()) {
   if (!/(Outlined|Filled)\.js$/.test(file)) continue;
   const name = file.slice(0, -3);
   const definition = require(`${upstream}/lib/asn/${file}`).default;
-  const source = `import { view } from 'effectweb';
-import { iconAttributes } from '../attributes.js';
-const Icon = view((props) => <svg {...iconAttributes(props, ${JSON.stringify(definition.name)}, ${JSON.stringify(definition.icon.attrs.viewBox)})}>
-{props.title ? <title>{props.title}</title> : null}
-${(definition.icon.children ?? []).map(geometry).join('')}
-{props.children}
-</svg>);
-export default Icon;`;
-  const result = JSON.parse(
-    compile(
-      source,
-      `${name}.tsx`,
-      JSON.stringify({ importSource: 'effectweb', runtimeModule: 'effectweb/dom' }),
-    ),
-  );
-  if (result.diagnostics.length)
-    throw new Error(`Could not compile ${name}: ${JSON.stringify(result.diagnostics)}`);
+  const output = `import { antDesignIcon } from '../attributes.js';
+export default /* @__PURE__ */ antDesignIcon(${JSON.stringify(definition.name)}, ${JSON.stringify(definition.icon.attrs.viewBox)}, ${JSON.stringify((definition.icon.children ?? []).map(geometry))});
+`;
   writeFileSync(
     `${directory}/icons/${name}.js`,
-    `// Generated from @ant-design/icons-svg. See LICENSE.\n${transpile(result.code)}`,
+    `// Generated from @ant-design/icons-svg. See LICENSE.\n${output}`,
   );
   writeFileSync(
     `${directory}/icons/${name}.d.ts`,

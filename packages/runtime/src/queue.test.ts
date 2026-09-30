@@ -1,7 +1,7 @@
 import { commandSlot } from './program.js';
 import { Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { modelOwner } from './owner.js';
 import { defineTasks } from './tasks.js';
 import { controlledEffect } from './testing.js';

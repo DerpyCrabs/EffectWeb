@@ -1,5 +1,5 @@
 import { Effect, Option } from 'effect';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { query } from './query.js';
 import { makeQueryCache, type QueryCache } from './cache.js';

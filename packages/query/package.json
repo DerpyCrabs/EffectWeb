@@ -1,6 +1,6 @@
 {
   "name": "@effectweb/query",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -24,7 +24,7 @@
     "access": "public"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.112",
-    "effectweb": "^0.8.0"
+    "effect": "4.0.0-rc.118",
+    "effectweb": "^0.8.1"
   }
 }

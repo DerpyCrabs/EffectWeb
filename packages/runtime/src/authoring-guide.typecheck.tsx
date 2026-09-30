@@ -1,6 +1,6 @@
 // Every snippet in AUTHORING.md is kept here so the guide typechecks against the real API.
 import { Effect } from 'effect';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import {
   actionCommand,
   AsyncContent,
@@ -10,6 +10,7 @@ import {
   commandSlots,
   component,
   controllerView,
+  type ControllerModel,
   defineTasks,
   domBinding,
   domHandle,
@@ -210,11 +211,14 @@ export function orderController() {
 }
 
 // --- Named controller actions --------------------------------------------------
-declare const documents: { save: (text: string) => Effect.Effect<void, Error> };
+declare const documents: { save: (text: string) => Effect.Effect<number, Error> };
 export function editorController() {
-  const owner = modelOwner({ text: '' });
+  const owner = modelOwner<{ text: string; saved: AsyncResult.AsyncResult<number, Error> }>({
+    text: '',
+    saved: AsyncResult.initial(),
+  });
   const actions = ownedTasks(owner, {
-    save: { run: (text: string) => documents.save(text), policy: 'drop' },
+    save: { policy: 'drop', result: 'saved', run: (text: string) => documents.save(text) },
   });
   return { source: owner.source, save: actions.save, dispose: owner.dispose };
 }
@@ -224,6 +228,7 @@ function chatController(props: Snapshot<{ readonly chatId: string }>) {
   const owner = modelOwner({ chatId: props.chatId, draft: '' });
   return {
     source: owner.source,
+    actions: { edit: (draft: string) => owner.patch({ draft }) },
     receive: (next: Snapshot<{ readonly chatId: string }>) => owner.patch({ chatId: next.chatId }),
     dispose: owner.dispose,
     close: owner.close,
@@ -232,8 +237,14 @@ function chatController(props: Snapshot<{ readonly chatId: string }>) {
 export const Chat = controllerView({
   identity: (props) => props.chatId,
   create: chatController,
-  view: view<{ readonly chatId: string; readonly draft: string }>((model) => <p>{model.draft}</p>),
+  view: view((model) => (
+    <input value={model.draft} onInput={(event) => model.actions.edit(event.currentTarget.value)} />
+  )),
 });
+// A view declared apart from the controllerView is typed from the controller.
+export const ChatDraft = view<ControllerModel<typeof chatController>>((model) => (
+  <button onClick={() => model.actions.edit('')}>{model.draft}</button>
+));
 
 // --- Event handlers that run Effects -------------------------------------------
 declare const clipboard: { copy: (text: string) => Effect.Effect<void, Error> };

@@ -341,3 +341,15 @@ it('accumulates reentrant edits and keeps nested transaction rollback isolated',
   expect(owner.source.model()).toEqual({ count: 4, label: '3' });
   owner.dispose();
 });
+
+it('owns plain cleanup functions and runs them on dispose', () => {
+  const owner = modelOwner({ count: 0 });
+  const unsubscribe = vi.fn();
+  expect(owner.own(unsubscribe)).toBe(unsubscribe);
+  expect(unsubscribe).not.toHaveBeenCalled();
+  owner.dispose();
+  expect(unsubscribe).toHaveBeenCalledOnce();
+  const late = vi.fn();
+  owner.own(late);
+  expect(late).toHaveBeenCalledOnce();
+});

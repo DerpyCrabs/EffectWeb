@@ -1,6 +1,6 @@
 import { commandSlot } from './program.js';
 import { Context, Effect, Option } from 'effect';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { describe, expect, it } from 'vitest';
 import { defineTasks, ownedTasks } from './tasks.js';
 import { controlledEffect, programDriver } from './testing.js';
@@ -239,4 +239,59 @@ it('binds controller tasks with lazy arguments, shared slots, parallel work and 
   actions.send('after disposal');
   expect(calls).not.toContain('after disposal');
   expect(app.isRunning(commandGeneration)).toBe(false);
+});
+
+const saveSlot = commandSlot('save');
+it('publishes owned task results into a model key across success, failure and replacement', async () => {
+  const { modelOwner } = await import('./owner.js');
+  const owner = modelOwner<{ saved: AsyncResult.AsyncResult<number, string>; other: number }>({
+    saved: AsyncResult.initial(),
+    other: 0,
+  });
+  const first = controlledEffect<number, string>();
+  const second = controlledEffect<number, string>();
+  let pending = first;
+  const actions = ownedTasks(owner, {
+    save: {
+      policy: 'replace',
+      slot: saveSlot,
+      result: 'saved',
+      run: (_text: string) => pending.effect,
+    },
+    touch: { policy: 'drop', run: () => Effect.sync(() => owner.patch({ other: 1 })) },
+  });
+  actions.save('a');
+  expect(owner.read().saved.waiting).toBe(true);
+  first.succeed(1);
+  await Effect.runPromise(owner.awaitIdle());
+  expect(value(owner.read().saved)).toBe(1);
+  expect(owner.read().saved.waiting).toBe(false);
+  pending = second;
+  actions.save('b');
+  expect(owner.read().saved.waiting).toBe(true);
+  expect(value(owner.read().saved)).toBe(1);
+  second.fail('offline');
+  await Effect.runPromise(owner.awaitIdle());
+  expect(AsyncResult.isFailure(owner.read().saved)).toBe(true);
+  expect(value(owner.read().saved)).toBe(1);
+  const third = controlledEffect<number, string>();
+  const fourth = controlledEffect<number, string>();
+  pending = third;
+  actions.save('c');
+  pending = fourth;
+  actions.save('d');
+  await Effect.runPromise(Effect.sleep(0));
+  expect(third.canceled()).toBe(1);
+  expect(owner.read().saved.waiting).toBe(true);
+  fourth.succeed(4);
+  await Effect.runPromise(owner.awaitIdle());
+  expect(value(owner.read().saved)).toBe(4);
+  actions.save('e');
+  owner.cancel(saveSlot);
+  await Effect.runPromise(owner.awaitIdle());
+  expect(owner.read().saved.waiting).toBe(false);
+  expect(value(owner.read().saved)).toBe(4);
+  actions.touch();
+  expect(owner.read().other).toBe(1);
+  owner.dispose();
 });

@@ -1,15 +1,11 @@
-import type * as Effect from 'effect/Effect';
 import { runAll } from './errors.js';
-import { modelOwner } from './owner.js';
+import { modelOwner, type Ownable } from './owner.js';
 
 /** Own resources and named commands in a controller with no presentation model. */
 export function lifetime() {
   const owner = modelOwner({});
   return {
-    add: (cleanup: () => void) => {
-      owner.own({ dispose: cleanup });
-    },
-    own<A extends { dispose(): void; close?(): Effect.Effect<void, unknown> }>(resource: A): A {
+    own<A extends Ownable>(resource: A): A {
       return owner.own(resource);
     },
     run: owner.run,
@@ -55,10 +51,10 @@ interface OwnedSession {
 }
 export function sessionGroup(sessions: readonly OwnedSession[], changed: () => void) {
   const scope = lifetime();
-  for (const session of sessions) scope.add(() => session.dispose());
+  for (const session of sessions) scope.own(() => session.dispose());
   try {
     for (const session of sessions) {
-      if (session.subscribe) scope.add(session.subscribe(changed));
+      if (session.subscribe) scope.own(session.subscribe(changed));
     }
   } catch (error) {
     scope.dispose();

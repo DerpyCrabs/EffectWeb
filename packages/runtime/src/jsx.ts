@@ -198,13 +198,15 @@ export namespace JSX {
         ? K | Lowercase<K>
         : never;
   type DomAttributes<T> = {
-    [K in keyof T as K extends string
-      ? Equal<Pick<T, K>, { -readonly [P in K]: T[P] }> extends true
-        ? T[K] extends Scalar | null
-          ? AttributeKey<K>
+    [
+      K in keyof T as K extends string
+        ? Equal<Pick<T, K>, { -readonly [P in K]: T[P] }> extends true
+          ? T[K] extends Scalar | null
+            ? AttributeKey<K>
+            : never
           : never
         : never
-      : never]?: K extends 'min' | 'max' | 'step' | 'value'
+    ]?: K extends 'min' | 'max' | 'step' | 'value'
       ? string | number | undefined
       : T[K] extends boolean
         ? boolean | undefined

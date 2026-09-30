@@ -1,5 +1,5 @@
 import { Context, Effect, Fiber, Option } from 'effect';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { makeQueryCache } from './cache.js';
 import { cacheInternals } from './cache-internals.js';
@@ -10,7 +10,14 @@ const disposals: Array<() => void> = [];
 const cache = () => {
   const model = makeQueryCache();
   disposals.push(() => model.dispose());
-  return { ...model, ...cacheInternals(model) };
+  const internals = cacheInternals(model);
+  // Mount an entry as an observer would: subscribed, so it loads and stays retained.
+  const mount = (entry: Parameters<typeof internals.read>[0]) => {
+    const stop = internals.subscribe(entry, () => {});
+    internals.read(entry);
+    return stop;
+  };
+  return { ...model, ...internals, mount };
 };
 afterEach(() => {
   for (const dispose of disposals.splice(0)) dispose();
@@ -32,12 +39,12 @@ describe('typed shared queries', () => {
     const first = model.query(profile, { id: 'alice' });
     const second = model.query(profile, { id: 'alice' });
     expect(first).toBe(second);
-    const release = model.registry.mount(first);
+    const release = model.mount(first);
     const prefetch = Effect.runPromise(model.prefetch(profile, { id: 'alice' }));
     expect(load).toHaveBeenCalledTimes(1);
     finish();
     const result = await prefetch;
-    expect(value(model.registry.get(first))).toBe(result);
+    expect(value(model.read(first))).toBe(result);
     release();
     expect(await Effect.runPromise(model.prefetch(profile, { id: 'alice' }))).toBe(result);
     expect(load).toHaveBeenCalledTimes(1);
@@ -66,12 +73,12 @@ describe('typed shared queries', () => {
     const alice = model.query(profile, 'alice');
     const bob = model.query(profile, 'bob');
     const unrelated = model.query(count, true);
-    model.registry.mount(alice);
-    model.registry.mount(bob);
-    model.registry.mount(unrelated);
-    const before = value(model.registry.get(alice));
+    model.mount(alice);
+    model.mount(bob);
+    model.mount(unrelated);
+    const before = value(model.read(alice));
     model.invalidateQuery(profile, 'alice');
-    expect(value(model.registry.get(alice))).toBe(before);
+    expect(value(model.read(alice))).toBe(before);
     expect(calls).toEqual(['alice', 'bob', 'count', 'alice']);
     model.invalidateQuery(profile);
     expect(calls).toEqual(['alice', 'bob', 'count', 'alice', 'alice', 'bob']);
@@ -94,14 +101,14 @@ describe('typed shared queries', () => {
     });
     const model = cache();
     const atom = model.query(data, true);
-    const release = model.registry.mount(atom);
+    const release = model.mount(atom);
     now = 149;
     model.query(data, true);
     expect(calls).toBe(1);
     now = 150;
     model.query(data, true);
-    expect(model.registry.get(atom).waiting).toBe(true);
-    expect(value(model.registry.get(atom))).toBe('old');
+    expect(model.read(atom).waiting).toBe(true);
+    expect(value(model.read(atom))).toBe('old');
     model.query(data, true);
     expect(calls).toBe(2);
     finish();
@@ -116,13 +123,12 @@ describe('typed shared queries', () => {
       const data = query({ name: 'data', load });
       const model = cache();
       const atom = model.query(data, true);
-      const release = model.registry.mount(atom);
+      const release = model.mount(atom);
       release();
       await vi.advanceTimersByTimeAsync(29_000);
-      expect(model.registry.getNodes().has(atom)).toBe(true);
-      // AtomRegistry buckets the configured 30s TTL in 15s sweep intervals.
-      await vi.advanceTimersByTimeAsync(17_000);
-      expect(model.registry.getNodes().has(atom)).toBe(false);
+      expect(model.getQueryData(data, true)).toBe('cached');
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(model.getQueryData(data, true)).toBeUndefined();
       await Effect.runPromise(model.prefetch(data, true));
       expect(load).toHaveBeenCalledTimes(2);
     } finally {
@@ -145,7 +151,7 @@ describe('typed shared queries', () => {
           : Effect.succeed(account),
     });
     const old = model.query(profile, true);
-    model.registry.mount(old);
+    model.mount(old);
     account = 'new';
     model.resetResources();
     finish();
@@ -163,8 +169,8 @@ describe('typed shared queries', () => {
     });
     const model = cache();
     const atom = model.query(data, true);
-    const first = model.registry.mount(atom);
-    const second = model.registry.mount(atom);
+    const first = model.mount(atom);
+    const second = model.mount(atom);
     first();
     expect(interrupted).not.toHaveBeenCalled();
     const prefetch = Effect.runFork(model.prefetch(data, true));

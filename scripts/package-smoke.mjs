@@ -47,12 +47,12 @@ writeFileSync(
         ]),
       ),
       devDependencies: {
-        effect: '4.0.0-rc.112',
-        vite: '8.2.2',
-        typescript: '5.9.3',
-        oxlint: '1.77.0',
-        'oxlint-tsgolint': '7.0.2001',
-        '@effect/tsgo': '0.32.1',
+        effect: '4.0.0-rc.118',
+        vite: '8.3.1',
+        typescript: '7.0.2',
+        oxlint: '1.86.0',
+        'oxlint-tsgolint': '7.0.2003',
+        '@effect/tsgo': '0.47.1',
       },
     },
     null,
@@ -86,7 +86,7 @@ const bindingProbe = compile(
   'binding.tsx',
 ).code;
 assert.ok(
-  bindingProbe.includes('.renderComponent(ViewBinding,'),
+  bindingProbe.includes('ViewBinding({'),
   'The packaged compiler must preserve the ViewBinding component call',
 );
 assert.ok(

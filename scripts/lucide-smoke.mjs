@@ -40,12 +40,15 @@ await assert.rejects(import('@effectweb/lucide'), { code: 'ERR_PACKAGE_PATH_NOT_
 import type { Camera as ForbiddenCamera } from '@effectweb/lucide';
 import type { LucideProps } from '@effectweb/lucide/types';
 const props: LucideProps = { size: 20 }; void props;
+import { iconNode, viewBox } from '@effectweb/lucide/icons/camera';
+const box: string = viewBox; const tag: string = iconNode[0]![0]; void box; void tag;
 `,
   );
   run(
     process.execPath,
     [
       'node_modules/typescript/bin/tsc',
+      '--ignoreConfig',
       '--noEmit',
       '--skipLibCheck',
       '--target',
@@ -82,6 +85,22 @@ const props: LucideProps = { size: 20 }; void props;
   assert.equal(await Effect.runPromise(loadIcon('camera')), catalogue.Camera);
   assert.equal(await Effect.runPromise(loadIcon('alarm-check')), catalogue.AlarmClockCheck);
   assert.equal(catalogue.AlarmCheck, catalogue.AlarmClockCheck);
+  const cameraModule = await import(installed('@effectweb/lucide/dist/icons/camera.js'));
+  const aliasModule = await import(installed('@effectweb/lucide/dist/icons/alarm-check.js'));
+  const canonicalModule = await import(
+    installed('@effectweb/lucide/dist/icons/alarm-clock-check.js')
+  );
+  assert.equal(aliasModule.iconNode, canonicalModule.iconNode);
+  assert.equal(aliasModule.viewBox, canonicalModule.viewBox);
+  assert.equal(cameraModule.viewBox, '0 0 24 24');
+  assert.deepEqual(
+    cameraModule.iconNode,
+    data.Camera.node.map(([tag, attrs, children]) => {
+      const { key: _key, ...attributes } = attrs;
+      return children ? [tag, attributes, children] : [tag, attributes];
+    }),
+  );
+
   assert.ok(isIconName('camera'));
   assert.ok(!isIconName('constructor'));
   assert.ok(!isIconName('__proto__'));

@@ -1,5 +1,5 @@
 import { Context, Effect } from 'effect';
-import type * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import type * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { modelOwner, uiRuntime } from 'effectweb';
 import { makeQueryCache } from './cache.js';
 import { query } from './query.js';

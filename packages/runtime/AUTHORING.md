@@ -19,8 +19,8 @@ This is the guide to read before writing EffectWeb code, whether you are a perso
 | Local fields plus Effect work (save, search) with status   | `defineTasks({ init }).tasks({ … }).view(…)`                                           |
 | Transitions you want to name and test as messages          | `component({ init, update, view })` with `effectCommand`                               |
 | A feature controller shared by several views               | `modelOwner(initial)` (or `makeModelOwner` inside an Effect scope)                     |
-| Named actions on a controller, each with a policy          | `ownedTasks(owner, { save: { run, policy: 'drop' } })`                                 |
-| A controller created from a view's props, disposed with it | `controllerView({ create, view })`                                                     |
+| Named actions on a controller, each with a policy          | `ownedTasks(owner, { save: { run, policy: 'drop', result: 'saved' } })`                |
+| A controller created from a view's props, disposed with it | `controllerView({ create, view })`; the view reads its methods as `model.actions`      |
 | One debounced/replaced request per row or entity           | `commandSlots('name')(rowId)` with `owner.run` / `effectCommand`                       |
 | An Effect started directly by a click                      | `onClick={effectEvent('drop', () => effect)}` or return the Effect from the handler    |
 | Cached server data                                         | `@effectweb/query`: `query(…)`, then `querySource` in views or `observeQuery`          |
@@ -204,17 +204,37 @@ const changeAmount = (id: string, amount: number) => {
 - Declare slots once, at module or controller scope. Calling `commandSlot('x')` inside a handler (inline or through a local variable) creates a new slot on every call, so `replace` and `drop` never apply and stale responses can overwrite newer ones (EW3003). Use `commandSlots(name)(key)` for per-row work.
 - Policies: `replace` for search/debounce/latest-wins, `drop` for submit buttons (ignore double clicks), `queue` for writes that must all happen in order, `latest-queued` for autosave, `parallel` only for independent work.
 - Interruption is not rollback: an interrupted save may already have reached the server. Serialize writes with `queue`/`latest-queued`.
-- `owner.own(resource)` ties caches and subscriptions to the owner. Call `dispose()` (or yield `close()`) when the feature unmounts. `makeModelOwner` does this with the surrounding Effect scope.
+- `owner.own(resource)` ties caches and subscriptions to the owner; it also accepts a plain unsubscribe function, so `owner.own(source.subscribe(listener))` needs no hand-written `dispose`. Call `dispose()` (or yield `close()`) when the feature unmounts. `makeModelOwner` does this with the surrounding Effect scope.
+
+### Named actions with status
+
+`ownedTasks` names a controller's actions and gives each a slot and policy. A task with `result` publishes its `AsyncResult` into the model at that key: waiting while it runs, then the value or the failure with the previous value kept. That replaces hand-written busy flags and error fields.
+
+```tsx
+function documentController() {
+  const owner = modelOwner<{ text: string; saved: AsyncResult.AsyncResult<number, Error> }>({
+    text: '',
+    saved: AsyncResult.initial(),
+  });
+  const actions = ownedTasks(owner, {
+    save: { policy: 'drop', result: 'saved', run: (text: string) => documents.save(text) },
+  });
+  return { source: owner.source, save: actions.save, dispose: owner.dispose };
+}
+```
+
+The model key must hold an `AsyncResult` of the task's success and error types, so declare it as `AsyncResult.AsyncResult<A, E>` (an `AsyncResult.initial()` literal alone infers the narrower `Initial`). A replaced or cancelled run leaves the newest run's state alone.
 
 ### A controller owned by a view
 
-When a view needs a controller object created from its props (a `modelOwner`, queries, subscriptions), rather than named messages, use `controllerView`. The controller is created on mount, receives new props, and is disposed with the view. `identity` recreates it when the entity changes.
+When a view needs a controller object created from its props (a `modelOwner`, queries, subscriptions), rather than named messages, use `controllerView`. The controller is created on mount, receives new props, and is disposed with the view. `identity` recreates it when the entity changes. Its `actions` reach the view as `model.actions`; keep them out of the model itself, which stays plain data.
 
 ```tsx
 function chatController(props: Snapshot<{ readonly chatId: string }>) {
   const owner = modelOwner({ chatId: props.chatId, draft: '' });
   return {
     source: owner.source,
+    actions: { edit: (draft: string) => owner.patch({ draft }) },
     receive: (next: Snapshot<{ readonly chatId: string }>) => owner.patch({ chatId: next.chatId }),
     dispose: owner.dispose,
     close: owner.close,
@@ -223,9 +243,13 @@ function chatController(props: Snapshot<{ readonly chatId: string }>) {
 export const Chat = controllerView({
   identity: (props) => props.chatId,
   create: chatController,
-  view: view<{ readonly chatId: string; readonly draft: string }>((model) => <p>{model.draft}</p>),
+  view: view((model) => (
+    <input value={model.draft} onInput={(event) => model.actions.edit(event.currentTarget.value)} />
+  )),
 });
 ```
+
+`receive` is optional; a controller whose props only matter through `identity` can leave it out. A view declared apart from the `controllerView` is typed with `ControllerModel<typeof chatController>`, which is the controller's model plus its `actions`.
 
 ### Effects from events
 
@@ -252,7 +276,7 @@ export function profileController(id: string) {
     user: AsyncResult.initial(),
   });
   const cache = owner.own(makeQueryCache());
-  const user = observeQuery(owner, cache, userQuery, (result) => owner.patch({ user: result }));
+  const user = observeQuery(owner, cache, userQuery, 'user');
   user.select({ id });
   return { source: owner.source, refresh: user.refresh, dispose: owner.dispose };
 }
@@ -265,6 +289,7 @@ export const UserName = view<{ readonly id: string }>((model) =>
 );
 ```
 
+- `observeQuery(owner, cache, query, key)` patches each result into the model at `key`; `observeQuery(owner, cache, query, key, available)` stores a projection instead. Pass a callback when the controller needs to react beyond a patch.
 - Query identity is every argument. There is no custom `key`, so the wrong entry can't be reused (EW2002). Services come from the Effect environment, not arguments.
 - Share one cache per application or session. Invalidate with `cache.invalidateQuery(query, args)` or `queryGroup`, and write with `setQueryData`/`updateQueryData`.
 - Loaders get services from the cache's runtime (`makeQueryCache(uiRuntime(context))`), not from props or closures. `available(result)` and `resourceError(result)` read an `AsyncResult`.
@@ -273,7 +298,7 @@ export const UserName = view<{ readonly id: string }>((model) =>
 - Keep orchestration in Effect pipelines and publish command completion into immutable controller state. Start owned work with `owner.run`; compose or await `owner.awaitIdle()` inside Effect when synchronization is required. Promise conversion belongs only at external library or browser integration boundaries.
 - Adapt Promise APIs explicitly with `Effect.tryPromise({ try: (signal) => fetch(url, { signal }), catch: (error) => error })`.
 - Internal component and controller loaders return Effects, for example `(path: string) => Effect.Effect<Document, LoadError>`. The controller runs them through an owned command. Passing a callback is not render work; invoking it during render is. Promise-valued callbacks belong only to external interop contracts. Native DOM event handlers should return an Effect instead of an unowned Promise.
-- A controller without a model of its own (a session composed from other sources) owns its resources and commands with `lifetime()` (`run`, `cancel`, `awaitIdle`, and `close` have the same ownership as `modelOwner`): `observeQuery(scope, cache, query, changed)`, `scope.add(unsubscribe)` and `scope.dispose()`.
+- A controller without a model of its own (a session composed from other sources) owns its resources and commands with `lifetime()` (`own`, `run`, `cancel`, `awaitIdle`, and `close` have the same ownership as `modelOwner`): `observeQuery(scope, cache, query, changed)`, `scope.own(unsubscribe)` and `scope.dispose()`.
 
 ## Time
 

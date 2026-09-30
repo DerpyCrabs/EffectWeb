@@ -1,6 +1,6 @@
 {
   "name": "effectweb",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Immutable Effect models and compiled JSX with direct DOM rendering",
   "homepage": "https://github.com/DerpyCrabs/EffectWeb",
   "bugs": {
@@ -53,7 +53,7 @@
     "access": "public"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.0-rc.118"
   },
   "engines": {
     "node": ">=22.14"

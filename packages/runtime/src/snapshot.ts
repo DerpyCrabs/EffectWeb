@@ -1,6 +1,6 @@
 import type * as Effect from 'effect/Effect';
-import type * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
-import { isAsyncResult } from 'effect/unstable/reactivity/AsyncResult';
+import type * as AsyncResult from 'effect/reactivity/AsyncResult';
+import { isAsyncResult } from 'effect/reactivity/AsyncResult';
 
 /** Mark an application service as opaque to snapshot typing; this is a type-only brand. */
 export declare const snapshotOpaque: unique symbol;

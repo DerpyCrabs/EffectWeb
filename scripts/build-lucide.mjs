@@ -1,9 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import ts from 'typescript';
 import * as upstream from '@lucide/icons';
-import { compile } from '../packages/compiler/native.cjs';
 
 const directory = 'packages/lucide/dist';
 mkdirSync(`${directory}/icons`, { recursive: true });
@@ -14,53 +12,38 @@ for (const [name, data] of Object.entries(upstream).sort(([a], [b]) => a.localeC
   canonical.set(data.name, data);
 }
 
+// Geometry ships as data; the shared icon factory builds the markup once per icon.
 function geometry(nodes) {
-  return nodes
-    .map(([tag, attributes, children]) => {
-      if (!/^[a-zA-Z][\w-]*$/.test(tag)) throw new Error(`Invalid SVG tag: ${tag}`);
-      const attrs = Object.entries(attributes)
-        .filter(([name]) => name !== 'key')
-        .map(([name, value]) => {
-          if (!/^[a-zA-Z][\w:-]*$/.test(name)) throw new Error(`Invalid SVG attribute: ${name}`);
-          return `${name}={${JSON.stringify(value)}}`;
-        })
-        .join(' ');
-      return `<${tag} vector-effect={props.absoluteStrokeWidth ? 'non-scaling-stroke' : undefined} ${attrs}>${children ? geometry(children) : ''}</${tag}>`;
-    })
-    .join('');
+  return nodes.map(([tag, attributes, children]) => {
+    if (!/^[a-zA-Z][\w-]*$/.test(tag)) throw new Error(`Invalid SVG tag: ${tag}`);
+    const attrs = {};
+    for (const [name, value] of Object.entries(attributes)) {
+      if (name === 'key') continue;
+      if (!/^[a-zA-Z][\w:-]*$/.test(name)) throw new Error(`Invalid SVG attribute: ${name}`);
+      if (typeof value !== 'string' && typeof value !== 'number')
+        throw new Error(`Unsupported SVG attribute value: ${name}`);
+      attrs[name] = value;
+    }
+    return children ? [tag, attrs, geometry(children)] : [tag, attrs];
+  });
 }
 
 for (const [name, data] of canonical) {
   const names = [name, ...(data.aliases ?? [])].map((name) => `lucide-${name}`).join(' ');
   const width = 'size' in data ? data.size : data.width;
   const height = 'size' in data ? data.size : data.height;
-  const source = `import { view } from 'effectweb';
-import { iconAttributes } from '../attributes.js';
-const Icon = view((props, _send) => <svg {...iconAttributes(props, ${JSON.stringify(names)}, ${width}, ${height})}>
-{props.title ? <title>{props.title}</title> : null}
-${geometry(data.node)}
-{props.children}
-</svg>);
-export default Icon;`;
-  const result = JSON.parse(
-    compile(
-      source,
-      `${name}.tsx`,
-      JSON.stringify({ importSource: 'effectweb', runtimeModule: 'effectweb/dom' }),
-    ),
-  );
-  if (result.diagnostics.length || !result.code.includes('_ew_dom.markup'))
-    throw new Error(`Icon was not compiled: ${name}: ${JSON.stringify(result.diagnostics)}`);
-  const output = ts.transpileModule(result.code, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
-  }).outputText;
+  const output = `import { lucideIcon } from '../attributes.js';
+export const iconNode = ${JSON.stringify(geometry(data.node))};
+export const viewBox = ${JSON.stringify(`0 0 ${width} ${height}`)};
+export default /* @__PURE__ */ lucideIcon(${JSON.stringify(names)}, ${width}, ${height}, iconNode);
+`;
   writeFileSync(
     `${directory}/icons/${name}.js`,
     `// Generated from @lucide/icons; see LICENSE in the package root.\n${output}`,
   );
   writeFileSync(
     `${directory}/icons/${name}.d.ts`,
-    "import type { LucideIcon } from '../attributes.js';\ndeclare const Icon: LucideIcon;\nexport default Icon;\n",
+    "import type { LucideIcon, IconNode } from '../attributes.js';\nexport declare const iconNode: readonly IconNode[];\nexport declare const viewBox: string;\ndeclare const Icon: LucideIcon;\nexport default Icon;\n",
   );
 }
 
@@ -89,7 +72,7 @@ for (const [slug, name] of slugs) {
     for (const extension of ['js', 'd.ts'])
       writeFileSync(
         `${directory}/icons/${slug}.${extension}`,
-        `export { default } from './${name}.js';\n`,
+        `export { default, iconNode, viewBox } from './${name}.js';\n`,
       );
   }
 }

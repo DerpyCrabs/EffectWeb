@@ -1,5 +1,5 @@
 import { Context, Effect, Option } from 'effect';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { expect, it } from 'vitest';
 import { fetchNextPage, infiniteQuery, infiniteResource } from './infinite-query.js';
 import { querySource } from './observe.js';

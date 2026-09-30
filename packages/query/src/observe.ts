@@ -1,11 +1,10 @@
 import type * as Scope from 'effect/Scope';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
-import * as Atom from 'effect/unstable/reactivity/Atom';
-import type { DisposableOwner, Snapshot, Source } from 'effectweb';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
+import type { DisposableOwner, ModelOwner, Snapshot, Source } from 'effectweb';
 import { reportError, reportSafely } from './errors.js';
 import { encodeQueryArguments, type Query } from './query.js';
 import type { QueryCache } from './cache.js';
-import { cacheInternals } from './cache-internals.js';
+import { cacheInternals, type QueryEntry } from './cache-internals.js';
 import type { InfiniteData, InfiniteQuery } from './infinite-query.js';
 
 /** One owned selection and immutable observation of a shared query resource. */
@@ -31,18 +30,15 @@ export function queryResource<Args, A, E, R>(
   const internal = cacheInternals(context.cache);
   let key: string | undefined;
   let generation = -1;
-  let atom: Atom.Atom<AsyncResult.AsyncResult<Snapshot<A>, E>> | undefined;
+  let entry: QueryEntry<A, E> | undefined;
   let stop: (() => void) | undefined;
   let disposed = false;
   let revision = 0;
   const initial = AsyncResult.initial<Snapshot<A>, E>();
   const listeners = new Set<(result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void>();
   const read = () =>
-    atom &&
-    !disposed &&
-    !internal.disposed() &&
-    generation === internal.registry.get(internal.generation)
-      ? internal.registry.get(atom)
+    entry && !disposed && !internal.disposed() && generation === internal.generation()
+      ? internal.read(entry)
       : initial;
   let published: AsyncResult.AsyncResult<Snapshot<A>, E> | undefined;
   let notifying = false;
@@ -84,12 +80,10 @@ export function queryResource<Args, A, E, R>(
     stop = undefined;
     release?.();
   };
-  // Initialize before subscribing; construction must not invoke application callbacks.
-  internal.registry.get(internal.generation);
-  const stopGeneration = internal.registry.subscribe(internal.generation, () => {
+  const stopGeneration = internal.onGeneration(() => {
     revision++;
     disconnect();
-    atom = undefined;
+    entry = undefined;
     key = undefined;
     generation = -1;
     notify();
@@ -97,7 +91,7 @@ export function queryResource<Args, A, E, R>(
   return {
     select(args: Args | Snapshot<Args> | undefined) {
       if (disposed || internal.disposed()) return;
-      const nextGeneration = internal.registry.get(internal.generation);
+      const nextGeneration = internal.generation();
       const nextKey = args === undefined ? undefined : encodeQueryArguments(definition, args);
       if (nextKey === key && nextGeneration === generation) return;
       const selected = ++revision;
@@ -106,13 +100,13 @@ export function queryResource<Args, A, E, R>(
       if (disposed || selected !== revision) return;
       key = nextKey;
       generation = nextGeneration;
-      const nextAtom = args === undefined ? undefined : internal.query(definition, args);
+      const next = args === undefined ? undefined : internal.query(definition, args);
       if (disposed || selected !== revision) return;
-      atom = nextAtom;
-      if (nextAtom) {
+      entry = next;
+      if (next) {
         // Subscription setup itself can execute a synchronous Effect and reenter selection.
-        const releaseUse = internal.retain(nextAtom);
-        const unsubscribe = internal.registry.subscribe(nextAtom, notify);
+        const releaseUse = internal.retain(next);
+        const unsubscribe = internal.subscribe(next, notify);
         const release = () => {
           unsubscribe();
           releaseUse();
@@ -135,13 +129,13 @@ export function queryResource<Args, A, E, R>(
     },
     refresh: () => {
       if (
-        atom &&
+        entry &&
         !disposed &&
         !internal.disposed() &&
-        generation === internal.registry.get(internal.generation) &&
-        !internal.registry.get(atom).waiting
+        generation === internal.generation() &&
+        !internal.read(entry).waiting
       )
-        internal.refresh(atom);
+        internal.refresh(entry);
     },
     dispose: () => {
       if (disposed) return;
@@ -150,20 +144,55 @@ export function queryResource<Args, A, E, R>(
       listeners.clear();
       stopGeneration();
       disconnect();
-      atom = undefined;
+      entry = undefined;
       key = undefined;
     },
   };
 }
 
+type ResultKeys<Model, A, E> = {
+  [K in keyof Model]: AsyncResult.AsyncResult<Snapshot<A>, E> extends Model[K] | Snapshot<Model[K]>
+    ? K
+    : never;
+}[keyof Model];
+
+/** Observe a query and publish each result through `changed`. */
 export function observeQuery<Args, A, E, R>(
   owner: DisposableOwner,
   cache: QueryCache<R>,
   definition: Query<Args, A, E, NoInfer<R> | Scope.Scope>,
   changed: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void,
+): QueryResource<Args, A, E>;
+/** Observe a query and patch each result into the owner's model at `key`. */
+export function observeQuery<Model extends object, Args, A, E, R>(
+  owner: ModelOwner<Model>,
+  cache: QueryCache<R>,
+  definition: Query<Args, A, E, NoInfer<R> | Scope.Scope>,
+  key: ResultKeys<Model, A, E>,
+): QueryResource<Args, A, E>;
+/** Observe a query and patch `project(result)` into the owner's model at `key`. */
+export function observeQuery<Model extends object, K extends keyof Model, Args, A, E, R>(
+  owner: ModelOwner<Model>,
+  cache: QueryCache<R>,
+  definition: Query<Args, A, E, NoInfer<R> | Scope.Scope>,
+  key: K,
+  project: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => Model[K] | Snapshot<Model[K]>,
+): QueryResource<Args, A, E>;
+export function observeQuery<Model extends object, Args, A, E, R>(
+  owner: DisposableOwner | ModelOwner<Model>,
+  cache: QueryCache<R>,
+  definition: Query<Args, A, E, NoInfer<R> | Scope.Scope>,
+  target: ((result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void) | keyof Model,
+  project?: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => unknown,
 ): QueryResource<Args, A, E> {
   const resource = queryResource({ cache }, definition);
-  resource.subscribe(changed);
+  if (typeof target === 'function') resource.subscribe(target);
+  else {
+    const { patch } = owner as ModelOwner<Model>;
+    resource.subscribe((result) =>
+      patch({ [target]: project ? project(result) : result } as Partial<Model>),
+    );
+  }
   return owner.own(resource);
 }
 

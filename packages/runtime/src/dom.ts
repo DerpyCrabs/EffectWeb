@@ -48,8 +48,11 @@ function locate(error: unknown, source: BindingLocation | undefined): unknown {
 function locatedReport(report: ReportError, source: BindingLocation | undefined): ReportError {
   return source && bindingLocation(source) ? (error) => report(locate(error, source)) : report;
 }
-const equal = (a: readonly unknown[], b: readonly unknown[]) =>
-  a.length === b.length && a.every((value, index) => Object.is(value, b[index]));
+const equal = (a: readonly unknown[], b: readonly unknown[]) => {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index++) if (!Object.is(a[index], b[index])) return false;
+  return true;
+};
 
 // A model publication reconciles DOM first and controlled dependent properties second.
 // Nested child scopes join the same synchronous commit; there is no reactive graph.
@@ -278,42 +281,151 @@ function contentDefinition<A>(build: Build<A, never>): ContentDefinition {
   };
 }
 
-type MarkupProps = Readonly<Record<string, unknown>> & { readonly children?: JSX.Element };
+type MarkupAttributes = Readonly<Record<string, unknown>> | null | undefined;
 type MarkupValue = {
-  readonly props: MarkupProps;
+  readonly attrs: MarkupAttributes;
+  readonly children: unknown;
   readonly sources?: Readonly<Record<string, BindingSource>> | undefined;
 };
+/** Several JSX children of one element. The compiler fixes the count at each call site. */
+export class Fixed {
+  constructor(readonly items: readonly unknown[]) {}
+}
+const noAttributes: Readonly<Record<string, unknown>> = Object.freeze({});
 const markupDefinitions = new Map<string, ContentDefinition>();
-/** JSX factories preserve host identity by element type; source locations are metadata only. */
+/**
+ * JSX factories preserve host identity by element type; source locations are metadata only.
+ * Attributes arrive separately from children, so a literal attribute object hoisted by the
+ * compiler keeps its identity and skips reconciliation entirely.
+ */
 export function markup(
   tag: string,
   sources?: Readonly<Record<string, BindingSource>>,
-): (props: MarkupProps) => JSX.Element {
+): (attrs: MarkupAttributes, ...children: unknown[]) => JSX.Element {
   let definition = markupDefinitions.get(tag);
   if (!definition) {
-    definition = contentDefinition<MarkupValue>((scope, parent, before) => {
-      const node = element(parent, before, tag);
-      bindAttributes(
-        scope,
-        node,
-        () => [scope.value.props],
-        () => {
-          const { children: _children, ...attributes } = scope.value.props;
-          return attributes;
-        },
-      );
-      text(
-        scope,
-        node,
-        null,
-        () => [scope.value.props.children],
-        () => scope.value.props.children,
-        () => scope.value.sources?.children,
-      );
-    });
+    // An element is its own stable range: no fragment and no markers are needed.
+    definition = {
+      mount(parent, before, value, report, settlement) {
+        const scope = new Scope(value as MarkupValue, unboundSend, report, settlement);
+        const doc = parent.ownerDocument ?? document;
+        const node =
+          tag === 'svg' || svgChildren(parent)
+            ? doc.createElementNS(svgNamespace, tag)
+            : doc.createElement(tag);
+        try {
+          bindAttributes(
+            scope,
+            node,
+            () => [scope.value.attrs],
+            () => scope.value.attrs ?? noAttributes,
+          );
+          bindChildren(
+            scope,
+            node,
+            () => scope.value.children,
+            () => scope.value.sources?.children,
+          );
+        } catch (error) {
+          scope.dispose();
+          throw error;
+        }
+        if (!scope.disposed) parent.insertBefore(node, before);
+        return {
+          set: (value) => scope.set(value as MarkupValue),
+          dispose() {
+            if (scope.disposed) return;
+            const removedByAncestor = detaching;
+            detached(() => scope.dispose());
+            if (!removedByAncestor) node.remove();
+          },
+        };
+      },
+    };
     markupDefinitions.set(tag, definition);
   }
-  return (props) => new SlotPlacement(definition, { props, sources });
+  return (attrs, ...children) =>
+    new SlotPlacement(definition, {
+      attrs,
+      // Spread attributes may carry children; JSX children at the call site take precedence.
+      children:
+        children.length > 1 ? new Fixed(children) : children.length ? children[0] : attrs?.children,
+      sources,
+    });
+}
+
+/** Element content: one binding per fixed child, or one for a single dynamic child. */
+function bindChildren<M, E>(
+  scope: Scope<M, E>,
+  node: Element,
+  read: () => unknown,
+  source?: BindingLocation,
+) {
+  let child: Scope<unknown, E> | undefined;
+  let arity = -2;
+  let first: Node | null = null;
+  let last: Node | null = null;
+  scope.cleanups.push(() => child?.dispose());
+  const build = (owned: Scope<unknown, E>, parent: Node, before: Node | null) => {
+    const value = owned.value;
+    if (value instanceof Fixed) {
+      for (let index = 0; index < value.items.length; index++)
+        text(
+          owned,
+          parent,
+          before,
+          () => [(owned.value as Fixed).items[index]],
+          () => (owned.value as Fixed).items[index] as JSX.Element,
+        );
+    } else
+      text(
+        owned,
+        parent,
+        before,
+        () => [owned.value],
+        () => owned.value as JSX.Element,
+        source,
+      );
+  };
+  scope.watch(
+    () => [read()],
+    () => {
+      const value = read();
+      const next = value instanceof Fixed ? value.items.length : -1;
+      if (child && next === arity) {
+        child.set(value);
+        return;
+      }
+      const owned = new Scope<unknown, E>(value, scope.send, scope.report, scope.settlement);
+      if (!child) {
+        // Initial content is built into the still detached element.
+        build(owned, node, null);
+        first = node.firstChild;
+        last = node.lastChild;
+      } else {
+        // The child count changed at this position: replace the owned range in one step.
+        const previous = child;
+        child = undefined;
+        const after = last!.nextSibling;
+        detached(() => previous.dispose());
+        if (scope.disposed) return;
+        remove(first!, last!);
+        const fragment = buildFragment(node);
+        try {
+          build(owned, fragment, null);
+        } catch (error) {
+          owned.dispose();
+          throw error;
+        }
+        first = fragment.firstChild;
+        last = fragment.lastChild;
+        node.insertBefore(fragment, after);
+      }
+      child = owned;
+      arity = next;
+    },
+    source,
+  );
 }
 
 export function renderComponent(
@@ -745,7 +857,21 @@ export function attribute(element: Element, name: string, value: unknown) {
   }
 }
 
-const controlConstraints = ['type', 'min', 'max', 'step', 'multiple', 'maxlength', 'maxLength'];
+const controlConstraints = new Set([
+  'type',
+  'min',
+  'max',
+  'step',
+  'multiple',
+  'maxlength',
+  'maxLength',
+]);
+const eventNames = new Map<string, boolean>();
+const isEvent = (name: string) => {
+  let event = eventNames.get(name);
+  if (event === undefined) eventNames.set(name, (event = /^on[A-Z]/u.test(name)));
+  return event;
+};
 const controlRestorations = new WeakMap<EventTarget, Set<(type: string) => void>>();
 
 /** Handled edits can change a control even when dispatch publishes no new model. */
@@ -960,7 +1086,6 @@ function mountArray(
   const set = (input: unknown) => {
     if (disposed) return;
     const values = input as readonly JSX.Element[];
-    validateContent(values);
     while (cells.length > values.length) {
       disposeCell(cells.pop()!);
       if (disposed) return;
@@ -1009,6 +1134,7 @@ function mountArray(
   return { set, dispose };
 }
 
+const restoringEvents = new Set(['input', 'change', 'blur', 'focusout', 'click']);
 export function event<M, E>(
   scope: Scope<M, E>,
   element: Element,
@@ -1036,7 +1162,7 @@ export function event<M, E>(
       } finally {
         // Restore only after an application handler commits or rejects an edit.
         // The target also covers handlers delegated to an ancestor.
-        if (event.target && ['input', 'change', 'blur', 'focusout', 'click'].includes(type))
+        if (event.target && restoringEvents.has(type))
           for (const restore of controlRestorations.get(event.target) ?? []) restore(type);
       }
     }
@@ -1115,8 +1241,7 @@ export function bindAttributes<M, E>(
   read: () => Readonly<Record<string, unknown>>,
 ) {
   const bindings = new Map<string, Binding>();
-  let previous: Readonly<Record<string, unknown>> = {};
-  const isEvent = (name: string) => /^on[A-Z]/u.test(name);
+  let previous: Readonly<Record<string, unknown>> = noAttributes;
   const isControl = (name: string) =>
     (name === 'value' && ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName)) ||
     (name === 'checked' && element.tagName === 'INPUT');
@@ -1159,7 +1284,7 @@ export function bindAttributes<M, E>(
   scope.watch(dependencies, () => {
     const next = read();
     for (const name in previous) {
-      if (Object.hasOwn(next, name)) continue;
+      if (name === 'children' || Object.hasOwn(next, name)) continue;
       bindings.get(name)?.dispose();
       bindings.delete(name);
       if (name !== 'use' && !isEvent(name)) attribute(element, name, undefined);
@@ -1169,7 +1294,9 @@ export function bindAttributes<M, E>(
     let controls: string[] | undefined;
     let constrained = false;
     for (const name in next) {
-      if (name === 'key' || name === 'ref' || name === 'innerHTML' || name === 'children')
+      // Children carried by a spread render as element content.
+      if (name === 'children') continue;
+      if (name === 'key' || name === 'ref' || name === 'innerHTML')
         throw new Error(
           `Spread attribute ${name} is unsupported. Use collections, DOM hosts, or JSX children.`,
         );
@@ -1183,7 +1310,7 @@ export function bindAttributes<M, E>(
         continue;
       }
       if (!Object.hasOwn(previous, name) || !Object.is(previous[name], value)) {
-        if (controlConstraints.includes(name)) constrained = true;
+        if (controlConstraints.has(name)) constrained = true;
         attribute(element, name, value);
       }
     }

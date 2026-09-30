@@ -1,9 +1,11 @@
 import type { Snapshot } from './snapshot.js';
-import type { TaskPolicy } from './owner.js';
+import type { ModelOwner, TaskPolicy } from './owner.js';
+import * as Cause from 'effect/Cause';
+import * as Exit from 'effect/Exit';
 import * as Effect from 'effect/Effect';
 import type * as Scope from 'effect/Scope';
 import * as Option from 'effect/Option';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { programView } from './component.js';
 import type { View } from './dom.js';
 import {
@@ -76,27 +78,94 @@ interface OwnedTask<R> {
   /** Tasks sharing a slot share cancellation and concurrency rules. Defaults to one slot per task. */
   readonly slot?: CommandSlot;
 }
+/** Model keys that can hold the task's `AsyncResult`. */
+type ResultKeys<Model, A, E> = {
+  [K in keyof Model]: AsyncResult.AsyncResult<A, E> extends Model[K] | Snapshot<Model[K]>
+    ? K
+    : never;
+}[keyof Model];
+type PublishedTasks<Model, R, T> = {
+  readonly [K in keyof T]: OwnedTask<R> & {
+    /** A model key that receives the task's `AsyncResult`: waiting, success or failure. */
+    readonly result?: T[K] extends { readonly run: (...args: never[]) => infer Ran }
+      ? ResultKeys<Model, Effect.Success<Ran>, Effect.Error<Ran>>
+      : never;
+  };
+};
+type TaskActions<T> = {
+  readonly [K in keyof T]: T[K] extends { readonly run: (...args: infer Args) => unknown }
+    ? (...args: Args) => void
+    : never;
+};
 /**
  * Named controller actions that run through `owner.run` with a fixed policy and slot:
  * `const actions = ownedTasks(owner, { save: { run: save, policy: 'drop' } })` then
- * `actions.save(text)`. Arguments are passed to `run` when the task starts.
+ * `actions.save(text)`. Arguments are passed to `run` when the task starts. A task with
+ * `result: 'key'` publishes its `AsyncResult` into the owner's model at that key.
  */
+export function ownedTasks<
+  Model extends object,
+  R,
+  T extends PublishedTasks<Model, R | Scope.Scope, T>,
+>(owner: ModelOwner<Model, R>, definitions: T): TaskActions<NoInfer<T>>;
 export function ownedTasks<
   Owner extends {
     readonly run: (slot: CommandSlot, effect: Effect.Effect<never>, policy: TaskPolicy) => void;
   },
-  T extends Record<string, OwnedTask<Effect.Services<Parameters<Owner['run']>[1]>>>,
->(
-  owner: Owner,
-  definitions: T,
-): { readonly [K in keyof T]: (...args: Parameters<T[K]['run']>) => void } {
+  T extends Record<
+    string,
+    OwnedTask<Effect.Services<Parameters<Owner['run']>[1]>> & { readonly result?: never }
+  >,
+>(owner: Owner, definitions: T): TaskActions<NoInfer<T>>;
+export function ownedTasks(
+  owner: Pick<ModelOwner<Record<string, unknown>>, 'run'> &
+    Partial<Pick<ModelOwner<Record<string, unknown>>, 'read' | 'patch'>>,
+  definitions: Record<string, OwnedTask<never> & { readonly result?: string }>,
+): Record<string, (...args: never[]) => void> {
   const actions = Object.create(null) as Record<string, (...args: never[]) => void>;
   for (const [name, task] of Object.entries(definitions)) {
     const slot = task.slot ?? commandSlot(name);
+    const key = task.result;
+    if (key === undefined) {
+      actions[name] = (...args) =>
+        owner.run(
+          slot,
+          Effect.suspend(() => task.run(...args)),
+          task.policy,
+        );
+      continue;
+    }
+    const current = () => owner.read!()[key] as AsyncResult.AsyncResult<unknown, unknown>;
+    const publish = (result: AsyncResult.AsyncResult<unknown, unknown>) =>
+      owner.patch!({ [key]: result });
+    let generation = 0;
     actions[name] = (...args) =>
-      owner.run(slot, Effect.suspend(() => task.run(...args)) as Effect.Effect<never>, task.policy);
+      owner.run(
+        slot,
+        Effect.suspend(() => {
+          const started = ++generation;
+          publish(AsyncResult.waiting(current()));
+          return task.run(...args).pipe(
+            Effect.onExit((exit) =>
+              Effect.sync(() => {
+                // A run replaced by a newer one leaves the newer run's state alone.
+                if (started !== generation) return;
+                if (Exit.isSuccess(exit)) publish(AsyncResult.success(exit.value));
+                else if (Cause.hasInterruptsOnly(exit.cause)) publish(stopWaiting(current()));
+                else
+                  publish(
+                    AsyncResult.failureWithPrevious(exit.cause, {
+                      previous: Option.some(current()),
+                    }),
+                  );
+              }),
+            ),
+          );
+        }),
+        task.policy,
+      );
   }
-  return actions as { readonly [K in keyof T]: (...args: Parameters<T[K]['run']>) => void };
+  return actions;
 }
 
 export function defineTasks<Props, State extends object, R>(

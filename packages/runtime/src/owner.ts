@@ -19,9 +19,12 @@ interface OwnedResource {
   dispose(): void;
   close?(): Effect.Effect<void, unknown>;
 }
+/** A disposable resource, or a plain cleanup such as an unsubscribe function. */
+export type Ownable = OwnedResource | (() => void);
 export interface DisposableOwner {
   readonly disposed: boolean;
-  readonly own: <A extends OwnedResource>(resource: A) => A;
+  /** Tie a resource or cleanup function to this owner; it runs on `dispose`/`close`. */
+  readonly own: <A extends Ownable>(resource: A) => A;
 }
 export interface ModelOwner<Model extends object, R = never> extends DisposableOwner {
   readonly source: Program<Model, never>;
@@ -232,8 +235,10 @@ export function modelOwner<Model extends object, R>(
     },
     close,
     own(resource) {
-      if (disposed) resource.dispose();
-      else cleanups.push(resource);
+      const owned: OwnedResource =
+        typeof resource === 'function' ? { dispose: resource } : resource;
+      if (disposed) owned.dispose();
+      else cleanups.push(owned);
       return resource;
     },
     dispose,

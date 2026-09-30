@@ -2,7 +2,8 @@ import { Context, Effect, Option, Scope } from 'effect';
 import { query, type Query } from './query.js';
 import { makeQueryCache } from './cache.js';
 import { infiniteQuery, infiniteResource } from './infinite-query.js';
-import { lifetime, type Snapshot, makeUiRuntime } from 'effectweb';
+import { available, lifetime, modelOwner, type Snapshot, makeUiRuntime } from 'effectweb';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { observeQuery } from './observe.js';
 
 export function queryTypes() {
@@ -168,4 +169,32 @@ export function immutableQueryInputs() {
       throw new Error('Type-only fixture');
     },
   });
+}
+
+export function keyedObservationTypes() {
+  const cache = makeQueryCache();
+  const count = query({ name: 'count', load: () => Effect.succeed(1) });
+  const owner = modelOwner<{
+    result: AsyncResult.AsyncResult<number, never>;
+    label: string;
+    value: number | undefined;
+  }>({ result: AsyncResult.initial(), label: '', value: undefined });
+  observeQuery(owner, cache, count, 'result');
+  observeQuery(owner, cache, count, 'value', available);
+  observeQuery(owner, cache, count, 'label', (result) => String(available(result) ?? ''));
+  // @ts-expect-error A key must hold the query's AsyncResult.
+  observeQuery(owner, cache, count, 'label');
+  // @ts-expect-error A projection must produce the key's type.
+  observeQuery(owner, cache, count, 'label', available);
+  // @ts-expect-error Keys require a model owner.
+  observeQuery(lifetime(), cache, count, 'result');
+}
+
+export function keyedObservationAcceptsMutableModels() {
+  const cache = makeQueryCache();
+  const rows = query({ name: 'rows', load: () => Effect.succeed([1, 2]) });
+  const owner = modelOwner({
+    rows: AsyncResult.initial<number[], never>() as AsyncResult.AsyncResult<number[], never>,
+  });
+  observeQuery(owner, cache, rows, 'rows');
 }

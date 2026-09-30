@@ -1,10 +1,11 @@
 import { Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
-import { component, programView } from './component.js';
+import { component, controllerView, programView } from './component.js';
 import { attach, compiled, Scope, type View } from './dom.js';
 import { domMount } from './mount.js';
 import { commandSlot, program, type Send } from './program.js';
 import { defineTasks } from './tasks.js';
+import { modelOwner } from './owner.js';
 
 type Props = { id: string };
 type Model = { props: Props; count: number };
@@ -287,4 +288,54 @@ it('captures imperative state before a program view disposes its child on unmoun
   scope.dispose();
   await Effect.runPromise(scope.settlement.wait());
   expect(events).toEqual(['capture:a', 'child', 'close']);
+});
+
+it('renders controller actions as model.actions without storing them in the model', () => {
+  const seen: Array<{ count: number; props: Props }> = [];
+  let owner!: ReturnType<typeof modelOwner<{ count: number }>>;
+  const definition = controllerView({
+    create: (props: Props) => {
+      owner = modelOwner({ count: 0 });
+      return {
+        source: owner.source,
+        actions: { increment: () => owner.patch({ count: owner.read().count + 1 }) },
+        dispose: owner.dispose,
+        receive: (next) => seen.push({ count: owner.read().count, props: next }),
+        ...(props.id ? {} : {}),
+      };
+    },
+    view: compiled((scope) => {
+      const model = scope.value;
+      scope.jobs.push(() => {
+        const next = scope.value;
+        seen.push({
+          count: next.count,
+          props: { id: `render:${String(next.actions.increment === model.actions.increment)}` },
+        });
+      });
+      model.actions.increment();
+    }),
+  });
+  const scope = new Scope<Props, never>({ id: 'a' }, () => {});
+  definition.build(scope, parent, null);
+  for (const job of scope.jobs) job();
+  expect(owner.read()).toEqual({ count: 1 });
+  expect(Object.keys(owner.source.model())).toEqual(['count']);
+  expect(seen).toContainEqual({ count: 1, props: { id: 'a' } });
+  expect(seen).toContainEqual({ count: 1, props: { id: 'render:true' } });
+  scope.dispose();
+  expect(owner.disposed).toBe(true);
+});
+
+it('does not require receive from a controller view', () => {
+  const owner = modelOwner({ count: 0 });
+  const definition = controllerView({
+    create: () => ({ source: owner.source, dispose: owner.dispose }),
+    view: compiled<{ count: number }, never>(() => {}),
+  });
+  const scope = new Scope<Props, never>({ id: 'a' }, () => {});
+  definition.build(scope, parent, null);
+  for (const job of scope.jobs) job();
+  scope.dispose();
+  expect(owner.disposed).toBe(true);
 });

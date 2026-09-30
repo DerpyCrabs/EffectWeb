@@ -1,5 +1,8 @@
 import { Effect } from 'effect';
-import { defineTasks } from './tasks.js';
+import { defineTasks, ownedTasks } from './tasks.js';
+import { modelOwner } from './owner.js';
+import { lifetime } from './session.js';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 
 export function taskInputs() {
   const definition = defineTasks({ init: () => ({ text: 'draft' }) }).tasks({
@@ -52,4 +55,39 @@ export function taskInputs() {
   // @ts-expect-error Public task messages retain their inferred input type too.
   source.send({ type: 'Run', task: 'optional', input: 1 });
   source.dispose();
+}
+
+export function ownedTaskResultKeys() {
+  const owner = modelOwner<{
+    saved: AsyncResult.AsyncResult<number, string>;
+    loose: AsyncResult.AsyncResult<unknown, unknown>;
+    label: string;
+  }>({ saved: AsyncResult.initial(), loose: AsyncResult.initial(), label: '' });
+  const actions = ownedTasks(owner, {
+    save: { policy: 'drop', result: 'saved', run: (text: string) => Effect.succeed(text.length) },
+    load: { policy: 'replace', result: 'loose', run: () => Effect.succeed({ rows: [1] }) },
+    plain: { policy: 'queue', run: (by: number) => Effect.sync(() => by) },
+  });
+  actions.save('text');
+  actions.load();
+  actions.plain(1);
+  // Destructuring must not feed the binding pattern back into inference.
+  const { save } = ownedTasks(owner, {
+    save: { policy: 'drop', result: 'saved', run: (text: string) => Effect.succeed(text.length) },
+  });
+  save('text');
+  const { plain } = ownedTasks(lifetime(), {
+    plain: { policy: 'drop', run: (by: number) => Effect.sync(() => by) },
+  });
+  plain(1);
+  ownedTasks(owner, {
+    // @ts-expect-error The key must hold the task's AsyncResult.
+    wrong: { policy: 'drop', result: 'label', run: () => Effect.succeed(1) },
+  });
+  ownedTasks(owner, {
+    // @ts-expect-error The task's error type must fit the key.
+    error: { policy: 'drop', result: 'saved', run: () => Effect.fail(new Error('x')) },
+  });
+  // @ts-expect-error Result keys need a model owner.
+  ownedTasks(lifetime(), { x: { policy: 'drop', result: 'saved', run: () => Effect.void } });
 }

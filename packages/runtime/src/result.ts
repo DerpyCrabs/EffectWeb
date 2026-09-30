@@ -1,6 +1,6 @@
 import * as Cause from 'effect/Cause';
 import * as Option from 'effect/Option';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 
 /** The latest success, including one retained while refreshing or after a failed refresh. */
 export const available = <A>(result: AsyncResult.AsyncResult<A, unknown>) =>

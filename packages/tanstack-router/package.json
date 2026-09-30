@@ -1,6 +1,6 @@
 {
   "name": "@effectweb/tanstack-router",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -25,10 +25,10 @@
   },
   "dependencies": {
     "@tanstack/history": "1.162.4",
-    "@tanstack/router-core": "1.171.33"
+    "@tanstack/router-core": "1.171.34"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.112",
-    "effectweb": "^0.8.0"
+    "effect": "4.0.0-rc.118",
+    "effectweb": "^0.8.1"
   }
 }

@@ -2,22 +2,22 @@ import type { Plugin } from 'vite';
 import { compile, type CompilerOptions } from './compile.js';
 import { isCompilerFile } from './files.js';
 
-export function effectweb(options: CompilerOptions = {}): Plugin {
+export function effectweb(options: CompilerOptions = {}) {
   let development = false;
   return {
-    config(_config, environment) {
+    config(_config: unknown, environment: { command: 'build' | 'serve' }) {
       return {
         define: { __EFFECTWEB_DEV__: JSON.stringify(environment.command === 'serve') },
         resolve: { dedupe: ['effect', 'effectweb'] },
         optimizeDeps: { exclude: ['effectweb'] },
       };
     },
-    configResolved(config) {
+    configResolved(config: { command: 'build' | 'serve' }) {
       development = config.command === 'serve';
     },
     name: 'effectweb-jsx',
     enforce: 'pre',
-    transform(code, id) {
+    transform(this: { warn(message: string): void }, code: string, id: string) {
       const filename = id.split('?')[0];
       if (!filename || !isCompilerFile(filename)) return;
       const result = compile(code, filename, {
@@ -32,7 +32,7 @@ export function effectweb(options: CompilerOptions = {}): Plugin {
       });
       return { code: result.code, map: result.map };
     },
-  };
+  } satisfies Plugin;
 }
 
 export default effectweb;

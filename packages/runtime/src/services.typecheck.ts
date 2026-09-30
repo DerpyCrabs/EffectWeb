@@ -1,7 +1,7 @@
 import { commandSlot, type CommandSlot, type TaskPolicy } from './program.js';
 /* oxlint-disable effecttsgo/missing-effect-context -- Negative service-requirement type contracts. */
 import { Context, Effect } from 'effect';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { defineTasks, ownedTasks } from './tasks.js';
 import { uiRuntime } from './runtime.js';
 import { effectCommand, program } from './program.js';

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import ts from 'typescript';
+import { transformSync } from 'esbuild';
 import { compile } from '../packages/compiler/native.cjs';
 
 import { packages } from './packages.mjs';
@@ -41,15 +41,15 @@ for (const { directory: name } of packages) {
           ),
         ),
       ).code;
-    const output = ts.transpileModule(source, {
-      compilerOptions: {
-        target: ts.ScriptTarget.ES2022,
-        module: ts.ModuleKind.ESNext,
-        verbatimModuleSyntax: true,
-      },
-      fileName: file,
+    const output = transformSync(source, {
+      target: 'es2022',
+      supported: { 'import-attributes': true },
+      format: 'esm',
+      loader: 'ts',
+      sourcefile: file,
+      tsconfigRaw: { compilerOptions: { verbatimModuleSyntax: true } },
     });
-    writeFileSync(`${dist}/${file.replace(/\.tsx?$/, '.js')}`, output.outputText);
+    writeFileSync(`${dist}/${file.replace(/\.tsx?$/, '.js')}`, output.code);
   }
 }
 for (const root of staged) {

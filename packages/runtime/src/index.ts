@@ -37,7 +37,13 @@ export { errorBoundary } from './boundary.js';
 export { collection, entities, sequence, type Rows, type Collection } from './collection.js';
 
 // Component state
-export { component, localComponent, controllerView, type ViewController } from './component.js';
+export {
+  component,
+  localComponent,
+  controllerView,
+  type ViewController,
+  type ControllerModel,
+} from './component.js';
 export {
   defineTasks,
   ownedTasks,
@@ -53,6 +59,7 @@ export {
   makeModelOwner,
   type ModelOwner,
   type DisposableOwner,
+  type Ownable,
   type TaskPolicy,
 } from './owner.js';
 export {

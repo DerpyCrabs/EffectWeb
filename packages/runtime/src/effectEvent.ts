@@ -25,15 +25,17 @@ export function effectEvent<EventType extends Event, E, R>(
 ): (event: EventType) => EffectEventRequest;
 export function effectEvent<EventType extends Event, E, R>(
   policy: 'drop' | 'replace',
-  load: (event: EventType) => Effect.Effect<unknown, E, R | Scope.Scope>,
-  runtime?: UiRuntime<R>,
+  ...binding:
+    | [load: (event: EventType) => Effect.Effect<unknown, E, Scope.Scope>]
+    | [
+        load: (event: EventType) => Effect.Effect<unknown, E, R | Scope.Scope>,
+        runtime: UiRuntime<R>,
+      ]
 ): (event: EventType) => EffectEventRequest {
   return (event) => ({
     [tag]: true,
     policy,
-    effect: runtime
-      ? runtime.provideScoped(load(event))
-      : (load(event) as Effect.Effect<unknown, E, Scope.Scope>),
+    effect: binding.length === 1 ? binding[0](event) : binding[1].provideScoped(binding[0](event)),
   });
 }
 

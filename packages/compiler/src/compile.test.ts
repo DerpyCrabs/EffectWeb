@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import ts from 'typescript';
+import { transformSync } from 'esbuild';
 import { runInNewContext } from 'node:vm';
 import { compile as compileSource, diagnose } from './compile';
 
@@ -9,7 +9,13 @@ const runtime = {
   slot: (render: unknown) => render,
   markup:
     (tag: string) =>
-    (props: Record<string, unknown>): Markup => ({ tag, props }),
+    (attrs: Record<string, unknown> | null, ...children: unknown[]): Markup => ({
+      tag,
+      props: {
+        ...attrs,
+        ...(children.length ? { children: children.length > 1 ? children : children[0] } : {}),
+      },
+    }),
   renderComponent: (render: (props: unknown) => unknown, props: unknown) => render(props),
 };
 function execute(source: string, development = false): Record<string, unknown> {
@@ -18,13 +24,12 @@ function execute(source: string, development = false): Record<string, unknown> {
     'semantics.tsx',
     { development },
   );
-  const js = ts.transpileModule(result.code, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
-  }).outputText;
+  const js = transformSync(result.code, { target: 'es2022', format: 'cjs', loader: 'ts' }).code;
   const exports = {};
   // Execute generated code against a value-only JSX host to inspect JavaScript evaluation.
-  runInNewContext(js, { require: () => runtime, exports });
-  return exports;
+  const module = { exports };
+  runInNewContext(js, { require: () => runtime, exports, module });
+  return module.exports;
 }
 function content(value: unknown): string {
   if (value == null || typeof value === 'boolean') return '';

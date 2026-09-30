@@ -7,13 +7,36 @@ export function Fragment(props: { readonly children?: JSX.Element }): JSX.Elemen
 }
 
 const tags = new Map<string, ReturnType<typeof markup>>();
+function factory(type: string) {
+  let render = tags.get(type);
+  if (!render) tags.set(type, (render = markup(type)));
+  return render;
+}
 export function jsx(
   type: string | ((props: never) => JSX.Element),
   props: Readonly<Record<string, unknown>>,
 ): JSX.Element {
   if (typeof type !== 'string') return type(props as never);
-  let render = tags.get(type);
-  if (!render) tags.set(type, (render = markup(type)));
-  return render(props);
+  if (!Object.hasOwn(props, 'children')) return factory(type)(props);
+  const { children, ...attrs } = props;
+  return factory(type)(attrs, children);
 }
-export { jsx as jsxs, jsx as jsxDEV };
+/** Static children arrays keep one binding per child. */
+export function jsxs(
+  type: string | ((props: never) => JSX.Element),
+  props: Readonly<Record<string, unknown>>,
+): JSX.Element {
+  if (typeof type !== 'string') return type(props as never);
+  const { children, ...attrs } = props;
+  return Array.isArray(children)
+    ? factory(type)(attrs, ...(children as unknown[]))
+    : factory(type)(attrs, children);
+}
+export function jsxDEV(
+  type: string | ((props: never) => JSX.Element),
+  props: Readonly<Record<string, unknown>>,
+  _key?: unknown,
+  isStatic?: boolean,
+): JSX.Element {
+  return isStatic ? jsxs(type, props) : jsx(type, props);
+}

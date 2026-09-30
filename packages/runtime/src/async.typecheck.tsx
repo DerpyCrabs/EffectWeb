@@ -1,5 +1,5 @@
 import type { Cause } from 'effect';
-import type * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import type * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { AsyncContent } from './AsyncContent.js';
 import type { Slot } from './dom.js';
 

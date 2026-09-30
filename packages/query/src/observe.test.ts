@@ -1,9 +1,9 @@
 import { Effect, Option } from 'effect';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { expect, it, vi } from 'vitest';
 import { cacheInternals } from './cache-internals.js';
 import { query } from './query.js';
-import { resourceError } from 'effectweb';
+import { available, resourceError } from 'effectweb';
 import { Cause } from 'effect';
 import { makeQueryCache } from './cache.js';
 import { modelOwner, lifetime } from 'effectweb';
@@ -178,9 +178,10 @@ it.each(['select', 'reset', 'dispose'] as const)(
   'releases subscriptions after reentrant %s during setup',
   (action) => {
     const cache = makeQueryCache();
-    const original = cacheInternals(cache).registry.subscribe.bind(cacheInternals(cache).registry);
+    const internals = cacheInternals(cache);
+    const original = internals.subscribe.bind(internals);
     const releases: Array<ReturnType<typeof vi.fn>> = [];
-    vi.spyOn(cacheInternals(cache).registry, 'subscribe').mockImplementation((...args) => {
+    vi.spyOn(internals, 'subscribe').mockImplementation((...args) => {
       const release = vi.fn(original(...args));
       releases.push(release);
       return release;
@@ -237,14 +238,14 @@ it('lets a lifetime own queries and cleanups in reverse order', () => {
   const scope = lifetime();
   const changed = vi.fn();
   const order: string[] = [];
-  scope.add(() => order.push('first'));
+  scope.own(() => order.push('first'));
   const resource = observeQuery(
     scope,
     cache,
     query({ name: 'n', load: (n: number) => Effect.succeed(n * 2) }),
     changed,
   );
-  scope.add(() => order.push('last'));
+  scope.own(() => order.push('last'));
   resource.select(2);
   expect(Option.getOrUndefined(AsyncResult.value(resource.read()))).toBe(4);
   expect(changed).toHaveBeenCalled();
@@ -252,7 +253,7 @@ it('lets a lifetime own queries and cleanups in reverse order', () => {
   expect(order).toEqual(['last', 'first']);
   expect(scope.disposed).toBe(true);
   expect(resource.read()).toEqual(AsyncResult.initial());
-  scope.add(() => order.push('late'));
+  scope.own(() => order.push('late'));
   expect(order).toEqual(['last', 'first', 'late']);
   cache.dispose();
 });
@@ -277,4 +278,20 @@ it('shares one query source per arguments, updates it live and releases it when 
   await Promise.resolve();
   expect(querySource(cache, user, 'alice')).not.toBe(first);
   cache.dispose();
+});
+
+it('patches query results and projections into a model key', async () => {
+  const owner = modelOwner<{
+    result: AsyncResult.AsyncResult<number, never>;
+    value: number | undefined;
+  }>({ result: AsyncResult.initial(), value: undefined });
+  const cache = owner.own(makeQueryCache());
+  const definition = query({ name: 'keyed', load: () => Effect.succeed(7) });
+  const full = observeQuery(owner, cache, definition, 'result');
+  const projected = observeQuery(owner, cache, definition, 'value', available);
+  full.select(true);
+  projected.select(true);
+  await vi.waitFor(() => expect(owner.read().value).toBe(7));
+  expect(owner.read().result._tag).toBe('Success');
+  owner.dispose();
 });

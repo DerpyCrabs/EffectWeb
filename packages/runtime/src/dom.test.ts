@@ -68,9 +68,7 @@ it('names the failing binding when development metadata is present', () => {
   const item = markup('li', { children: location });
   const { errors, owner, stop } = mounted({ fail: false }, (model) =>
     jsx('ul', {
-      children: item({
-        children: model.fail ? ({ plain: 'object' } as unknown as string) : 'ready',
-      }),
+      children: item(null, model.fail ? ({ plain: 'object' } as unknown as string) : 'ready'),
     }),
   );
   owner.patch({ fail: true });

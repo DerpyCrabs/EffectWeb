@@ -1,7 +1,7 @@
 import { Cause, Context, Effect, Schema } from 'effect';
-import * as HttpClientRequest from 'effect/unstable/http/HttpClientRequest';
-import * as HttpClient from 'effect/unstable/http/HttpClient';
-import * as HttpClientResponse from 'effect/unstable/http/HttpClientResponse';
+import * as HttpClientRequest from 'effect/http/HttpClientRequest';
+import * as HttpClient from 'effect/http/HttpClient';
+import * as HttpClientResponse from 'effect/http/HttpClientResponse';
 import { commandSlot, effectCommand, modelOwner, uiRuntime, view } from 'effectweb';
 import { defineActions, type ActionMessage } from 'effectweb/advanced';
 import { makeQueryCache, query } from '@effectweb/query';

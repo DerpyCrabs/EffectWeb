@@ -1,6 +1,6 @@
 # EffectWeb Lucide
 
-Lucide icons compiled to direct DOM views. The build generates the complete catalogue from pinned official `@lucide/icons` data using EffectWeb's Oxc compiler. Each mounted icon owns its SVG and updates it in place.
+Lucide icons as direct DOM views. The build generates the complete catalogue from pinned official `@lucide/icons` data; each icon module holds only its geometry, and a shared factory builds the SVG markup once per icon. Each mounted icon owns its SVG and updates it in place.
 
 Install `@effectweb/lucide` alongside `effectweb` and its declared Effect peer. For local use, run `npm run build` and `npm run test:package` from the repository root, then install the generated `artifacts/packages/effectweb-lucide-VERSION.tgz`.
 
@@ -47,6 +47,12 @@ Run the Effect in an existing task/resource lifecycle and use the returned view.
 This entry also exports `iconNames`, the `IconName` union, and `dynamicIconImports`, a low-level Promise-based module map. Importing the registry makes the full catalogue available as lazy chunks. Prefer per-icon imports or a small application-owned import map for a fixed set of icons. The registry is absent from ordinary icon bundles.
 
 ## Raw SVG and data
+
+Each direct icon module also exports `iconNode` (readonly SVG shape tuples, without
+upstream reconciliation keys) and `viewBox`. These are the same geometry used by
+the default view, so consumers that serialize icons for favicons can share their
+data with rendered icons. Alias modules re-export the same geometry identity.
+Treat the geometry as immutable; serialization should escape attribute values.
 
 ```ts
 import { Camera } from '@effectweb/lucide/data';

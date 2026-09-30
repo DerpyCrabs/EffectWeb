@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Cause, Effect, Option } from 'effect';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { modelOwner } from './owner.js';
 import { program } from './program.js';
 

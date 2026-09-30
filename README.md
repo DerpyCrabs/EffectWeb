@@ -16,14 +16,14 @@ The runtime is `effectweb`; compiler tooling and integrations use the `@effectwe
 - [`@effectweb/lucide`](packages/lucide): precompiled Lucide views, per-icon imports, optional Effect-based lazy loading, and raw SVG builders.
 - Adapters: [`@effectweb/tanstack-router`](packages/tanstack-router) (typed `<Link>`), [`@effectweb/tanstack-form`](packages/tanstack-form), [`@effectweb/tanstack-table`](packages/tanstack-table), [`@effectweb/keycloak`](packages/keycloak), [`@effectweb/json-render`](packages/json-render) and [`@effectweb/antd-icons`](packages/antd-icons).
 
-The runtime currently requires **Effect 4.0.0-rc.112**. Compiler tooling requires Node.js 22.14+. The release workflow builds glibc Linux x64/arm64, macOS x64/arm64, and Windows x64 binaries. musl Linux and other architectures have no prebuilt package.
+The runtime currently requires **Effect 4.0.0-rc.118**. Compiler tooling requires Node.js 22.14+. The release workflow builds glibc Linux x64/arm64, macOS x64/arm64, and Windows x64 binaries. musl Linux and other architectures have no prebuilt package.
 
 ## Vite setup
 
 Install the runtime and compiler:
 
 ```sh
-npm install effectweb effect@4.0.0-rc.112
+npm install effectweb effect@4.0.0-rc.118
 npm install --save-dev @effectweb/compiler vite typescript
 ```
 

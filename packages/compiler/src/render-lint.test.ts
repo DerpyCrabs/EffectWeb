@@ -232,7 +232,7 @@ it('keeps computed service actions and shadowed Math methods available', () => {
     checkRender(
       `const service={delete:(id)=>window.alert(id)};view(model => <Dialog confirm={() => service["delete"](model.id)} />)`,
     ),
-  ).toContain('.renderComponent(');
+  ).toContain('Dialog({');
   expect(
     checkRender('const Math={random:()=>1};view(model => <p>{Math["random"]()}</p>)'),
   ).toContain('.markup(');

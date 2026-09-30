@@ -1,4 +1,4 @@
-import type { Snapshot } from './snapshot.js';
+import { protectSnapshot, type Snapshot } from './snapshot.js';
 import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
 import type { View } from './dom.js';
@@ -109,37 +109,79 @@ export function component<Props, Model extends { readonly props: Props }, Messag
   );
 }
 
-export interface ViewController<Props, Model> {
+export interface ViewController<Props, Model, Actions extends object = {}> {
   readonly source: Source<Model>;
+  /** Controller methods the view reads as `model.actions`; they never live in the model itself. */
+  readonly actions?: Actions;
   /** New props from the parent; called after every publication that changes them. */
-  readonly receive: (props: Snapshot<Props>) => void;
+  readonly receive?: (props: Snapshot<Props>) => void;
   readonly dispose: () => void;
   /** Capture DOM state before the view is torn down. */
   readonly beforeDispose?: () => void;
   /** Teardown that waits for asynchronous finalizers; `dispose` is used when absent. */
   readonly close?: () => Effect.Effect<void, unknown>;
 }
+type RenderedModel<Model, Actions extends object> = [Actions] extends [never]
+  ? Model
+  : [keyof Actions] extends [never]
+    ? Model
+    : Model & { readonly actions: Actions };
+/**
+ * The model a `controllerView` view renders for a controller (or controller factory): its
+ * source model plus `actions`. Use it to type views declared apart from the `controllerView`.
+ */
+export type ControllerModel<C> = (C extends (...args: never[]) => infer R ? R : C) extends {
+  readonly source: Source<infer Model>;
+  readonly actions?: infer Actions;
+}
+  ? [Actions] extends [object]
+    ? RenderedModel<Model, Actions>
+    : Model
+  : never;
 /**
  * A feature controller created from the view's props and disposed with the view. Use it when
  * a view needs a controller object (`modelOwner`, queries, subscriptions) rather than named
- * messages. `identity` recreates the controller when the entity changes.
+ * messages. Its `actions` reach the view as `model.actions`, so the model stays plain data.
+ * `identity` recreates the controller when the entity changes.
  */
-export function controllerView<Props, Model>(definition: {
+export function controllerView<
+  Props,
+  Model extends object,
+  Actions extends object = {},
+>(definition: {
   readonly identity?: (props: Snapshot<Props>) => unknown;
   readonly create: (
     props: Snapshot<Props>,
     runtime: UiRuntime<never>,
-  ) => ViewController<Props, Model>;
-  readonly view: View<Model, never>;
+  ) => ViewController<Props, Model, Actions>;
+  readonly view: View<RenderedModel<Model, NoInfer<Actions>>, never>;
 }): View<Props, never> {
-  const controllers = new WeakMap<Program<Model, never>, ViewController<Props, Model>>();
-  return programView<Props, Model, never>({
+  type Rendered = RenderedModel<Model, Actions>;
+  const controllers = new WeakMap<
+    Program<Rendered, never>,
+    ViewController<Props, Model, Actions>
+  >();
+  return programView<Props, Rendered, never>({
     ...(definition.identity ? { identity: definition.identity } : {}),
     create(props, runtime) {
       const controller = definition.create(props, runtime);
-      const source: Program<Model, never> = {
-        model: controller.source.model,
-        subscribe: controller.source.subscribe,
+      const actions = controller.actions;
+      let lastModel: Snapshot<Model> | undefined;
+      let lastRendered: Snapshot<Rendered> | undefined;
+      const rendered = (model: Snapshot<Model>): Snapshot<Rendered> => {
+        if (!actions) return model as unknown as Snapshot<Rendered>;
+        if (model !== lastModel) {
+          lastModel = model;
+          lastRendered = protectSnapshot({
+            ...(model as object),
+            actions,
+          }) as unknown as Snapshot<Rendered>;
+        }
+        return lastRendered!;
+      };
+      const source: Program<Rendered, never> = {
+        model: () => rendered(controller.source.model()),
+        subscribe: (listener) => controller.source.subscribe((model) => listener(rendered(model))),
         send: () => {},
         dispose: controller.dispose,
         ...(controller.close ? { close: controller.close } : {}),
@@ -148,7 +190,7 @@ export function controllerView<Props, Model>(definition: {
       return source;
     },
     receive(source, props) {
-      controllers.get(source)?.receive(props);
+      controllers.get(source)?.receive?.(props);
     },
     beforeDispose(source) {
       controllers.get(source)?.beforeDispose?.();

@@ -74,7 +74,8 @@ it('portal targets retain their child state and events through updates and movem
       contentGone: true,
       secondEmpty: true,
       parentEmpty: true,
-      text: '',
+      // Detached content keeps its last text; the dead handler no longer counts clicks.
+      text: 'body:1',
       lifetime: { mounted: 1, disposed: 1 },
     },
   });

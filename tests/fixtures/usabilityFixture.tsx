@@ -1,5 +1,5 @@
 import { Cause, Option } from 'effect';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { AsyncContent, domMount, submit, mountView, program, slot, view } from 'effectweb';
 
 export function mountAsyncContent(parent: HTMLElement) {

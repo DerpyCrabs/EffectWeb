@@ -2,7 +2,7 @@ import { commandSlot } from './program.js';
 import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
-import * as AsyncResult from 'effect/unstable/reactivity/AsyncResult';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { component } from './component.js';
 import { view, type Slot, type View } from './index.js';
 import type { JSX } from './jsx.js';

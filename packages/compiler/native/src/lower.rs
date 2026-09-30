@@ -97,6 +97,10 @@ pub struct Lower<'s> {
     pub edits: Vec<(Span, String)>,
     pub hoisted: Vec<String>,
     pub errors: Vec<(Span, String)>,
+    /// Intrinsic elements whose attributes and children are all literals, by their hoisted name.
+    static_elements: Vec<(Span, String)>,
+    /// One shared factory per tag; call sites with source metadata keep their own.
+    factories: Vec<(String, String)>,
     prefix: String,
     anchor: String,
     filename: &'s str,
@@ -114,6 +118,8 @@ impl<'s> Lower<'s> {
             edits: vec![],
             hoisted: vec![],
             errors: vec![],
+            static_elements: vec![],
+            factories: vec![],
             anchor: crate::sourcemap::marker_prefix(source),
             prefix,
             filename,
@@ -146,23 +152,33 @@ impl<'s> Lower<'s> {
         result.push_str(&self.source[offset..span.end as usize]);
         format!("{}{}__*/({})", self.anchor, span.start, result)
     }
-    fn children(&self, children: &[JSXChild<'_>]) -> Vec<String> {
+    fn static_element(&self, span: Span) -> Option<&str> {
+        self.static_elements
+            .iter()
+            .find(|(child, _)| *child == span)
+            .map(|(_, name)| name.as_str())
+    }
+    /// Each child's code and whether it is a literal (text or a hoisted static element).
+    fn children(&self, children: &[JSXChild<'_>]) -> Vec<(String, bool)> {
         children
             .iter()
             .filter_map(|child| match child {
                 JSXChild::Text(text) => {
                     let text = jsx_text(text.value.as_str());
-                    (!text.is_empty()).then(|| quote(&text))
+                    (!text.is_empty()).then(|| (quote(&text), true))
                 }
                 JSXChild::ExpressionContainer(container) => container
                     .expression
                     .as_expression()
-                    .map(|e| self.expression(e.span())),
-                JSXChild::Spread(spread) => Some(format!(
-                    "...({})",
-                    self.expression(spread.expression.span())
+                    .map(|e| (self.expression(e.span()), false)),
+                JSXChild::Spread(spread) => Some((
+                    format!("...({})", self.expression(spread.expression.span())),
+                    false,
                 )),
-                _ => Some(self.expression(child.span())),
+                _ => Some(match self.static_element(child.span()) {
+                    Some(name) => (name.to_owned(), true),
+                    None => (self.expression(child.span()), false),
+                }),
             })
             .collect()
     }
@@ -181,9 +197,13 @@ impl<'a> Visit<'a> for Lower<'_> {
             || matches!(&opening.name, JSXElementName::NamespacedName(_));
         let mut props = vec![];
         let mut bindings = serde_json::Map::new();
+        // Literal attributes (strings and bare booleans) form an immutable object the
+        // compiler hoists once, so the renderer skips them by identity on every publication.
+        let mut static_attributes = true;
         for attribute in &opening.attributes {
             match attribute {
                 JSXAttributeItem::SpreadAttribute(spread) => {
+                    static_attributes = false;
                     props.push(format!("...({})", self.expression(spread.argument.span())))
                 }
                 JSXAttributeItem::Attribute(attribute) => {
@@ -197,11 +217,17 @@ impl<'a> Visit<'a> for Lower<'_> {
                         Some(JSXAttributeValue::StringLiteral(value)) => {
                             quote(&decoded(value.value.as_str()))
                         }
-                        Some(JSXAttributeValue::ExpressionContainer(container)) => container
-                            .expression
-                            .as_expression()
-                            .map_or_else(|| "undefined".into(), |e| self.expression(e.span())),
-                        Some(value) => self.expression(value.span()),
+                        Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                            static_attributes = false;
+                            container
+                                .expression
+                                .as_expression()
+                                .map_or_else(|| "undefined".into(), |e| self.expression(e.span()))
+                        }
+                        Some(value) => {
+                            static_attributes = false;
+                            self.expression(value.span())
+                        }
                     };
                     let key = if attr_name == "__proto__" {
                         format!("[{}]", quote(attr_name))
@@ -235,32 +261,92 @@ impl<'a> Visit<'a> for Lower<'_> {
         {
             bindings.insert("children".into(), self.binding(expression.span()));
         }
-        if !children.is_empty() {
-            props.push(format!(
-                "children:{}",
-                if children.len() == 1 && !children[0].starts_with("...") {
-                    children[0].clone()
-                } else {
-                    format!("[{}]", children.join(","))
-                }
-            ));
-        }
-        let props = format!("{{{}}}", props.join(","));
         let expression = if intrinsic {
-            let factory = format!("{}jsx{}", self.prefix, self.hoisted.len());
-            self.hoisted.push(format!(
-                "const {factory}=/*@__PURE__*/{}.markup({}{});",
-                self.runtime,
-                quote(name),
-                if self.development && !bindings.is_empty() {
-                    format!(",{}", serde_json::Value::Object(bindings))
-                } else {
-                    String::new()
+            let located = self.development && !bindings.is_empty();
+            let shared = (!located)
+                .then(|| self.factories.iter().find(|(tag, _)| tag == name))
+                .flatten()
+                .map(|(_, factory)| factory.clone());
+            let factory = shared.unwrap_or_else(|| {
+                let factory = format!("{}jsx{}", self.prefix, self.hoisted.len());
+                self.hoisted.push(format!(
+                    "const {factory}=/*@__PURE__*/{}.markup({}{});",
+                    self.runtime,
+                    quote(name),
+                    if located {
+                        format!(",{}", serde_json::Value::Object(bindings))
+                    } else {
+                        String::new()
+                    }
+                ));
+                if !located {
+                    self.factories.push((name.to_owned(), factory.clone()));
                 }
-            ));
-            format!("{factory}({props})")
+                factory
+            });
+            let attrs = if props.is_empty() {
+                "null".to_owned()
+            } else if static_attributes {
+                let constant = format!("{}a{}", self.prefix, self.hoisted.len());
+                self.hoisted
+                    .push(format!("const {constant}={{{}}};", props.join(",")));
+                constant
+            } else {
+                format!("{{{}}}", props.join(","))
+            };
+            // Children are positional arguments, so the element keeps one binding per child.
+            // A spread child has no fixed count and stays an ordinary content array.
+            let arguments = if children.iter().any(|(code, _)| code.starts_with("...")) {
+                format!(
+                    "{attrs},[{}]",
+                    children
+                        .iter()
+                        .map(|(code, _)| code.as_str())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            } else {
+                std::iter::once(attrs.clone())
+                    .chain(children.iter().map(|(code, _)| code.clone()))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            };
+            let static_children = children.iter().all(|(_, literal)| *literal);
+            if (props.is_empty() || static_attributes) && static_children {
+                let constant = format!("{}s{}", self.prefix, self.hoisted.len());
+                self.hoisted.push(format!(
+                    "const {constant}=/*@__PURE__*/{factory}({arguments});"
+                ));
+                self.static_elements.push((element.span, constant.clone()));
+                constant
+            } else {
+                format!("{factory}({arguments})")
+            }
         } else {
-            format!("{}.renderComponent({name},{props})", self.runtime)
+            if !children.is_empty() {
+                props.push(format!(
+                    "children:{}",
+                    if children.len() == 1 && !children[0].0.starts_with("...") {
+                        children[0].0.clone()
+                    } else {
+                        format!(
+                            "[{}]",
+                            children
+                                .iter()
+                                .map(|(code, _)| code.as_str())
+                                .collect::<Vec<_>>()
+                                .join(",")
+                        )
+                    }
+                ));
+            }
+            // Components are ordinary functions. A member expression is called without its
+            // object as `this`, matching a direct call of the view.
+            if name.contains('.') {
+                format!("(0,{name})({{{}}})", props.join(","))
+            } else {
+                format!("{name}({{{}}})", props.join(","))
+            }
         };
         self.edits.push((element.span, expression));
     }
@@ -268,7 +354,14 @@ impl<'a> Visit<'a> for Lower<'_> {
         walk::walk_jsx_fragment(self, fragment);
         self.edits.push((
             fragment.span,
-            format!("[{}]", self.children(&fragment.children).join(",")),
+            format!(
+                "[{}]",
+                self.children(&fragment.children)
+                    .iter()
+                    .map(|(code, _)| code.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
         ));
     }
 }

@@ -63,6 +63,9 @@ export default defineConfig({
           ],
         },
       ],
+      // @effect/tsgo 0.47.1 stability rules panic on aliased symbols in this workspace.
+      'effecttsgo/experimental-api-usage': 'off',
+      'effecttsgo/unstable-api-usage': 'off',
       'effecttsgo/any-unknown-in-error-context': 'off',
       'effecttsgo/floating-effect': 'error',
       'effectweb/valid-view': 'error',

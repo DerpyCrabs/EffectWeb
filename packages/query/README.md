@@ -1,6 +1,6 @@
 # @effectweb/query
 
-Cached server data for [EffectWeb](https://github.com/DerpyCrabs/EffectWeb). Queries are Effects identified by all of their arguments, stored in a cache built on Effect's `AtomRegistry`, and observed by views or controllers.
+Cached server data for [EffectWeb](https://github.com/DerpyCrabs/EffectWeb). Queries are Effects identified by all of their arguments, stored in a shared cache, and observed by views or controllers.
 
 ```ts
 import { makeQueryCache, observeQuery, query, querySource } from '@effectweb/query';
@@ -16,7 +16,7 @@ const cache = makeQueryCache(uiRuntime(Context.make(Users, users)));
 observe(querySource(cache, user, { id }), (result) => <AsyncContent result={result} … />);
 
 // In a controller: follow a changing selection and publish results into the model.
-const selected = observeQuery(owner, cache, user, (result) => owner.patch({ user: result }));
+const selected = observeQuery(owner, cache, user, 'user');
 selected.select({ id });
 ```
 
