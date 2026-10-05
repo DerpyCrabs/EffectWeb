@@ -1,4 +1,3 @@
-import type { Snapshot } from './snapshot.js';
 import * as Context from 'effect/Context';
 import * as Clock from 'effect/Clock';
 import * as Effect from 'effect/Effect';
@@ -6,9 +5,12 @@ import type * as Fiber from 'effect/Fiber';
 import * as FiberSet from 'effect/FiberSet';
 import * as Scope from 'effect/Scope';
 import * as Stream from 'effect/Stream';
-import { program, type Command, type RunningProgram, type Transition } from './program.js';
+import type { OwnedCommand } from './program.js';
 
-/** A binding to application-owned services, not a new scope or service lifetime. */
+/**
+ * Internal: an Effect `Context` plus the fiber owner that runs work with it. Public APIs take a
+ * `Context` instead; `makeMount` captures one so Effects started by views get the app's services.
+ */
 export interface UiRuntime<R> {
   readonly context: Context.Context<R>;
   readonly clock: Clock.Clock;
@@ -19,14 +21,9 @@ export interface UiRuntime<R> {
   readonly provideScoped: <A, E>(
     effect: Effect.Effect<A, E, R | Scope.Scope>,
   ) => Effect.Effect<A, E, Scope.Scope>;
-  readonly command: <M>(command: Command<M, R>) => Command<M>;
-  readonly program: <M, Msg>(options: {
-    initial: M | Snapshot<M>;
-    update: (model: Snapshot<M>, message: Msg) => Transition<M, Msg, R>;
-    name?: string;
-    onDefect?: (cause: unknown) => void;
-  }) => RunningProgram<M, Msg>;
+  readonly command: <M>(command: OwnedCommand<M, R>) => OwnedCommand<M>;
 }
+/** Run work with a fixed context, outside any Effect scope. */
 export function uiRuntime<R>(context: Context.Context<R>): UiRuntime<R> {
   return createRuntime(context, Effect.runForkWith(context));
 }
@@ -46,7 +43,7 @@ function createRuntime<R>(
 ): UiRuntime<R> {
   const provide = <A, E>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E> =>
     Effect.provideContext(effect, context);
-  const command = <M>(value: Command<M, R>): Command<M> =>
+  const command = <M>(value: OwnedCommand<M, R>): OwnedCommand<M> =>
     value.stream
       ? {
           ...value,
@@ -56,9 +53,9 @@ function createRuntime<R>(
             ),
           ),
         }
-      : value.action
+      : 'action' in value && value.action
         ? { ...value, action: provide(Effect.scoped(value.action)) }
-        : { ...value, effect: provide(Effect.scoped(value.effect)) };
+        : { ...value, effect: provide(Effect.scoped(value.effect!)) };
   return {
     context,
     clock: Context.get(context, Clock.Clock),
@@ -67,19 +64,6 @@ function createRuntime<R>(
     provideScoped: (effect) =>
       Effect.flatMap(Effect.scope, (scope) => provide(Scope.provide(effect, scope))),
     command,
-    program: (options) =>
-      program({
-        ...options,
-        runtime: { runFork: (effect) => run(Effect.scoped(effect)) },
-        update: (model, message) => {
-          const next = options.update(model, message);
-          return {
-            model: next.model,
-            ...(next.cancel ? { cancel: next.cancel } : {}),
-            ...(next.commands ? { commands: next.commands.map(command) } : {}),
-          };
-        },
-      }),
   };
 }
 export const defaultUiRuntime = /* @__PURE__ */ uiRuntime(Context.empty());

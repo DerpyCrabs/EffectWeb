@@ -1,7 +1,7 @@
-import { Cause, Deferred, Effect, Exit, Fiber, Scope } from 'effect';
+import { Cause, Deferred, Effect, Exit, Fiber } from 'effect';
 import { expect, it, vi } from 'vitest';
 import { query } from './query.js';
-import { makeQueryCache, scopedQueryCache } from './cache.js';
+import { queryCache } from './cache.js';
 import { queryResource } from './observe.js';
 
 it('releases scoped query acquisition when the cache closes before its parent scope', async () => {
@@ -18,7 +18,10 @@ it('releases scoped query acquisition when the cache closes before its parent sc
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const cache = yield* scopedQueryCache<Scope.Scope>();
+        const cache = yield* Effect.acquireRelease(
+          Effect.sync(() => queryCache()),
+          (cache) => cache.close(),
+        );
         yield* cache.prefetch(definition, 'one');
         expect(released).toBe(false);
         yield* cache.close();
@@ -32,10 +35,7 @@ it.each(['close', 'remove', 'reset', 'refresh', 'cancel', 'unused', 'evict'] as 
   'joins asynchronous query resources after %s, including resources of replaced or evicted entries',
   async (action) => {
     if (action === 'evict') vi.useFakeTimers();
-    const cache = makeQueryCache({
-      retention: 100,
-      unused: action === 'unused' ? 'cancel' : 'retain',
-    });
+    const cache = queryCache({ retention: 100, unused: action === 'unused' ? 'cancel' : 'retain' });
     const release = Deferred.makeUnsafe<void>();
     const releasing: number[] = [];
     const released: number[] = [];
@@ -91,7 +91,7 @@ it('joins load finalizers before releasing query resources on cancellation', asy
   const loadFinalizer = Deferred.makeUnsafe<void>();
   const resourceFinalizer = Deferred.makeUnsafe<void>();
   const order: string[] = [];
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const definition = query({
     name: 'query-release-order',
     load: () =>
@@ -134,7 +134,7 @@ it('joins a late query acquisition and its asynchronous release after cancellati
   const release = Deferred.makeUnsafe<void>();
   let releasing = false;
   let released = false;
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const definition = query({
     name: 'late-query-acquisition',
     load: () =>
@@ -164,7 +164,7 @@ it('joins a late query acquisition and its asynchronous release after cancellati
 it('releases failed query resources with the original failure before publishing that failure', async () => {
   const release = Deferred.makeUnsafe<void>();
   let released: Exit.Exit<unknown, unknown> | undefined;
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const definition = query({
     name: 'query-failure-exit',
     load: () =>

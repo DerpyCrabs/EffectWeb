@@ -1,15 +1,14 @@
 import { Context, Effect } from 'effect';
 import { infiniteQuery, infiniteResource } from './infinite-query.js';
-import { makeQueryCache } from './cache.js';
+import { queryCache } from './cache.js';
 import { query, queryGroup } from './query.js';
-import { uiRuntime } from 'effectweb';
 
 class Files extends Context.Service<
   Files,
   { load(path: string, offset: number): Effect.Effect<readonly string[], 'offline'> }
 >()('TypecheckFiles') {}
-const runtime = uiRuntime(Context.make(Files, { load: () => Effect.succeed([]) }));
-const cache = makeQueryCache(runtime, { unused: 'cancel', retention: 60_000 });
+const context = Context.make(Files, { load: () => Effect.succeed([]) });
+const cache = queryCache(context, { unused: 'cancel', retention: 60_000 });
 const group = queryGroup('files');
 const listing = infiniteQuery({
   name: 'listing',
@@ -25,7 +24,7 @@ observer.select({ path: '/' });
 const invalidRetry = observer.retryPage('invalid');
 void invalidRetry;
 // @ts-expect-error The cache must supply the query service environment.
-infiniteResource(makeQueryCache(), listing);
+infiniteResource(queryCache(), listing);
 // @ts-expect-error Query arguments must retain their declared type.
 observer.select({ path: 1 });
 const typed = query({

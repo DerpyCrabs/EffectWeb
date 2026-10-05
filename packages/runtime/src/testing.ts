@@ -1,16 +1,16 @@
 import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
-import type { CommandSlot, Program, RunningProgram, Send } from './program.js';
-import { defaultUiRuntime, type UiRuntime } from './runtime.js';
-import { mountView, type Mounted, type View } from './dom.js';
+import type { RunKey, Program, RunningProgram, Send } from './program.js';
+import * as Context from 'effect/Context';
+import { mount, type Mounted, type View } from './dom.js';
 import { protectSnapshot, type Snapshot } from './snapshot.js';
 import type { ReportError } from './errors.js';
 
 /** Program inspection and controlled Effect execution with application-owned services. */
 export interface ProgramDriver<M, Msg, R = never> extends Program<M, Msg> {
   readonly close: RunningProgram<M, Msg>['close'];
-  readonly activeSlots: RunningProgram<M, Msg>['activeSlots'];
-  readonly awaitSlot: (slot: CommandSlot) => Effect.Effect<void>;
+  readonly activeKeys: RunningProgram<M, Msg>['activeKeys'];
+  readonly awaitKey: (key: RunKey) => Effect.Effect<void>;
   readonly awaitIdle: () => Effect.Effect<void>;
   readonly run: <A, E>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E>;
 }
@@ -18,17 +18,11 @@ export interface ProgramDriver<M, Msg, R = never> extends Program<M, Msg> {
 export function programDriver<M, Msg>(source: RunningProgram<M, Msg>): ProgramDriver<M, Msg>;
 export function programDriver<M, Msg, R>(
   source: RunningProgram<M, Msg>,
-  runtime: UiRuntime<R>,
+  context: Context.Context<R>,
 ): ProgramDriver<M, Msg, R>;
 export function programDriver<M, Msg, R>(
   source: RunningProgram<M, Msg>,
-  runtime?: UiRuntime<R>,
-): ProgramDriver<M, Msg, R> {
-  return makeDriver(source, runtime ?? (defaultUiRuntime as UiRuntime<R>));
-}
-function makeDriver<M, Msg, R>(
-  source: RunningProgram<M, Msg>,
-  runtime: UiRuntime<R>,
+  context: Context.Context<R> = Context.empty() as Context.Context<R>,
 ): ProgramDriver<M, Msg, R> {
   return {
     model: source.model,
@@ -36,10 +30,10 @@ function makeDriver<M, Msg, R>(
     subscribe: source.subscribe,
     dispose: source.dispose,
     close: source.close,
-    activeSlots: source.activeSlots,
-    awaitSlot: (slot: CommandSlot) => source.awaitIdle(slot),
+    activeKeys: source.activeKeys,
+    awaitKey: (key: RunKey) => source.awaitIdle(key),
     awaitIdle: () => source.awaitIdle(),
-    run: runtime.provide,
+    run: (effect) => Effect.provideContext(effect, context),
   };
 }
 
@@ -90,7 +84,7 @@ export function renderView<M, E = never>(
   let current = protectSnapshot(model) as Snapshot<M>;
   const listeners = new Set<(value: Snapshot<M>) => void>();
   const sent: E[] = [];
-  const mounted = mountView(
+  const mounted = mount(
     parent,
     definition,
     {

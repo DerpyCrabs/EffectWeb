@@ -12,7 +12,7 @@ for (const file of [
 ]) {
   const data = JSON.parse(readFileSync(file, 'utf8'));
   data.version = version;
-  if (data.peerDependencies?.effectweb) data.peerDependencies.effectweb = `^${version}`;
+  if (data.peerDependencies?.effectweb) data.peerDependencies.effectweb = version;
   if (data.optionalDependencies)
     for (const name of Object.keys(data.optionalDependencies))
       data.optionalDependencies[name] = version;

@@ -32,7 +32,7 @@ export const effectwebLint: EffectwebLint = {
           {
             name: 'effectweb/dom',
             message:
-              'Compiler implementation API. Use view, domMount, mountView, and owned application APIs.',
+              'Compiler implementation API. Use view, domMount, mount, and owned application APIs.',
           },
           { name: 'effectweb/jsx-runtime', message: implementation },
           { name: 'effectweb/jsx-dev-runtime', message: implementation },

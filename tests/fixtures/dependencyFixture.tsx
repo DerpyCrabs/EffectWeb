@@ -1,5 +1,5 @@
 import { list } from 'effectweb';
-import { mountView, program, view } from 'effectweb';
+import { mount, program, view } from 'effectweb';
 
 export function mountCopiedArrays(parent: HTMLElement) {
   const View = view<{ items: readonly number[] }>((model) => {
@@ -16,7 +16,7 @@ export function mountCopiedArrays(parent: HTMLElement) {
     initial: { items: initial },
     update: (_model, items) => ({ model: { items } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     initial,
     set: source.send,
@@ -62,7 +62,7 @@ export function mountDependencies(parent: HTMLElement) {
     },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     set: source.send,
     dispose() {

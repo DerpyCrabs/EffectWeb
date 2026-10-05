@@ -1,4 +1,4 @@
-// The recommended authoring surface. See AUTHORING.md for which API to use when.
+// The recommended authoring surface. See docs/choosing-apis.md for which API to use when.
 // Adapter-building and specialized APIs live in `effectweb/advanced`;
 // test helpers live in `effectweb/testing`.
 
@@ -12,13 +12,13 @@ export {
   observe,
   slot,
   ViewBinding,
-  mountView,
+  mount,
   type View,
   type Mounted,
   type Slot,
   type CompiledContent,
 } from './dom.js';
-export { mount } from './render.js';
+export { makeMount } from './render.js';
 export type { JSX } from './jsx.js';
 export {
   Portal,
@@ -29,7 +29,6 @@ export {
   type DomHandle,
   type PortalProps,
 } from './mount.js';
-export { AsyncContent, type AsyncContentProps } from './AsyncContent.js';
 export { available, resourceError } from './result.js';
 export { errorBoundary } from './boundary.js';
 
@@ -39,51 +38,35 @@ export { collection, entities, sequence, type Rows, type Collection } from './co
 // Component state
 export {
   component,
-  localComponent,
   controllerView,
+  ownerOf,
+  type ComponentOwner,
+  type FieldsPatch,
   type ViewController,
   type ControllerModel,
 } from './component.js';
-export {
-  defineTasks,
-  ownedTasks,
-  type TaskDefinition,
-  type TasksModel,
-  type TasksMessage,
-  type TaskResults,
-} from './tasks.js';
 
 // Controllers and programs
 export {
   modelOwner,
-  makeModelOwner,
   type ModelOwner,
   type DisposableOwner,
+  type OwnedRun,
   type Ownable,
-  type TaskPolicy,
+  type RunPolicy,
 } from './owner.js';
 export {
   program,
-  makeProgram,
-  actionCommand,
-  effectCommand,
-  commandSlot,
-  commandSlots,
-  type CommandSlot,
+  type RunKey,
   type Command,
   type Program,
   type RunningProgram,
   type Send,
   type Transition,
 } from './program.js';
-export { effectEvent } from './effectEvent.js';
-export { uiRuntime, makeUiRuntime, type UiRuntime } from './runtime.js';
 
 // Sources
-export { mapSource, clock, type Source } from './source.js';
-
-// Owning resources in controllers without a model
-export { lifetime } from './session.js';
+export { mapSource, clock, liveSource, type Source } from './source.js';
 
 // Form events
 export { submit } from './form.js';

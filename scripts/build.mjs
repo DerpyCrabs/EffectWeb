@@ -81,3 +81,7 @@ await Promise.all(
 );
 await import('./build-lucide.mjs');
 await import('./build-antd-icons.mjs');
+
+// The site's guides and reference ship in the runtime package as Markdown (`effectweb/docs`).
+const { writePackageDocs } = await import('../website/lib/package-docs.mjs');
+await writePackageDocs(resolve('website'), resolve('packages/runtime/docs'));

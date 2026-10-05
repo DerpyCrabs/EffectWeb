@@ -1,14 +1,14 @@
 import { Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { afterEach, expect, it, vi } from 'vitest';
-import { makeQueryCache, type QueryCache } from './cache.js';
+import { queryCache, type QueryCache } from './cache.js';
 import { query } from './query.js';
 import { available } from 'effectweb';
 import { queryResource } from './observe.js';
 
 const caches: QueryCache[] = [];
 const makeCache = () => {
-  const cache = makeQueryCache();
+  const cache = queryCache();
   caches.push(cache);
   return cache;
 };

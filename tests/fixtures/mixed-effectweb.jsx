@@ -1,4 +1,4 @@
-import { view, modelOwner, mountView } from 'effectweb';
+import { view, modelOwner, mount } from 'effectweb';
 
 const Counter = view((model, send) => (
   <button onClick={() => send(model.count + 1)}>EffectWeb {model.count}</button>
@@ -6,7 +6,7 @@ const Counter = view((model, send) => (
 
 export function mountCounter(host) {
   const owner = modelOwner({ count: 0 });
-  const unmount = mountView(host, Counter, {
+  const unmount = mount(host, Counter, {
     ...owner.source,
     send: (count) => owner.patch({ count }),
   });

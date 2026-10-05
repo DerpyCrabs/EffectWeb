@@ -30,7 +30,7 @@ it('keeps entity identity through reorder, filtering and immutable revisions', (
   const items = [a, b];
   const rows = entities(items);
   expect(entities(items)).toBe(rows);
-  expect(rows.map((item) => item.title)).toEqual(['A', 'B']);
+  expect(rows.items.map((item) => item.title)).toEqual(['A', 'B']);
   const reversed = entities([b, a]);
   expect(reversed.items.map(reversed.identity)).toEqual(['b', 'a']);
   const revised = entities([{ ...a, title: 'Updated' }, b]);
@@ -110,4 +110,8 @@ it('validates identities for sparse-array positions as well as present elements'
   const sparse: undefined[] = [];
   sparse.length = 2;
   expect(() => domain.from(sparse)).toThrow('indices 0 and 1');
+});
+
+it('names the row that has no id instead of reporting a duplicate identity', () => {
+  expect(() => entities([{ id: 'a' }, {} as { id: string }])).toThrow(/row at index 1 has no id/u);
 });

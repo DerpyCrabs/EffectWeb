@@ -1,12 +1,11 @@
-import { commandSlot } from 'effectweb';
 import { Effect } from 'effect';
-import { component, localComponent, domBinding, mountView, Portal, program, view } from 'effectweb';
+import { component, domBinding, mount, Portal, program, view } from 'effectweb';
 
-const commandCount = commandSlot('count');
+const commandCount = 'count';
 
-const Local = localComponent<{ title: string; id: string }, { count: number; text: string }>({
-  init: () => ({ count: 0, text: '' }),
-  view: view((model, patch) => (
+const Local = component<{ title: string; id: string }, { count: number; text: string }>(
+  { init: () => ({ count: 0, text: '' }) },
+  view((model, patch) => (
     <div id={model.props.id}>
       <input value={model.text} onInput={(event) => patch({ text: event.currentTarget.value })} />
       <button onClick={() => patch({ count: model.count + 1, text: model.props.title })}>
@@ -14,35 +13,35 @@ const Local = localComponent<{ title: string; id: string }, { count: number; tex
       </button>
     </div>
   )),
-});
+);
 
 interface Props {
   title: string;
   done: (title: string) => void;
 }
-interface ChildModel {
-  props: Props;
+interface ChildState {
   count: number;
   loaded: number;
 }
 type ChildMessage = { type: 'Increment' } | { type: 'Loaded'; count: number };
-const Child = component<Props, ChildModel, ChildMessage>({
-  init: (props) => ({ props, count: 0, loaded: 0 }),
-
-  update: (model, message) =>
-    message.type === 'Loaded'
-      ? { model: { ...model, loaded: message.count } }
-      : {
-          model: { ...model, count: model.count + 1 },
-          commands: [
-            {
-              policy: 'replace',
-              slot: commandCount,
-              effect: Effect.succeed({ type: 'Loaded', count: model.count + 1 } as const),
-            },
-          ],
-        },
-  view: view((model, send) => (
+const Child = component<Props, ChildState, ChildMessage>(
+  {
+    init: () => ({ count: 0, loaded: 0 }),
+    update: (model, message) =>
+      message.type === 'Loaded'
+        ? { model: { ...model, loaded: message.count } }
+        : {
+            model: { ...model, count: model.count + 1 },
+            commands: [
+              {
+                policy: 'replace',
+                key: commandCount,
+                effect: Effect.succeed({ type: 'Loaded', count: model.count + 1 } as const),
+              },
+            ],
+          },
+  },
+  view((model, send) => (
     <button
       id="child"
       onClick={() => {
@@ -53,7 +52,7 @@ const Child = component<Props, ChildModel, ChildMessage>({
       {model.props.title}:{model.count}:{model.loaded}
     </button>
   )),
-});
+);
 interface Model {
   title: string;
   visible: boolean;
@@ -116,7 +115,7 @@ export function mountComponentFixture(parent: HTMLElement) {
             : { ...model, last: message.title },
     }),
   });
-  const unmount = mountView(parent, Fixture, source);
+  const unmount = mount(parent, Fixture, source);
   return {
     title: (title: string) => source.send({ type: 'Title', title }),
     hide: () => source.send({ type: 'Visible', visible: false }),

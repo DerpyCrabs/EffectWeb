@@ -11,7 +11,7 @@ import {
   type Spec,
   type UIElement,
 } from '@json-render/core';
-import { view, type JSX, type Snapshot } from 'effectweb';
+import { list, view, type JSX, type Snapshot } from 'effectweb';
 
 export interface ActionEvent {
   readonly type: 'action';
@@ -86,7 +86,7 @@ function renderElement(
     key,
     element,
     props,
-    children: (element.children ?? []).map((child) => renderElement(model, child, branch)),
+    children: list(element.children ?? [], (child) => renderElement(model, child, branch)),
     bindings: resolveBindings(element.props, context),
     loading: model.loading ?? false,
     emit: (event, extra = {}) => {
@@ -116,5 +116,5 @@ function renderElement(
 
 /** Host programs own state and action lifetimes. Rendering adds no DOM wrappers or styling. */
 export const Renderer = view<RendererProps, never>((model) =>
-  model.spec ? renderElement(model, model.spec.root, new Set()) : null,
+  model.spec ? list([model.spec.root], (root) => renderElement(model, root, new Set())) : null,
 );

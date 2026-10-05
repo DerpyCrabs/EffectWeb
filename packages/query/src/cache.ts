@@ -12,9 +12,8 @@ import { registerCache, type QueryEntry } from './cache-internals.js';
 import { queryDefinition } from './query-internals.js';
 import { reportError, reportSafely } from './errors.js';
 import { protectSnapshot, shareValue } from 'effectweb/advanced';
-import { type Snapshot, makeUiRuntime, uiRuntime, type UiRuntime } from 'effectweb';
-
-const defaultRuntime = /* @__PURE__ */ uiRuntime(Context.empty());
+import type { Snapshot } from 'effectweb';
+import * as Clock from 'effect/Clock';
 
 type Result = AsyncResult.AsyncResult<unknown, unknown>;
 /** The current load of an entry: its fiber, resource scope and completion accounting. */
@@ -49,21 +48,31 @@ interface ResourceEntry {
 type TypedResourceEntry<A, E> = ResourceEntry & QueryEntry<A, E>;
 
 export interface QueryCacheOptions {
+  /** Milliseconds an unobserved entry keeps its data before it is evicted. Defaults to 30 000. */
   readonly retention?: number;
+  /**
+   * What happens to a request in flight when its last observer leaves: `retain` lets it
+   * finish into the cache (the default), `cancel` interrupts it. A query's own `unused` wins.
+   */
   readonly unused?: 'retain' | 'cancel' | undefined;
 }
-export function makeQueryCache(options?: QueryCacheOptions): QueryCache<never>;
-export function makeQueryCache<R>(
-  runtime: UiRuntime<R>,
+/**
+ * A shared query cache. `context` supplies the services loaders require and the clock used for
+ * staleness: `queryCache(Context.make(Api, api))`, or `queryCache(yield* Effect.context<Api>())`
+ * inside an Effect. Scope it with `Effect.acquireRelease(…, (cache) => cache.close())`.
+ */
+export function queryCache(options?: QueryCacheOptions): QueryCache<never>;
+export function queryCache<R>(
+  context: Context.Context<R>,
   options?: QueryCacheOptions,
 ): QueryCache<R>;
-export function makeQueryCache<R>(
-  runtimeOrOptions?: UiRuntime<R> | QueryCacheOptions,
+export function queryCache<R>(
+  contextOrOptions?: Context.Context<R> | QueryCacheOptions,
   options: QueryCacheOptions = {},
 ): QueryCache<R> | QueryCache<never> {
-  return runtimeOrOptions && 'provide' in runtimeOrOptions
-    ? createQueryCache(runtimeOrOptions, options)
-    : createQueryCache(defaultRuntime, runtimeOrOptions);
+  return Context.isContext(contextOrOptions)
+    ? createQueryCache(contextOrOptions as Context.Context<R>, options)
+    : createQueryCache(Context.empty() as Context.Context<R>, contextOrOptions);
 }
 
 const settled = <A, E>(
@@ -81,13 +90,13 @@ const resultOf = <A, E>(entry: TypedResourceEntry<A, E>) =>
   entry.state as AsyncResult.AsyncResult<Snapshot<A>, E>;
 
 function createQueryCache<R>(
-  runtime: UiRuntime<R>,
+  context: Context.Context<R>,
   options: QueryCacheOptions = {},
 ): QueryCache<R> {
   const retention = options.retention ?? 30_000;
   if (!Number.isFinite(retention) || retention < 0)
     throw new RangeError('Query retention must be finite and nonnegative.');
-  const clock = runtime.clock;
+  const clock = Context.get(context, Clock.Clock);
   const resources = new Map<string, ResourceEntry>();
   const identities = new WeakMap<object, number>();
   let disposed = false;
@@ -377,7 +386,10 @@ function createQueryCache<R>(
             resources.get(queryKey(definition, args))?.value?.value as Snapshot<A> | undefined,
           ),
         );
-        return runtime.provideScoped(effect);
+        // Loaders get the cache's services and the scope of the load that owns them.
+        return Effect.flatMap(Effect.scope, (scope) =>
+          Effect.provideContext(Scope.provide(effect, scope), context),
+        );
       },
       config.share,
     );
@@ -613,18 +625,6 @@ function createQueryCache<R>(
   });
   return Object.freeze(cache);
 }
-
-/** Capture application services and clock, and close the cache with the current Effect scope. */
-export const scopedQueryCache = <R = never>(
-  options: QueryCacheOptions = {},
-): Effect.Effect<QueryCache<R>, never, R | Scope.Scope> =>
-  Effect.gen(function* () {
-    const runtime = yield* makeUiRuntime<R>();
-    return yield* Effect.acquireRelease(
-      Effect.sync(() => makeQueryCache(runtime, options)),
-      (cache) => cache.close(),
-    );
-  });
 
 /** A cache owns one registry and the query resources published through it. */
 export interface QueryCache<R = never> {

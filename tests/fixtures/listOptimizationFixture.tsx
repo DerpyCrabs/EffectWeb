@@ -1,5 +1,5 @@
 import { list } from 'effectweb';
-import { collection, mountView, program, view } from 'effectweb';
+import { collection, mount, program, view } from 'effectweb';
 import { identity } from './fixtureInstrumentation';
 
 type Item = { readonly id: number; readonly label: string };
@@ -35,7 +35,7 @@ export function mountListOptimization(parent: HTMLElement) {
     },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     ...source,
     counters,

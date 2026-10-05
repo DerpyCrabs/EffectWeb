@@ -41,6 +41,7 @@ const snapshotCopy = <Value>(value: Value, seen = new WeakMap<object, unknown>()
 };
 
 const publications = new WeakMap<AnyRouter, Set<() => void>>();
+const closedRouters = new WeakSet<AnyRouter>();
 
 /** TanStack supplies matching, loaders, search validation and typed navigation; EffectWeb owns publications. */
 export const createRouter: CreateRouterFn = (options) => {
@@ -77,9 +78,43 @@ export const createRouter: CreateRouterFn = (options) => {
       }
     },
   }));
+  const load = instance.load;
+  const navigate = instance.navigate;
+  const preload = instance.preloadRoute;
+  const closed = () => new Error('Cannot use a disposed router');
+  instance.load = (...args) =>
+    closedRouters.has(instance) ? Promise.reject(closed()) : load(...args);
+  instance.navigate = (...args) =>
+    closedRouters.has(instance) ? Promise.reject(closed()) : navigate(...args);
+  instance.preloadRoute = (...args) =>
+    closedRouters.has(instance) ? Promise.reject(closed()) : preload(...args);
   publications.set(instance, listeners);
   return instance;
 };
+
+// Router Core 1.171.34 exposes no public client teardown. Keep this version-specific
+// bridge together and cover navigation, beforeLoad and preload cancellation in tests.
+const mountedRouters = new WeakSet<AnyRouter>();
+function stopRouter(router: AnyRouter) {
+  closedRouters.add(router);
+  const transaction = router._tx;
+  const preflight = router._preflight;
+  const flights = [...(router._flights?.values() ?? [])];
+  delete router._tx;
+  delete router._preflight;
+  router._flights?.clear();
+  if (router._pending?.[3] !== undefined) clearTimeout(router._pending[3]);
+  delete router._pending;
+  const rendered = router._rendered;
+  delete router._rendered;
+  // Revoke write authority before abort handlers can reenter or promises settle.
+  rendered?.[1]?.(false);
+  preflight?.abort();
+  transaction?.[0].abort();
+  for (const flight of flights) flight[1].abort();
+  router.clearCache();
+  router._commitPromise?.resolve();
+}
 
 /** Mount once per router in an Effect scope. The returned Source can drive an EffectWeb program or view. */
 export const mountRouter = <Router extends AnyRouter>(
@@ -92,6 +127,8 @@ export const mountRouter = <Router extends AnyRouter>(
         const history = router.history as RouterHistory;
         if (!listeners)
           throw new Error('Use @effectweb/tanstack-router.createRouter before mountRouter');
+        if (mountedRouters.has(router)) throw new Error('A router can only be mounted once');
+        mountedRouters.add(router);
         const source = projectionSource<RouterState<Router['routeTree']>>({
           project: () => snapshotCopy(router.state),
         });
@@ -108,6 +145,7 @@ export const mountRouter = <Router extends AnyRouter>(
             unsubscribe();
             listeners.delete(source.changed);
             source.dispose();
+            stopRouter(router);
             history.flush();
             history.destroy();
           },

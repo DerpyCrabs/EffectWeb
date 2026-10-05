@@ -1,14 +1,12 @@
-import { commandSlot } from './program.js';
 import { Context, Deferred, Effect, Fiber } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, it } from 'vitest';
-import { effectCommand, program } from './program.js';
-import { uiRuntime } from './runtime.js';
+import { program } from './program.js';
 import { programDriver, controlledEffect } from './testing.js';
 
-const commandRead = commandSlot('read');
-const commandDelay = commandSlot('delay');
-const commandService = commandSlot('service');
+const commandRead = 'read';
+const commandDelay = 'delay';
+const commandService = 'service';
 
 describe('public program test driver', () => {
   it('forwards close so a wrapped program still joins its finalizers', () =>
@@ -22,9 +20,9 @@ describe('public program test driver', () => {
             model,
             commands: [
               {
-                slot: commandRead,
+                key: commandRead,
                 policy: 'replace' as const,
-                action: Effect.never.pipe(
+                effect: Effect.never.pipe(
                   Effect.ensuring(
                     Effect.gen(function* () {
                       yield* Deferred.await(gate);
@@ -47,7 +45,7 @@ describe('public program test driver', () => {
         expect(finalized).toBe(true);
       }),
     ));
-  it('awaits a named slot after its completion message has passed through the real queue', async () => {
+  it('awaits a key after its completion message has passed through the real queue', async () => {
     const controlled = controlledEffect<number>();
     const source = program({
       initial: 0,
@@ -56,11 +54,13 @@ describe('public program test driver', () => {
           ? {
               model,
               commands: [
-                effectCommand(commandRead, () => controlled.effect, {
+                {
+                  key: commandRead,
                   policy: 'replace',
-                  onSuccess: (value) => value,
-                  onFailure: () => 0,
-                }),
+                  effect: controlled.effect.pipe(
+                    Effect.matchCause({ onSuccess: (value) => value, onFailure: () => 0 }),
+                  ),
+                },
               ],
             }
           : { model: message },
@@ -68,7 +68,7 @@ describe('public program test driver', () => {
     const driver = programDriver(source);
     driver.send(-1);
     let settled = false;
-    const idle = Effect.runPromise(driver.awaitSlot(commandRead)).then(() => {
+    const idle = Effect.runPromise(driver.awaitKey(commandRead)).then(() => {
       settled = true;
     });
     await Promise.resolve();
@@ -76,7 +76,7 @@ describe('public program test driver', () => {
     controlled.succeed(9);
     await idle;
     expect(driver.model()).toBe(9);
-    expect(driver.activeSlots()).toEqual([]);
+    expect(driver.activeKeys()).toEqual([]);
     driver.dispose();
   });
 
@@ -84,28 +84,31 @@ describe('public program test driver', () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const context = yield* Effect.context<TestClock.TestClock>();
-        const runtime = uiRuntime(context);
-        const source = runtime.program({
+        const source = program({
+          context,
           initial: 0,
           update: (model: number, message: number) =>
             message < 0
               ? {
                   model,
                   commands: [
-                    effectCommand(commandDelay, () => Effect.sleep('1 hour').pipe(Effect.as(7)), {
+                    {
+                      key: commandDelay,
                       policy: 'replace',
-                      onSuccess: (value) => value,
-                      onFailure: () => 0,
-                    }),
+                      effect: Effect.sleep('1 hour').pipe(
+                        Effect.as(7),
+                        Effect.matchCause({ onSuccess: (value) => value, onFailure: () => 0 }),
+                      ),
+                    },
                   ],
                 }
               : { model: message },
         });
-        const driver = programDriver(source, runtime);
+        const driver = programDriver(source, context);
         driver.send(-1);
         expect(driver.model()).toBe(0);
         yield* driver.run(TestClock.adjust('1 hour'));
-        yield* driver.awaitSlot(commandDelay);
+        yield* driver.awaitKey(commandDelay);
         expect(driver.model()).toBe(7);
         driver.dispose();
       }).pipe(Effect.provide(TestClock.layer())),
@@ -116,19 +119,21 @@ describe('public program test driver', () => {
     class NumberService extends Context.Service<NumberService, { value: number }>()(
       'Driver/Number',
     ) {}
-    const runtime = uiRuntime(Context.make(NumberService, { value: 23 }));
-    const source = runtime.program({
+    const source = program({
+      context: Context.make(NumberService, { value: 23 }),
       initial: 0,
       update: (model: number, message: number) =>
         message < 0
           ? {
               model,
               commands: [
-                effectCommand(
-                  commandService,
-                  () => Effect.map(NumberService, (service) => service.value),
-                  { policy: 'replace', onSuccess: (value) => value, onFailure: () => 0 },
-                ),
+                {
+                  key: commandService,
+                  policy: 'replace',
+                  effect: Effect.map(NumberService, (service) => service.value).pipe(
+                    Effect.matchCause({ onSuccess: (value) => value, onFailure: () => 0 }),
+                  ),
+                },
               ],
             }
           : { model: message },
@@ -141,18 +146,16 @@ describe('public program test driver', () => {
 });
 
 it('keeps shared services alive while event and DOM owners cancel their own fibers', async () => {
-  const { effectEvent, eventEffects } = await import('./effectEvent');
+  const { eventEffects } = await import('./event-effects');
   const { domMount, startMount } = await import('./mount');
   class Service extends Context.Service<Service, { record: () => void }>()('Lifetime/Service') {}
   let started = 0,
     finalized = 0;
-  const runtime = uiRuntime(
-    Context.make(Service, {
-      record: () => {
-        started++;
-      },
-    }),
-  );
+  const context = Context.make(Service, {
+    record: () => {
+      started++;
+    },
+  });
   const work = Effect.gen(function* () {
     const service = yield* Service;
     service.record();
@@ -162,19 +165,21 @@ it('keeps shared services alive while event and DOM owners cancel their own fibe
       }),
     );
     return yield* Effect.never;
-  }).pipe(Effect.scoped);
+  }).pipe(Effect.scoped, Effect.provideContext(context));
   const errors: unknown[] = [];
   const events = eventEffects((error) => errors.push(error));
-  events.accept(effectEvent('replace', (_event: Event) => work, runtime)(new Event('click')));
+  events.accept(work);
   const host = startMount(
     {} as Element,
-    domMount((_element: Element) => work, runtime),
+    domMount((_element: Element) => work),
   );
   expect(started).toBe(2);
   events.dispose();
   host.dispose();
   await expect.poll(() => finalized).toBe(2);
-  await Effect.runPromise(runtime.provide(Effect.map(Service, (service) => service.record())));
+  await Effect.runPromise(
+    Effect.map(Service, (service) => service.record()).pipe(Effect.provideContext(context)),
+  );
   expect(started).toBe(3);
   expect(errors).toEqual([]);
 });

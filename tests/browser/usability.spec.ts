@@ -1,17 +1,17 @@
 import { expect, test } from '@playwright/test';
 
-test('async content keeps successful DOM through refresh and recoverable failure, including undefined', async ({
+test('inline AsyncResult rendering keeps successful DOM through refresh and recoverable failure, including undefined', async ({
   page,
 }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/usabilityFixture.tsx';
-    const { mountAsyncContent } = (await import(
+    const { mountAsyncResult } = (await import(
       path
     )) as typeof import('../fixtures/usabilityFixture');
     const host = document.createElement('div');
     document.body.append(host);
-    const source = mountAsyncContent(host);
+    const source = mountAsyncResult(host);
     const empty = !!host.querySelector('[data-empty]');
     source.success(0);
     await Promise.resolve();
@@ -21,7 +21,6 @@ test('async content keeps successful DOM through refresh and recoverable failure
     source.waiting();
     const refresh = {
       same: input === host.querySelector('input'),
-      pending: !!host.querySelector('[data-pending]'),
       refreshing: !!host.querySelector('[data-refreshing]'),
       focused: document.activeElement === input,
       value: host.querySelector('output')!.textContent,
@@ -51,52 +50,11 @@ test('async content keeps successful DOM through refresh and recoverable failure
   });
   expect(result).toEqual({
     empty: true,
-    refresh: { same: true, pending: false, refreshing: true, focused: true, value: '0' },
+    refresh: { same: true, refreshing: true, focused: true, value: '0' },
     failed: { same: true, refreshing: false, error: true },
     recovered: { same: true, edit: 'keep my edit', value: 'undefined', error: false },
     cleared: { empty: true, inputs: 0 },
     lifetime: { mounted: 1, disposed: 1 },
-    remaining: 0,
-  });
-});
-
-test('pending delay only applies before data and cannot reappear after settlement or disposal', async ({
-  page,
-}) => {
-  await page.goto('/');
-  const result = await page.evaluate(async () => {
-    const path = '/tests/fixtures/usabilityFixture.tsx';
-    const { mountAsyncContent } = (await import(
-      path
-    )) as typeof import('../fixtures/usabilityFixture');
-    const host = document.createElement('div');
-    document.body.append(host);
-    const source = mountAsyncContent(host);
-    source.waiting();
-    const immediate = host.textContent;
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    const delayed = host.textContent;
-    source.success(1);
-    source.clear();
-    source.waiting();
-    source.success(2);
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    const settled = host.textContent;
-    source.clear();
-    source.failure('initial failure');
-    const failure = host.textContent!.includes('initial failure');
-    source.waiting();
-    source.dispose();
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    const remaining = host.childNodes.length;
-    host.remove();
-    return { immediate, delayed, settled, failure, remaining };
-  });
-  expect(result).toEqual({
-    immediate: '',
-    delayed: 'Loading',
-    settled: '2',
-    failure: true,
     remaining: 0,
   });
 });

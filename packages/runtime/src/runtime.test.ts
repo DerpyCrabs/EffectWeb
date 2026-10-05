@@ -1,11 +1,9 @@
-import { commandSlot } from './program.js';
 import { Effect } from 'effect';
 import { describe, expect, it, vi } from 'vitest';
 import { Scope } from './dom.js';
 import { program } from './program.js';
-import { sessionGroup } from './session.js';
 
-const commandLoad = commandSlot('load');
+const commandLoad = 'load';
 
 describe('UI failure isolation', () => {
   it('finishes all cleanups in reverse order and only disposes once', () => {
@@ -59,7 +57,7 @@ describe('UI failure isolation', () => {
       update: (_: number, value: number) => ({
         model: value,
         ...(value === 1
-          ? { commands: [{ policy: 'replace', slot: commandLoad, effect: Effect.succeed(2) }] }
+          ? { commands: [{ policy: 'replace', key: commandLoad, effect: Effect.succeed(2) }] }
           : {}),
       }),
     });
@@ -72,30 +70,5 @@ describe('UI failure isolation', () => {
     expect(listener).toHaveBeenLastCalledWith(2);
     expect(errors).toHaveBeenCalled();
     source.dispose();
-  });
-  it('owns every session subscription and disposal even when one adapter fails', () => {
-    const reported = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const stop = vi.fn(),
-      dispose = vi.fn(),
-      refresh = vi.fn();
-    const group = sessionGroup(
-      [
-        { dispose, refresh, subscribe: () => stop },
-        {
-          dispose() {
-            throw new Error('adapter');
-          },
-        },
-      ],
-      () => {},
-    );
-    group.refresh();
-    group.dispose();
-    group.dispose();
-    group.refresh();
-    expect(refresh).toHaveBeenCalledTimes(1);
-    expect(stop).toHaveBeenCalledTimes(1);
-    expect(dispose).toHaveBeenCalledTimes(1);
-    reported.mockRestore();
   });
 });

@@ -1,16 +1,14 @@
-import { commandSlot, commandSlots } from './program.js';
 import { Context, Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
 import { modelOwner } from './owner.js';
-import { uiRuntime } from './runtime.js';
 
-const commandTask = commandSlot('task');
-const commandLoad = commandSlot('load');
-const commandSame = commandSlot('same');
-const commandCanceled = commandSlot('canceled');
-const commandWork = commandSlot('work');
-const commandRead = commandSlot('read');
-const commandFail = commandSlot('fail');
+const commandTask = 'task';
+const commandLoad = 'load';
+const commandSame = 'same';
+const commandCanceled = 'canceled';
+const commandWork = 'work';
+const commandRead = 'read';
+const commandFail = 'fail';
 
 it('publishes one snapshot per transaction and handles reentrant edits against current state', () => {
   const owner = modelOwner({ count: 0, label: 'old' });
@@ -131,13 +129,10 @@ it('disposes resources, suppresses later writes and prevents work after listener
   expect(late).toHaveBeenCalledOnce();
 });
 
-it('provides application services and reports failures without retaining a busy slot', async () => {
+it('provides application services and reports failures without retaining a busy key', async () => {
   class Value extends Context.Service<Value, { count: number }>()('OwnerValue') {}
   const onDefect = vi.fn();
-  const owner = modelOwner(
-    { count: 0 },
-    { runtime: uiRuntime(Context.make(Value, { count: 42 })), onDefect },
-  );
+  const owner = modelOwner({ count: 0 }, { context: Context.make(Value, { count: 42 }), onDefect });
   owner.run(
     commandRead,
     Effect.flatMap(Value, (value) => Effect.sync(() => owner.patch(value))),
@@ -160,30 +155,9 @@ it('returns synchronous transaction values without treating plain data as a Prom
   owner.dispose();
 });
 
-it('exposes only controller-selected fields with immutable published values', () => {
-  const owner = modelOwner({ draft: '', selected: ['a'], result: 42 });
-  const fields = owner.fields('draft', 'selected');
-  fields.draft('edited');
-  fields.selected(['b']);
-  expect(Object.keys(fields)).toEqual(['draft', 'selected']);
-  expect(owner.read()).toEqual({ draft: 'edited', selected: ['b'], result: 42 });
-  expect(Object.isFrozen(owner.read().selected)).toBe(true);
-  const typingOnly = () => {
-    // @ts-expect-error Result publication remains owned by the controller.
-    // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-    fields.result(0);
-    // @ts-expect-error Setters retain the selected field's value type.
-    fields.draft(42);
-    // @ts-expect-error Field names must exist in the model.
-    owner.fields('missing');
-  };
-  void typingOnly;
-  owner.dispose();
-});
-
-it('replaces work per key through a declared slot family', async () => {
-  const rowSlot = commandSlots('row');
-  expect(rowSlot(1)).toBe(rowSlot(1));
+it('replaces work per composite key', async () => {
+  const rowSlot = (key: string | number) => ['row', key] as const;
+  expect(rowSlot(1)).toEqual(rowSlot(1));
   expect(rowSlot(1)).not.toBe(rowSlot(2));
   const owner = modelOwner({ done: [] as string[] });
   const finish = (label: string) =>

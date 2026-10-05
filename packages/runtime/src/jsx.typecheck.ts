@@ -1,10 +1,10 @@
 import type { JSX } from './jsx.js';
-import { localComponent } from './component.js';
+import { component } from './component.js';
 import { compiled } from './dom.js';
 
-localComponent<{ title: string }, { count: number }>({
-  init: () => ({ count: 0 }),
-  view: compiled((scope) => {
+component<{ title: string }, { count: number }>(
+  { init: () => ({ count: 0 }) },
+  compiled((scope) => {
     scope.send({ count: 1 });
     // @ts-expect-error Parent inputs cannot be patched by local state.
     scope.send({ props: { title: 'changed' } });
@@ -13,7 +13,7 @@ localComponent<{ title: string }, { count: number }>({
     // @ts-expect-error No updater-function convention is needed.
     scope.send((state: { count: number }) => ({ count: state.count + 1 }));
   }),
-});
+);
 export const validButton: JSX.IntrinsicElements['button'] = {
   disabled: true,
   'aria-label': 'Save',

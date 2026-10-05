@@ -1,4 +1,4 @@
-import { domMount, mountView, program, view, ViewBinding, type DomMount } from 'effectweb';
+import { domMount, mount, program, view, ViewBinding, type DomMount } from 'effectweb';
 
 type State = {
   label: string;
@@ -80,7 +80,7 @@ export function mountAuthoring(parent: HTMLElement) {
     },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     source,
     clicks,

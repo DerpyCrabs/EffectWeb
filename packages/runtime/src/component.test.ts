@@ -1,10 +1,9 @@
 import { Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
-import { component, controllerView, programView } from './component.js';
+import { component, controllerView, ownerOf, programView } from './component.js';
 import { attach, compiled, Scope, type View } from './dom.js';
 import { domMount } from './mount.js';
-import { commandSlot, program, type Send } from './program.js';
-import { defineTasks } from './tasks.js';
+import { program, type Send } from './program.js';
 import { modelOwner } from './owner.js';
 
 type Props = { id: string };
@@ -35,11 +34,10 @@ for (const kind of ['component', 'programView'] as const) {
     });
     const definition =
       kind === 'component'
-        ? component({
-            init: (props: Props) => ({ props, count: 0 }),
-            update: (model: Model) => ({ model }),
-            view: inner,
-          })
+        ? component(
+            { init: (_props: Props) => ({ count: 0 }), update: (model: Model) => ({ model }) },
+            inner,
+          )
         : programView({
             create: (props: Props) =>
               program({ initial: { props, count: 0 }, update: (model: Model) => ({ model }) }),
@@ -68,7 +66,7 @@ for (const kind of ['component', 'programView'] as const) {
       release = resolve;
     });
     const finalized: number[] = [];
-    const slot = commandSlot('work');
+    const key = 'work';
     let send!: Send<number>;
     const inner = compiled<Model, number>((scope) => {
       send = scope.send;
@@ -77,7 +75,7 @@ for (const kind of ['component', 'programView'] as const) {
       model: { ...model, count },
       commands: [
         {
-          slot,
+          key,
           policy: 'replace' as const,
           effect: Effect.never.pipe(
             Effect.ensuring(
@@ -92,7 +90,7 @@ for (const kind of ['component', 'programView'] as const) {
     });
     const definition =
       kind === 'component'
-        ? component({ init: (props: Props) => ({ props, count: 0 }), update, view: inner })
+        ? component({ init: (_props: Props) => ({ count: 0 }), update }, inner)
         : programView({
             create: (props: Props) => program({ initial: { props, count: 0 }, update }),
             receive: () => {},
@@ -115,21 +113,21 @@ for (const kind of ['component', 'programView'] as const) {
   });
 }
 
-it('joins commands started through the task builder', async () => {
+it('joins work started through a component owner', async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const tasks = defineTasks({ init: (_props: Props) => ({}) }).tasks({
-    Work: {
-      policy: 'replace',
-      run: () => Effect.never.pipe(Effect.ensuring(Effect.promise(() => gate))),
-    },
-  });
   let start!: () => void;
-  const definition: View<Props, never> = tasks.view(
+  const definition: View<Props, never> = component(
+    { init: (_props: Props) => ({}) },
     compiled((scope) => {
-      start = () => tasks.controls(scope.send).run('Work');
+      start = () =>
+        void ownerOf(scope.send).run(
+          'Work',
+          Effect.never.pipe(Effect.ensuring(Effect.promise(() => gate))),
+          'replace',
+        );
     }),
   );
   const scope = new Scope<Props, never>({ id: 'a' }, () => {});
@@ -188,7 +186,7 @@ it('closes model-owner sources and their dependencies after the last command fin
         },
       });
       owner.run(
-        commandSlot('work'),
+        'work',
         Effect.never.pipe(
           Effect.ensuring(
             Effect.promise(async () => {
@@ -293,18 +291,20 @@ it('captures imperative state before a program view disposes its child on unmoun
 it('renders controller actions as model.actions without storing them in the model', () => {
   const seen: Array<{ count: number; props: Props }> = [];
   let owner!: ReturnType<typeof modelOwner<{ count: number }>>;
-  const definition = controllerView({
-    create: (props: Props) => {
-      owner = modelOwner({ count: 0 });
-      return {
-        source: owner.source,
-        actions: { increment: () => owner.patch({ count: owner.read().count + 1 }) },
-        dispose: owner.dispose,
-        receive: (next) => seen.push({ count: owner.read().count, props: next }),
-        ...(props.id ? {} : {}),
-      };
+  const definition = controllerView(
+    {
+      controller: (props: Props) => {
+        owner = modelOwner({ count: 0 });
+        return {
+          source: owner.source,
+          increment: () => owner.patch({ count: owner.read().count + 1 }),
+          dispose: owner.dispose,
+          receive: (next) => seen.push({ count: owner.read().count, props: next }),
+          ...(props.id ? {} : {}),
+        };
+      },
     },
-    view: compiled((scope) => {
+    compiled((scope) => {
       const model = scope.value;
       scope.jobs.push(() => {
         const next = scope.value;
@@ -315,7 +315,7 @@ it('renders controller actions as model.actions without storing them in the mode
       });
       model.actions.increment();
     }),
-  });
+  );
   const scope = new Scope<Props, never>({ id: 'a' }, () => {});
   definition.build(scope, parent, null);
   for (const job of scope.jobs) job();
@@ -329,13 +329,116 @@ it('renders controller actions as model.actions without storing them in the mode
 
 it('does not require receive from a controller view', () => {
   const owner = modelOwner({ count: 0 });
-  const definition = controllerView({
-    create: () => ({ source: owner.source, dispose: owner.dispose }),
-    view: compiled<{ count: number }, never>(() => {}),
-  });
+  const definition = controllerView(
+    { controller: () => ({ source: owner.source, dispose: owner.dispose }) },
+    compiled<{ count: number }, never>(() => {}),
+  );
   const scope = new Scope<Props, never>({ id: 'a' }, () => {});
   definition.build(scope, parent, null);
   for (const job of scope.jobs) job();
   scope.dispose();
   expect(owner.disposed).toBe(true);
+});
+
+it("joins a model owner's async cleanup when the controller hands over owner.dispose", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const finalized = vi.fn();
+  const definition = controllerView(
+    {
+      controller: (_props: Props) => {
+        const owner = modelOwner({ count: 0 });
+        owner.run(
+          'save',
+          Effect.never.pipe(
+            Effect.ensuring(
+              Effect.promise(() => gate).pipe(Effect.andThen(Effect.sync(finalized))),
+            ),
+          ),
+          'replace',
+        );
+        // No `close` listed: `dispose: owner.dispose` hands over the owner's whole teardown.
+        return { source: owner.source, dispose: owner.dispose };
+      },
+    },
+    compiled<{ count: number }, never>(() => {}),
+  );
+  const scope = new Scope<Props, never>({ id: 'a' }, () => {});
+  definition.build(scope, parent, null);
+  scope.dispose();
+  let settled = false;
+  const closing = Effect.runPromise(scope.settlement.wait()).then(() => {
+    settled = true;
+  });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  release();
+  await closing;
+  expect(finalized).toHaveBeenCalledOnce();
+});
+
+it('passes everything a controller returns except its lifecycle members as actions', () => {
+  let rendered!: object;
+  const owner = modelOwner({ count: 0 });
+  const definition = controllerView(
+    {
+      controller: (_props: Props) => ({
+        source: owner.source,
+        increment: () => owner.patch({ count: owner.read().count + 1 }),
+        label: 'not a function',
+        receive: () => {},
+        beforeDispose: () => {},
+        dispose: owner.dispose,
+      }),
+    },
+    compiled((scope) => {
+      rendered = scope.value;
+    }),
+  );
+  const scope = new Scope<Props, never>({ id: 'a' }, () => {});
+  definition.build(scope, parent, null);
+  expect(Object.keys((rendered as { actions: object }).actions)).toEqual(['increment', 'label']);
+  scope.dispose();
+});
+
+it('a message component gets model.props from the runtime and receives new props in it', () => {
+  const received: string[] = [];
+  let seen!: { props: Props; count: number };
+  let send!: (message: 'inc') => void;
+  const Counter = component<Props, { count: number }, 'inc'>(
+    {
+      init: () => ({ count: 0 }),
+      receive: (model, previous) => {
+        received.push(`${previous.id}->${model.props.id}`);
+        return { model: { ...model, count: 0 } };
+      },
+      update: (model) => ({ model: { ...model, count: model.count + 1 } }),
+    },
+    compiled((scope) => {
+      send = scope.send;
+      seen = scope.value as { props: Props; count: number };
+      scope.jobs.push(() => {
+        seen = scope.value as { props: Props; count: number };
+      });
+    }),
+  );
+  const first = { id: 'a' };
+  const scope = new Scope<Props, never>(first, () => {});
+  Counter.build(scope, parent, null);
+  expect(seen).toEqual({ props: { id: 'a' }, count: 0 });
+  expect(received).toEqual([]);
+  send('inc');
+  expect(seen.count).toBe(1);
+  // The same props object: receive is not called and the state is kept.
+  scope.set(first);
+  for (const job of scope.jobs) job();
+  expect(received).toEqual([]);
+  expect(seen.count).toBe(1);
+  scope.set({ id: 'b' });
+  for (const job of scope.jobs) job();
+  expect(received).toEqual(['a->b']);
+  expect(seen).toEqual({ props: { id: 'b' }, count: 0 });
+  scope.dispose();
 });

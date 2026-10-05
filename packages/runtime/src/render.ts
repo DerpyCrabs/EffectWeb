@@ -1,7 +1,9 @@
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
 import * as Scope from 'effect/Scope';
-import { mountViewWithSettlement, unboundSend, type Mounted, type View } from './dom.js';
+import { mountSend, mountViewWithSettlement, type Mounted, type View } from './dom.js';
+import { mountSource, type ControllerModel } from './controller.js';
+import type { Snapshot } from './snapshot.js';
 import type { Source } from './source.js';
 import type { Send } from './program.js';
 import { makeUiRuntime } from './runtime.js';
@@ -12,15 +14,38 @@ import { Settlement } from './settlement.js';
  * Mount values or Effect-based view setup in a child resource scope.
  * The surrounding Effect owns the mount; the source keeps its own lifetime.
  */
-export function mount<M, Message = never, E = never, R = never>(
+export function makeMount<M, Message = never, E = never, R = never>(
   parent: Node,
   definition: View<M, Message> | Effect.Effect<View<M, Message>, E, R>,
   source: Source<M> &
     ([Message] extends [never]
       ? { readonly send?: Send<Message> }
       : { readonly send: Send<Message> }),
+  options?: { readonly onError?: ReportError },
+): Effect.Effect<Mounted, E, R | Scope.Scope>;
+/** A controller renders its model plus its other members as `model.actions`; the mount does not dispose it. */
+export function makeMount<C extends { readonly source: Source<object> }, E = never, R = never>(
+  parent: Node,
+  definition:
+    | View<ControllerModel<C>, never>
+    | Effect.Effect<View<ControllerModel<C>, never>, E, R>,
+  controller: C,
+  options?: { readonly onError?: ReportError },
+): Effect.Effect<Mounted, E, R | Scope.Scope>;
+/** Fixed input, such as `{}` for a root that takes no props. */
+export function makeMount<M, E = never, R = never>(
+  parent: Node,
+  definition: View<M, never> | Effect.Effect<View<M, never>, E, R>,
+  props: M | Snapshot<M>,
+  options?: { readonly onError?: ReportError },
+): Effect.Effect<Mounted, E, R | Scope.Scope>;
+export function makeMount<M, Message, E, R>(
+  parent: Node,
+  definition: View<M, Message> | Effect.Effect<View<M, Message>, E, R>,
+  input: unknown,
   options: { readonly onError?: ReportError } = {},
 ): Effect.Effect<Mounted, E, R | Scope.Scope> {
+  const source = mountSource(input) as Source<M>;
   return Effect.gen(function* () {
     const lifetime = yield* Effect.acquireRelease(
       Effect.sync(() => {
@@ -54,7 +79,7 @@ export function mount<M, Message = never, E = never, R = never>(
             parent,
             view,
             source,
-            { ...options, send: source.send ?? (unboundSend as Send<Message>) },
+            { ...options, send: mountSend<Message>(input) },
             settlement,
           ),
         ),

@@ -1,9 +1,9 @@
 import type { HtmlAttributes } from './html-attributes.js';
 import type { SvgAttributes, SvgPresentationAttributes } from './svg-attributes.js';
 import type { SnapshotOpaque } from './snapshot.js';
-import type { EffectEventRequest } from './effectEvent.js';
 import type { CompiledContent } from './dom.js';
 import type { DomMount } from './mount.js';
+import type { OwnedRun } from './owner.js';
 import type * as Effect from 'effect/Effect';
 import type * as Scope from 'effect/Scope';
 /** Nominal eligibility for compiled JSX components and compiler primitives. */
@@ -24,11 +24,12 @@ export namespace JSX {
     | undefined
     | CompiledContent
     | ElementArray;
+  /** A handler may return an Effect, which the listener runs, or the handle of work an owner started. */
   export type EventResult =
     | void
     | boolean
-    | EffectEventRequest
-    | Effect.Effect<unknown, unknown, Scope.Scope>;
+    | Effect.Effect<unknown, unknown, Scope.Scope>
+    | OwnedRun<unknown, unknown>;
   export type EventHandler<T, E extends Event> = (
     event: E & { currentTarget: T; target: EventTarget & globalThis.Element },
   ) => EventResult;
@@ -244,6 +245,8 @@ export namespace JSX {
       exportparts?: string | undefined;
       [data: `data-${string}`]: Scalar | null | undefined;
       [aria: `aria-${string}`]: Scalar | null | undefined;
+      /** A listener for an event with this exact name, for custom elements: `on:valueChanged`. */
+      [custom: `on:${string}`]: EventHandler<T, Event> | undefined;
     };
   type ApplicableAttributes<Tag extends string> = {
     [Name in keyof HtmlAttributes]: Tag extends keyof HtmlAttributes[Name]

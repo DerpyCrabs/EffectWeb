@@ -2,12 +2,12 @@ import { Effect, Option } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { query } from './query.js';
-import { makeQueryCache, type QueryCache } from './cache.js';
+import { queryCache, type QueryCache } from './cache.js';
 import { queryResource } from './observe.js';
 
 const models: QueryCache[] = [];
 const model = () => {
-  const current = makeQueryCache();
+  const current = queryCache();
   models.push(current);
   return current;
 };

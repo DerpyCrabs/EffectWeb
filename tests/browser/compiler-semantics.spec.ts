@@ -5,7 +5,7 @@ async function execute(page: Page, development: boolean, body: string) {
   await page.goto('/');
   const runtime = new URL('/tests/fixtures/compilerSemanticsRuntime.ts', page.url()).href;
   const result = compile(
-    `import {Effect,view,modelOwner,mountView} from ${JSON.stringify(runtime)}; ${body}`,
+    `import {Effect,view,modelOwner,mount} from ${JSON.stringify(runtime)}; ${body}`,
     'compiler-semantics.tsx',
     { importSource: runtime, runtimeModule: runtime, development },
   );
@@ -37,7 +37,7 @@ for (const development of [true, false]) {
       export async function run(){
         const owner=modelOwner({input:{},items:['a','b'],last:null});
         const host=document.createElement('div');document.body.append(host);
-        const unmount=mountView(host,App,{...owner.source,send:patch=>owner.patch(patch)});
+        const unmount=mount(host,App,{...owner.source,send:patch=>owner.patch(patch)});
         try{
           const section=host.querySelector('section');const button=host.querySelector('button');
           const initial={...section.dataset,child:button.dataset.child};
@@ -69,7 +69,7 @@ for (const development of [true, false]) {
       export async function run(){
         const owner=modelOwner({input:{b:'B'},key:'a',fallback:'A'});
         const host=document.createElement('div');document.body.append(host);
-        const unmount=mountView(host,App,owner.source);
+        const unmount=mount(host,App,owner.source);
         try{
           const values=[host.textContent];
           owner.patch({fallback:'next'});values.push(host.textContent);
@@ -102,7 +102,7 @@ for (const development of [true, false]) {
       export async function run(){
         const owner=modelOwner({prefix:'prefix:'});
         const host=document.createElement('div');document.body.append(host);
-        const unmount=mountView(host,App,owner.source);
+        const unmount=mount(host,App,owner.source);
         try{
           const result={text:host.querySelector('p').textContent,title:host.querySelector('p').title,
             dynamic:host.querySelector('main>div').textContent,native:host.querySelector('textarea').value,

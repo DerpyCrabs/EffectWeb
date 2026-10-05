@@ -1,7 +1,7 @@
 import { expect, test } from 'vite-plus/test';
 import { Effect } from 'effect';
 import { infiniteQuery, infiniteResource } from './infinite-query.js';
-import { makeQueryCache } from './cache.js';
+import { queryCache } from './cache.js';
 import { queryDefinition } from './query-internals.js';
 
 test('infinite queries forward freshness and unused policy to aggregate and page queries', async () => {
@@ -17,7 +17,7 @@ test('infinite queries forward freshness and unused policy to aggregate and page
   expect(queryDefinition(definition.query).staleTime).toBe(0);
   expect(queryDefinition(definition.page).staleTime).toBe(0);
   expect(queryDefinition(definition.page).unused).toBe('cancel');
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const first = infiniteResource(cache, definition);
   first.select({ search: '' });
   await Effect.runPromise(cache.prefetch(definition.query, { search: '' }));

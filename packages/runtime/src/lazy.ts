@@ -4,7 +4,7 @@ import type * as Scope from 'effect/Scope';
 import * as Fiber from 'effect/Fiber';
 import { child, compiled, viewRegion, type View } from './dom.js';
 import { reportSafely } from './errors.js';
-import { defaultUiRuntime, type UiRuntime } from './runtime.js';
+import { defaultUiRuntime } from './runtime.js';
 
 export interface LazyViewOptions<Model, Message, E> {
   readonly pending?: View<Model, Message>;
@@ -15,25 +15,13 @@ export interface LazyViewOptions<Model, Message, E> {
  * Mount-owned loading with current inputs and a reusable successful definition.
  * Unresolved placements own independent requests; unmount interrupts their work.
  */
-export function lazyView<Model, Message = never, E = never, R = never>(
-  load: () => Effect.Effect<View<Model, Message>, E, R | Scope.Scope>,
-  ...provided: [Exclude<R, Scope.Scope>] extends [never]
-    ? [
-        options?: LazyViewOptions<NoInfer<Model>, NoInfer<Message>, NoInfer<E>> & {
-          readonly runtime?: UiRuntime<R>;
-        },
-      ]
-    : [
-        options: LazyViewOptions<NoInfer<Model>, NoInfer<Message>, NoInfer<E>> & {
-          readonly runtime: UiRuntime<R>;
-        },
-      ]
+export function lazyView<Model, Message = never, E = never>(
+  load: () => Effect.Effect<View<Model, Message>, E, Scope.Scope>,
+  options?: LazyViewOptions<NoInfer<Model>, NoInfer<Message>, NoInfer<E>>,
 ): View<Model, Message> {
-  const options = provided[0];
   let loaded: View<Model, Message> | undefined;
   return compiled((scope, parent, before) => {
-    const ownerRuntime = scope.settlement.runtime ?? defaultUiRuntime;
-    const runtime = options?.runtime ?? (ownerRuntime as UiRuntime<R>);
+    const runtime = scope.settlement.runtime ?? defaultUiRuntime;
     const render = viewRegion(scope, parent, before);
     if (loaded) {
       render(loaded);
@@ -48,7 +36,7 @@ export function lazyView<Model, Message = never, E = never, R = never>(
     if (scope.disposed) return;
     const finished = scope.settlement.begin();
     try {
-      fiber = ownerRuntime.runFork(runtime.provideScoped(Effect.suspend(load)));
+      fiber = runtime.runFork(Effect.suspend(load));
     } catch (error) {
       finished();
       throw error;

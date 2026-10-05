@@ -1,7 +1,7 @@
+import { controllerView } from 'effectweb';
 import { Cause, Deferred, Effect, Exit, Fiber } from 'effect';
-import { domMount, mount, view, type Mounted } from 'effectweb';
-import { programView } from 'effectweb/advanced';
-import { query, scopedQueryCache } from '@effectweb/query';
+import { domMount, makeMount, view, type Mounted } from 'effectweb';
+import { query, queryCache } from '@effectweb/query';
 
 const describeExit = (exit: Exit.Exit<unknown, unknown>) =>
   Exit.isSuccess(exit)
@@ -20,28 +20,27 @@ export async function failedRenderCleanup(parent: HTMLElement) {
         order.push('view dependency');
       }),
     );
-    return programView<number, number, never>({
-      create: () => ({
-        model: () => 0,
-        send: () => {},
-        subscribe: () => () => {},
-        dispose: () => {},
-        close: () =>
-          Effect.gen(function* () {
-            order.push('child release started');
-            yield* Deferred.succeed(releaseStarted, undefined);
-            yield* Deferred.await(release);
-            order.push('child released');
-          }),
-      }),
-      receive: () => {},
-      view: view<number>(() => {
+    return controllerView(
+      {
+        controller: (_props: number) => ({
+          source: { model: () => ({ value: 0 }), subscribe: () => () => {} },
+          dispose: () => {},
+          close: () =>
+            Effect.gen(function* () {
+              order.push('child release started');
+              yield* Deferred.succeed(releaseStarted, undefined);
+              yield* Deferred.await(release);
+              order.push('child released');
+            }),
+        }),
+      },
+      view<{ value: number }>(() => {
         throw new Error('render failed');
       }),
-    });
+    );
   });
   const mounting = Effect.runFork(
-    Effect.scoped(mount(parent, setup, { model: () => 0, subscribe: () => () => {} })),
+    Effect.scoped(makeMount(parent, setup, { model: () => 0, subscribe: () => () => {} })),
   );
   await Effect.runPromise(Deferred.await(releaseStarted));
   const whileClosing = [...order];
@@ -93,7 +92,7 @@ export async function mountClosingExit(
   application = Effect.runFork(
     Effect.scoped(
       Effect.gen(function* () {
-        mounted = yield* mount(parent, setup, {
+        mounted = yield* makeMount(parent, setup, {
           model: () => 0,
           subscribe: () => () => {
             unsubscriptions++;
@@ -152,7 +151,10 @@ export async function queryScopeCleanup() {
   return await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const cache = yield* scopedQueryCache();
+        const cache = yield* Effect.acquireRelease(
+          Effect.sync(() => queryCache()),
+          (cache) => cache.close(),
+        );
         yield* cache.prefetch(definition, true);
         const retained = !releasing;
         const closing = Effect.runFork(cache.close());

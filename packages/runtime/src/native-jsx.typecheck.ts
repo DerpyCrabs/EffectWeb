@@ -106,8 +106,14 @@ export const syntheticEvent: JSX.IntrinsicElements['button'] = {
   // @ts-expect-error Native events do not acquire React synthetic-event fields.
   onClick: (event) => !!event.nativeEvent,
 };
-// @ts-expect-error Solid's event directives are not EffectWeb event attributes.
-export const foreignDirective: JSX.IntrinsicElements['div'] = { 'on:dragstart': () => {} };
+// `on:` names listen for an event with exactly that name, which custom elements dispatch.
+export const customEvent: JSX.IntrinsicElements['div'] = {
+  'on:valueChanged': (event) => event.currentTarget.focus(),
+};
+export const customEventUnowned: JSX.IntrinsicElements['div'] = {
+  // @ts-expect-error Custom events keep the owned asynchronous-work contract.
+  'on:valueChanged': () => Promise.resolve(),
+};
 // @ts-expect-error Window listeners belong in an owned DOM binding.
 export const windowEvent: JSX.IntrinsicElements['body'] = { onPopstate: () => {} };
 // @ts-expect-error SVG animation handlers do not apply to HTML controls.

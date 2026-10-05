@@ -1,10 +1,9 @@
-import type { EffectEventRequest } from './effectEvent.js';
+import type { JSX } from './jsx.js';
 
-type EventResult = void | boolean | EffectEventRequest;
-/** Prevention always runs during the native event, before task drop/replace policy is applied. */
+/** Prevents the default submission, then runs `run`; a returned Effect runs as from any handler. */
 export const submit =
-  (run: () => EventResult) =>
-  (event: Pick<SubmitEvent, 'preventDefault'>): EventResult => {
+  (run: () => JSX.EventResult) =>
+  (event: Pick<SubmitEvent, 'preventDefault'>): JSX.EventResult => {
     event.preventDefault();
     return run();
   };

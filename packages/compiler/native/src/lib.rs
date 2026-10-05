@@ -1,6 +1,8 @@
 mod analysis;
+mod list_captures;
 mod list_identity;
 mod lower;
+mod owned_work;
 mod query_diagnostics;
 mod render_lint;
 mod sourcemap;
@@ -10,7 +12,7 @@ use oxc::{
     ast_visit::Visit,
     parser::Parser,
     semantic::SemanticBuilder,
-    span::{SourceType, Span},
+    span::{GetSpan, SourceType, Span},
 };
 use serde::Serialize;
 use std::collections::HashSet;
@@ -63,11 +65,20 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
     }
     let program = parsed.program;
     let import_source = options.import_source.as_deref().unwrap_or("effectweb");
-    let pragma = program.comments.iter().find_map(|comment| {
-        let text = &source[comment.span.start as usize..comment.span.end as usize];
-        text.split_once("@jsxImportSource")
-            .and_then(|(_, tail)| tail.split_whitespace().next())
-    });
+    // Only comments before the first statement are pragmas; prose later in the file is not.
+    let first_statement = program
+        .body
+        .first()
+        .map_or(u32::MAX, |statement| statement.span().start);
+    let pragma = program
+        .comments
+        .iter()
+        .take_while(|comment| comment.span.end <= first_statement)
+        .find_map(|comment| {
+            let text = &source[comment.span.start as usize..comment.span.end as usize];
+            text.split_once("@jsxImportSource")
+                .and_then(|(_, tail)| tail.split_whitespace().next())
+        });
     // Every JSX file belongs to EffectWeb unless a pragma names another runtime. Files
     // without JSX opt in by importing the runtime, an adapter package, or a subpath.
     let opted_in = pragma.map_or_else(|| contains_jsx(&program) || program.body.iter().any(|statement| {
@@ -206,11 +217,53 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                 source,
                 filename,
                 span,
-                "Rows rendered with .map(...) have positional identity: removing or reordering rows moves component state, focus, drafts and running work to another row. Render keyed rows with list(entities(rows), render) or list(collection(identity).from(rows), render).",
+                "Do not render JSX with rows.map(render). Rewrite as list(rows, render) for scalars, list(entities(rows), render) for entities, or list(rows, identity, render). For a non-array receiver, suppress effectweb/identity on this line.",
             );
             diagnostic.code = "EW3001".into();
             diagnostic.category = "identity".into();
-            diagnostic.severity = "warning".into();
+            diagnostic.severity = "error".into();
+            diagnostics.push(diagnostic);
+        }
+        let mut work = owned_work::OwnedWork::new(&program, import_source);
+        work.visit_program(&program);
+        for span in work.impure {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "update is a pure transition and must not run this itself. Return it as a command: { key, policy: 'queue', effect: Effect.sync(() => model.props.onChange(value)) }, or { key, policy, effect } for an Effect.",
+            );
+            diagnostic.code = "EW1004".into();
+            diagnostics.push(diagnostic);
+        }
+        for span in work.mutations {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "update received an immutable model; this write throws at runtime. Return a copy with the change: { model: { ...model, rows: [...model.rows, row] } }.",
+            );
+            diagnostic.code = "EW1004".into();
+            diagnostics.push(diagnostic);
+        }
+        for span in work.discarded_mounts {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "makeMount returns an Effect and mounts nothing until it runs. Write `yield* makeMount(…)` inside your app's Effect, or call `mount(…)` outside Effect.",
+            );
+            diagnostic.code = "EW1006".into();
+            diagnostics.push(diagnostic);
+        }
+        for span in work.finalizers {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "This finalizer belongs to work run under 'replace': it runs after the newer run has started and overwrites that run's state. Use owner.task(field, effect, 'replace'), which publishes the status and ignores replaced runs, or reset it with Effect.tap and Effect.tapCause, which do not run for an interrupted run.",
+            );
+            diagnostic.code = "EW1005".into();
             diagnostics.push(diagnostic);
         }
         let mut bindings = list_identity::InlineBindings::new(&program, import_source);
@@ -232,29 +285,28 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                 source,
                 filename,
                 span,
-                "This is created during render, so every update rebuilds it: a source resubscribes, a collection loses its row cache, and a slot family loses its cancellation identity. Create it once at module or controller scope (const total = mapSource(owner.source, (s) => s.total); const byCode = collection(...); const slots = commandSlots(name)) and use that inside the view, or write the identity inline with list(rows, identity, render).",
+                "This is created during render, so every update rebuilds it: a source resubscribes, a collection loses its row cache. Create it once at module or controller scope (const total = mapSource(owner.source, (s) => s.total); const byCode = collection(...)) and use that inside the view, or write the identity inline with list(rows, identity, render).",
             );
             diagnostic.code = "EW3004".into();
             diagnostic.category = "identity".into();
             diagnostic.severity = "warning".into();
             diagnostics.push(diagnostic);
         }
-        let mut slots = list_identity::InlineSlots::new(&program, import_source);
-        slots.visit_program(&program);
-        for span in slots.spans {
-            let mut diagnostic = lower::diagnostic(
-                source,
-                filename,
-                span,
-                "commandSlot(...) creates a new slot on every call, so this work never replaces or drops earlier work. Declare the slot once (const saveSlot = commandSlot('save')) or use a keyed family (const rowSlot = commandSlots('row'); rowSlot(id)).",
-            );
-            diagnostic.code = "EW3003".into();
-            diagnostic.category = "identity".into();
-            diagnostic.severity = "warning".into();
-            diagnostics.push(diagnostic);
-        }
     }
     let mut compiler = lower::Lower::new(source, filename, options.development);
+    if !options.diagnostics_only {
+        let semantic = SemanticBuilder::new().build(&program);
+        // Inner JSX is lowered around these insertions, so they are recorded first.
+        let (edits, sites) = list_captures::insertions(
+            &program,
+            semantic.semantic.scoping(),
+            import_source,
+            &compiler.prefix,
+            &compiler.runtime,
+        );
+        compiler.edits = edits;
+        compiler.site_declarations = sites;
+    }
     compiler.visit_program(&program);
     diagnostics.extend(
         compiler
@@ -310,7 +362,13 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
             "\nimport * as {} from {};\n{}\n",
             compiler.runtime,
             serde_json::to_string(&runtime).unwrap(),
-            compiler.hoisted.join("\n")
+            compiler
+                .site_declarations
+                .iter()
+                .chain(&compiler.hoisted)
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join("\n")
         ),
     ));
     let (code, map) = sourcemap::emit(source, filename, edits)?;
@@ -324,4 +382,76 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
 #[napi_derive::napi]
 pub fn compile(source: String, filename: String, options: String) -> napi::Result<String> {
     compile_source(&source, &filename, &options).map_err(napi::Error::from_reason)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compile_source;
+
+    fn compiled(source: &str) -> String {
+        let output = compile_source(source, "test.tsx", "{}").expect("compiles");
+        let value: serde_json::Value = serde_json::from_str(&output).expect("json");
+        value["code"]
+            .as_str()
+            .expect("code")
+            .split_whitespace()
+            .collect()
+    }
+
+    #[test]
+    fn nested_elements_become_one_block_call() {
+        let code = compiled(
+            "import {view} from 'effectweb';\nexport const Row = view(m => <tr class={m.c}><td>{m.id}</td><td><a onClick={m.pick}>{m.label}</a></td></tr>);",
+        );
+        assert!(code.contains(r#"["tr",0,[["td",null,[1]],"#), "{code}");
+        assert!(code.contains(".block("), "{code}");
+        assert!(
+            code.contains(r#"({"class":m.c},m.id,{"onClick":m.pick},m.label)"#),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn unclonable_literals_are_positions_and_media_attributes_stay_dynamic() {
+        let code = compiled(
+            "export const f = (m) => <form><input type=\"text\" /><video autoplay src=\"a.mp4\">{m.x}</video></form>;",
+        );
+        assert!(
+            code.contains(r#"["form",null,[1,["video",0,[1]]]]"#),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn list_callbacks_record_the_outer_values_they_read() {
+        let code = compiled(
+            "import {list, view} from 'effectweb';\nview((model, send) => <ul>{list(model.rows, (row) => <li class={row.id === model.selected ? 'on' : ''} onClick={() => send(row.id)}>{model.labels.short.length}{model.rows.filter(Boolean).length}</li>)}</ul>);",
+        );
+        assert!(
+            code.contains(
+                ",[_ew_c0,model?.selected,send,model?.labels?.short?.length,model?.rows],false)"
+            ),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn list_callbacks_the_analysis_cannot_describe_are_left_alone() {
+        for body in [
+            "view((model) => { let n = 0; n = model.a; return list(model.rows, (r) => <li>{n}</li>); });",
+            "view((model) => { const rows = list(model.rows, (r) => <li>{later}</li>); const later = 1; return rows; });",
+            "view(function (model) { return list(model.rows, (r) => <li>{this.x}</li>); });",
+        ] {
+            let code = compiled(&format!("import {{list, view}} from 'effectweb';\n{body}"));
+            assert!(!code.contains("),["), "{code}");
+        }
+    }
+
+    #[test]
+    fn a_pragma_for_another_runtime_leaves_the_file_unchanged() {
+        let source = "/** @jsxImportSource react */ export const a = () => <p />;";
+        let output = compile_source(source, "other.tsx", "{}").expect("compiles");
+        let value: serde_json::Value = serde_json::from_str(&output).expect("json");
+        assert_eq!(value["code"].as_str(), Some(source));
+    }
 }

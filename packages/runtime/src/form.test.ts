@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { submit } from './form.js';
 import { Effect } from 'effect';
-import { effectEvent } from './effectEvent.js';
 
 describe('submit', () => {
-  it('prevents every submit synchronously and forwards an owned effect request', () => {
+  it('prevents every submit synchronously and forwards the returned Effect', () => {
     let prevented = 0;
-    const request = effectEvent('drop', () => Effect.void);
-    const handle = submit(() => request({} as Event));
+    const handle = submit(() => Effect.void);
     const first = handle({
       preventDefault() {
         prevented++;
@@ -24,7 +22,7 @@ describe('submit', () => {
   });
 });
 
-// @ts-expect-error A cold Effect needs an owned effectEvent, task or command.
+// Like any JSX handler, an Effect returned from a submit handler is owned by the listener.
 submit(() => Effect.void);
 // @ts-expect-error A Promise needs adaptation and an owner.
 submit(() => Promise.resolve());

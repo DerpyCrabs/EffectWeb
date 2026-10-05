@@ -45,29 +45,33 @@ const protectedValues = new WeakSet<object>();
 
 /** Protect published plain data in every build. Opaque objects keep their own lifecycle. */
 export function protectSnapshot<T>(value: T): T {
-  const seen = new Set<object>();
-  const plain: object[] = [];
-  const visit = (item: unknown): void => {
-    if (!item || typeof item !== 'object' || protectedValues.has(item) || seen.has(item)) return;
-    seen.add(item);
-    // Effect wrappers remain opaque, but their successful UI data is plain data.
-    if (isAsyncResult(item)) {
-      if (item._tag === 'Success') visit(item.value);
-      else if (item._tag === 'Failure' && item.previousSuccess._tag === 'Some')
-        visit(item.previousSuccess.value);
-      return;
-    }
-    const prototype: unknown = Object.getPrototypeOf(item);
-    if (!Array.isArray(item) && prototype !== Object.prototype && prototype !== null) return;
-    for (const key of Reflect.ownKeys(item)) {
-      const descriptor = Object.getOwnPropertyDescriptor(item, key)!;
-      if (Object.hasOwn(descriptor, 'value')) visit(descriptor.value as unknown);
-    }
-    plain.push(item);
-  };
-  // Traverse stored data without invoking application getters.
-  visit(value);
-  for (const item of plain) Object.freeze(item);
-  for (const item of seen) protectedValues.add(item);
+  if (value !== null && typeof value === 'object') protect(value);
   return value;
+}
+// Stored data is traversed without invoking application getters. A value is marked before its
+// children are visited, which also ends cycles.
+function protect(item: object): void {
+  if (protectedValues.has(item)) return;
+  protectedValues.add(item);
+  // Effect wrappers remain opaque, but their successful UI data is plain data.
+  if (isAsyncResult(item)) {
+    const data: unknown =
+      item._tag === 'Success'
+        ? item.value
+        : item._tag === 'Failure' && item.previousSuccess._tag === 'Some'
+          ? item.previousSuccess.value
+          : undefined;
+    if (data !== null && typeof data === 'object') protect(data);
+    return;
+  }
+  const prototype: unknown = Object.getPrototypeOf(item);
+  if (!Array.isArray(item) && prototype !== Object.prototype && prototype !== null) return;
+  for (const key of Reflect.ownKeys(item)) {
+    const descriptor = Object.getOwnPropertyDescriptor(item, key)!;
+    if (Object.hasOwn(descriptor, 'value')) {
+      const child: unknown = descriptor.value;
+      if (child !== null && typeof child === 'object') protect(child);
+    }
+  }
+  Object.freeze(item);
 }

@@ -6,9 +6,11 @@ import * as AsyncResult from 'effect/reactivity/AsyncResult';
 export const available = <A>(result: AsyncResult.AsyncResult<A, unknown>) =>
   Option.getOrUndefined(AsyncResult.value(result));
 
-/** A display message for a failed result, or an empty string. */
-export const resourceError = (result: AsyncResult.AsyncResult<unknown, unknown>) => {
-  if (!AsyncResult.isFailure(result)) return '';
+/** The display message of a failed result; `undefined` when it has not failed. */
+export const resourceError = (
+  result: AsyncResult.AsyncResult<unknown, unknown>,
+): string | undefined => {
+  if (!AsyncResult.isFailure(result)) return undefined;
   const error = Cause.squash(result.cause);
   return error instanceof Error ? error.message : String(error);
 };

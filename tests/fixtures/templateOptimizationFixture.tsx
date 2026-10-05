@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { effectEvent, mountView, program, view, type JSX } from 'effectweb';
+import { mount, program, view, type JSX } from 'effectweb';
 
 type Model = { readonly count: number; readonly visible: boolean; readonly suffix: string };
 type Message = { readonly count?: number; readonly visible?: boolean; readonly suffix?: string };
@@ -37,11 +37,7 @@ export function mountTemplates(parent: Node) {
           Snapshot
         </button>
         <button
-          onClick={(event) =>
-            effectEvent('drop', () =>
-              Effect.sync(() => send({ count: model.count + event.type.length })),
-            )(event)
-          }
+          onClick={(event) => Effect.sync(() => send({ count: model.count + event.type.length }))}
         >
           Effect
         </button>
@@ -59,7 +55,7 @@ export function mountTemplates(parent: Node) {
       </footer>
     </section>
   ));
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     source,
     seen,
@@ -101,7 +97,7 @@ export function mountContexts(parent: Node, kind: 'html' | 'svg' | 'exact') {
     initial: { text: 'before' },
     update: (_, text) => ({ model: { text } }),
   });
-  const unmount = mountView(parent, kind === 'html' ? Html : kind === 'svg' ? Svg : Exact, source);
+  const unmount = mount(parent, kind === 'html' ? Html : kind === 'svg' ? Svg : Exact, source);
   return {
     source,
     dispose() {

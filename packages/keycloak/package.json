@@ -1,6 +1,6 @@
 {
   "name": "@effectweb/keycloak",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -27,8 +27,8 @@
     "keycloak-js": "26.2.4"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.118",
-    "effectweb": "^0.8.1",
+    "effect": "^4.0.0",
+    "effectweb": "0.9.0",
     "keycloak-js": "^26.2.4"
   }
 }

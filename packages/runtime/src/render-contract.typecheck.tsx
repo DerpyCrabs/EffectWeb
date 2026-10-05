@@ -1,6 +1,6 @@
 import { Effect } from 'effect';
-import { event, bindEvent, Scope, text, view, type Slot } from './dom.js';
-import { effectEvent, eventEffects } from './effectEvent.js';
+import { list, Scope, text, view, type Slot } from './dom.js';
+import { eventEffects } from './event-effects.js';
 import { entities } from './collection.js';
 import type { JSX } from './jsx.js';
 
@@ -16,11 +16,11 @@ export const ordinaryHelpers = view<{
 }>((model) => (
   <>
     <p>{methods.slice(methods.sort(model.labels))}</p>
-    {entities(model.rows).map((row) => (
+    {list(entities(model.rows), (row) => (
       <b>{row.id}</b>
     ))}
     {model.render(methods.sort(model.labels))}
-    <button onClick={effectEvent('replace', () => Effect.void)}>Run</button>
+    <button onClick={() => Effect.void}>Run</button>
   </>
 ));
 
@@ -36,15 +36,11 @@ export function renderContractTypes() {
     () => ({ arbitrary: 'object' }),
   );
   // A listener owns direct Effects, including their resource scopes.
-  event(scope, button, 'onClick', () => Effect.void);
-  bindEvent(
-    scope,
-    button,
-    'onClick',
-    () => [],
-    // @ts-expect-error A listener factory cannot return a Promise callback.
-    () => async () => {},
-  );
+  const owned: JSX.Element = <button onClick={() => Effect.void}>Run</button>;
+  // @ts-expect-error A listener cannot be a Promise callback.
+  const promised: JSX.Element = <button onClick={async () => {}}>Run</button>;
+  void owned;
+  void promised;
   eventEffects(() => {}).accept(Effect.void);
   // @ts-expect-error Effects need an owner and cannot be rendered as values.
   const effectValue: JSX.Element = Effect.succeed('text');

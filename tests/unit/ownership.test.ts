@@ -20,7 +20,8 @@ it('compiled hosts and events preserve their owners through reentrant and attrib
   expect(result.modelSpreadEvents).toEqual(['started']);
   expect(result.optionalTransitions).toEqual(
     Array.from({ length: 4 }, () => ({
-      events: ['started', 'interrupted', 'replacement', 'replacement interrupted'],
+      // A handler change keeps running work; removing the handler interrupts all of it.
+      events: ['started', 'replacement', 'interrupted', 'replacement interrupted'],
       errors: [],
     })),
   );

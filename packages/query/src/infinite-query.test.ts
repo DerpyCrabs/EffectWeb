@@ -3,8 +3,7 @@ import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { expect, it } from 'vitest';
 import { fetchNextPage, infiniteQuery, infiniteResource } from './infinite-query.js';
 import { querySource } from './observe.js';
-import { makeQueryCache } from './cache.js';
-import { uiRuntime } from 'effectweb';
+import { queryCache } from './cache.js';
 
 it('shares initial and next loads, seeds, bounds pages and refreshes retained parameters', async () => {
   const loads: number[] = [];
@@ -19,19 +18,19 @@ it('shares initial and next loads, seeds, bounds pages and refreshes retained pa
       }),
     next: (_value, page) => page + 1,
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const a = infiniteResource(cache, definition),
     b = infiniteResource(cache, definition);
   a.seed('root', { pages: [{ param: 0, value: [0] }], next: 1 });
   a.select('root');
   b.select('root');
   expect(loads).toEqual([]);
-  await Promise.all([Effect.runPromise(a.loadNext()), Effect.runPromise(b.loadNext())]);
+  await Promise.all([Effect.runPromise(a.fetchNextPage()), Effect.runPromise(b.fetchNextPage())]);
   expect(loads).toEqual([1]);
   expect(cache.getQueryData(definition.query, 'root')?.pages.map((page) => page.param)).toEqual([
     0, 1,
   ]);
-  await Effect.runPromise(a.loadNext());
+  await Effect.runPromise(a.fetchNextPage());
   expect(cache.getQueryData(definition.query, 'root')?.pages.map((page) => page.param)).toEqual([
     1, 2,
   ]);
@@ -57,29 +56,27 @@ it('retains typed errors and services, retries one page and rejects a stale appe
     load: (_path: string, page: number) => Effect.flatMap(Api, (api) => api.load(page)),
     next: (_value, page) => page + 1,
   });
-  const runtime = uiRuntime(
-    Context.make(Api, {
-      load: (page) =>
-        page === 1 && fail
-          ? Effect.fail('offline' as const)
-          : page === 2
-            ? Effect.promise(
-                () =>
-                  new Promise<number[]>((resolve) => {
-                    release = resolve;
-                  }),
-              )
-            : Effect.succeed([page]),
-    }),
-  );
-  const cache = makeQueryCache(runtime);
+  const context = Context.make(Api, {
+    load: (page) =>
+      page === 1 && fail
+        ? Effect.fail('offline' as const)
+        : page === 2
+          ? Effect.promise(
+              () =>
+                new Promise<number[]>((resolve) => {
+                  release = resolve;
+                }),
+            )
+          : Effect.succeed([page]),
+  });
+  const cache = queryCache(context);
   const resource = infiniteResource(cache, definition);
   resource.select('a');
-  expect((await Effect.runPromiseExit(resource.loadNext()))._tag).toBe('Failure');
+  expect((await Effect.runPromiseExit(resource.fetchNextPage()))._tag).toBe('Failure');
   fail = false;
   await Effect.runPromise(resource.retryPage(1));
   expect(cache.getQueryData(definition.query, 'a')?.pages.length).toBe(2);
-  const pending = Effect.runPromiseExit(resource.loadNext());
+  const pending = Effect.runPromiseExit(resource.fetchNextPage());
   cache.resetResources();
   release([2]);
   expect((await pending)._tag).toBe('Failure');
@@ -101,7 +98,7 @@ it('merges concurrent retries of different pages and coalesces retries of the sa
       }),
     next: (_value, page) => page + 1,
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const first = infiniteResource(cache, definition),
     second = infiniteResource(cache, definition);
   first.seed('/', {
@@ -147,10 +144,10 @@ it('does not append an older page after an external refresh or after reset and r
         : Effect.succeed([version]),
     next: (_value, page) => page + 1,
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const observer = infiniteResource(cache, definition);
   observer.select('/');
-  const next = Effect.runPromise(observer.loadNext());
+  const next = Effect.runPromise(observer.fetchNextPage());
   version = 10;
   observer.refresh();
   release([1]);
@@ -158,7 +155,7 @@ it('does not append an older page after an external refresh or after reset and r
   expect(cache.getQueryData(definition.query, '/')?.pages.map((page) => page.value)).toEqual([
     [10],
   ]);
-  const stale = Effect.runPromiseExit(observer.loadNext());
+  const stale = Effect.runPromiseExit(observer.fetchNextPage());
   cache.resetResources();
   observer.seed('/', { pages: [{ param: 0, value: [99] }], next: 1 });
   observer.select('/');
@@ -181,14 +178,14 @@ it('supports first-page refresh explicitly and validates seed ranges and cursors
     load: (_path: string, page: number) => Effect.succeed([page, version]),
     next: (_value, page) => page + 1,
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const observer = infiniteResource(cache, definition);
   observer.select('/');
-  await Effect.runPromise(observer.loadNext());
+  await Effect.runPromise(observer.fetchNextPage());
   version = 1;
   observer.refresh();
   expect(cache.getQueryData(definition.query, '/')?.pages.length).toBe(1);
-  await Effect.runPromise(observer.loadNext());
+  await Effect.runPromise(observer.fetchNextPage());
   expect(cache.getQueryData(definition.query, '/')?.pages[1]?.value).toEqual([1, 1]);
   expect(() => observer.seed('/', { pages: [], next: 0 })).toThrow('Seed pages');
   expect(() =>
@@ -206,7 +203,7 @@ it('supports first-page refresh explicitly and validates seed ranges and cursors
 });
 
 it('reads infinite queries through querySource and extends them with fetchNextPage', async () => {
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const numbers = infiniteQuery({
     name: 'source-numbers',
     initial: 0,

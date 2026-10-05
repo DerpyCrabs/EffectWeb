@@ -110,7 +110,8 @@ export interface InfiniteResource<Args, A, Param, E = never> extends QueryResour
   InfiniteData<A, Param>,
   E
 > {
-  loadNext(): Effect.Effect<Snapshot<InfiniteData<A, Param>>, E>;
+  /** Load the next page of the selected arguments, as `fetchNextPage(cache, query, args)` does. */
+  fetchNextPage(): Effect.Effect<Snapshot<InfiniteData<A, Param>>, E>;
   retryPage(param: Param | Snapshot<Param>): Effect.Effect<Snapshot<InfiniteData<A, Param>>, E>;
   seed(
     args: Args | Snapshot<Args>,
@@ -245,7 +246,7 @@ export function infiniteResource<Args, A, Param, E, R>(
       resource.select(args);
     },
     refresh: resource.refresh,
-    loadNext: () => updatePage(),
+    fetchNextPage: () => updatePage(),
     retryPage: (param: Param | Snapshot<Param>) => updatePage({ param }),
     seed(
       args: Args | Snapshot<Args>,

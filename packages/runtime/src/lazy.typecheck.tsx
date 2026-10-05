@@ -1,6 +1,6 @@
 /* oxlint-disable effecttsgo/missing-effect-context -- Negative lazy loader service contracts. */
 import { Cause, Context, Effect } from 'effect';
-import { uiRuntime, view, ViewBinding, type View } from './index.js';
+import { view, ViewBinding, type View } from './index.js';
 import { lazyView } from './advanced.js';
 
 type Model = { title: string };
@@ -48,12 +48,12 @@ lazyView(load, { failure: WrongFailureModel });
 class Loader extends Context.Service<Loader, { loaded: View<Model, Message> }>()('Lazy/Loader') {}
 class Other extends Context.Service<Other, { value: string }>()('Lazy/Other') {}
 const serviceLoad = () => Effect.map(Loader, (service) => service.loaded);
-const runtime = uiRuntime(Context.make(Loader, { loaded: Loaded }));
-lazyView(serviceLoad, { runtime, pending: Pending });
-// @ts-expect-error A service-using loader requires its owning runtime.
+const loaderContext = Context.make(Loader, { loaded: Loaded });
+lazyView(() => serviceLoad().pipe(Effect.provideContext(loaderContext)), { pending: Pending });
+// @ts-expect-error A loader's services are provided in the Effect, not by the view.
 lazyView(serviceLoad);
 // @ts-expect-error Pending content cannot discharge the loader's service requirement.
 lazyView(serviceLoad, { pending: Pending });
-// @ts-expect-error An unrelated runtime cannot provide the loader service.
-lazyView(serviceLoad, { runtime: uiRuntime(Context.make(Other, { value: 'other' })) });
+// @ts-expect-error An unrelated context cannot provide the loader service.
+lazyView(() => serviceLoad().pipe(Effect.provideContext(Context.make(Other, { value: 'other' }))));
 void [typed, bound, wrongModel, wrongMessage, unbound, readOnly];

@@ -32,6 +32,30 @@ test('preserves blur drafts through native input and composition, then accepts o
   await expect(rejected).toHaveValue('approved');
 });
 
+test('a restore scheduled by an earlier blur does not erase text typed before it runs', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const path = '/tests/fixtures/auditFixture.tsx';
+    const { mountControls } = (await import(path)) as typeof import('../fixtures/auditFixture');
+    mountControls(document.body);
+  });
+  const accepted = page.getByLabel('Blur accepted');
+  // Focus, blur and typing land in one task, as a focus cycle followed by input does.
+  await accepted.evaluate((input: HTMLInputElement) => {
+    input.focus();
+    input.blur();
+    input.focus();
+    input.value = 'kept';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+  });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  await expect(accepted).toHaveValue('kept');
+  await accepted.blur();
+  await expect(accepted).toHaveValue('kept');
+});
+
 test('restores rejected delegated input, select changes, and checkbox clicks', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(async () => {

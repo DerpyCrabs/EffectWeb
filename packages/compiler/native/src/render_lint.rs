@@ -1047,7 +1047,7 @@ impl<'a> Analyzer<'a, '_> {
                 if self.framework(module)
                     && matches!(
                         path.first().map(String::as_str),
-                        Some("domMount" | "domBinding" | "effectEvent" | "slot")
+                        Some("domMount" | "domBinding" | "slot")
                     ) =>
             {
                 Value::new(Kind::Compiled)
@@ -1055,11 +1055,11 @@ impl<'a> Analyzer<'a, '_> {
             Kind::Import(ref module, ref path)
                 if self.framework(module)
                     && [
-                        "defineActions",
-                        "defineTasks",
-                        "defineField",
                         "collection",
                         "component",
+                        "controllerView",
+                        "ownerOf",
+                        "liveSource",
                     ]
                     .contains(&path.first().map(String::as_str).unwrap_or("")) =>
             {
@@ -1102,9 +1102,7 @@ impl<'a> Analyzer<'a, '_> {
                 if self.framework(module)
                     && matches!(
                         path.last().map(String::as_str),
-                        Some(
-                            "listView" | "memoView" | "lazyView" | "errorBoundary" | "programView"
-                        )
+                        Some("memoView" | "lazyView" | "errorBoundary")
                     ) =>
             {
                 Value::new(Kind::Compiled)
@@ -1235,7 +1233,7 @@ impl<'a> Analyzer<'a, '_> {
                     if let Some(argument)=arguments.first(){input.reads.extend(&argument.reads);input.source=argument.source.clone().map(|(span,mut path)|{path.push(None);(span,path)});}
                     for callback in callbacks{if matches!(callback.kind,Kind::Function(_)){self.invoke(callback,&[input.clone()],span,phase);}}
                 }
-                if phase==Phase::Render&&self.framework(&module)&&!matches!(path.last().map(String::as_str),Some("defineActions"|"defineTasks"|"defineField"|"collection"|"component"|"bind"|"controls"|"from"|"map"|"view")) {self.fail(Issue::unknown(span,format!("framework method {} is a render operation",path.join("."))));}
+                if phase==Phase::Render&&self.framework(&module)&&!matches!(path.last().map(String::as_str),Some("collection"|"component"|"controllerView"|"ownerOf"|"from"|"view"|"liveSource")) {self.fail(Issue::unknown(span,format!("framework method {} is a render operation",path.join("."))));}
                 for argument in arguments{if matches!(argument.kind,Kind::Function(_)){self.invoke(argument.clone(),&[Value::data()],span,if matches!(path.last().map(String::as_str),Some("map"|"from")){phase}else{Phase::Host});}}
                 let _=module;
             }
@@ -1243,14 +1241,16 @@ impl<'a> Analyzer<'a, '_> {
                 let (namespace,operation)=if module=="effect" {(path.first().map(String::as_str).unwrap_or(""),path.get(1).map(String::as_str).unwrap_or(""))}else{(module.strip_prefix("effect/").unwrap_or(""),path.first().map(String::as_str).unwrap_or(""))};
                 if phase==Phase::Render&&(namespace.starts_with("Mutable")||(namespace=="DateTime"&&matches!(operation,"nowUnsafe"|"isFutureUnsafe"|"isPastUnsafe"))){self.fail(Issue::invalid(span,"Read or mutate ambient Effect state in a command or DOM host, then publish immutable data in the model."));return;}
                 if namespace.starts_with("Mutable")&&matches!(operation,"set"|"setAndGet"|"update"|"modify"|"remove"|"delete"|"clear"|"add")&& let Some(target)=arguments.first(){self.check_mutation(target,span,operation,phase);}
-                if phase==Phase::Render&&self.framework(&module)&&matches!(path.first().map(String::as_str),Some("mountView"|"modelOwner"|"observeBindings"|"inspectBindings"|"mountBindingInspector"|"observePrograms"|"uiRuntime"|"makeQueryCache"|"observeQuery"|"lifetime"|"projectionCache"|"sessionGroup"|"program"|"infiniteResource")){self.fail(Issue::invalid(span,"Create owned resources and perform mounting in a command, component owner, or DOM host."));return;}
+                if phase==Phase::Render&&self.framework(&module)&&matches!(path.first().map(String::as_str),Some("mount"|"makeMount"|"modelOwner"|"queryCache"|"observeQuery"|"program"|"infiniteResource")){self.fail(Issue::invalid(span,"Create owned resources and perform mounting in a command, component owner, or DOM host."));return;}
                 if phase==Phase::Render&&((module=="effect"&&path.first().is_some_and(|p|p=="Effect")&&path.get(1).is_some_and(|p|p.starts_with("run")))||(module=="effect/Effect"&&path.first().is_some_and(|p|p.starts_with("run")))) {self.fail(Issue::invalid(span,"Run effects in a command or DOM host, then put results in the model."));return;}
                 for (position, argument) in arguments.iter().enumerate() {
                     let callback_phase = if (module == "effect" && path.first().is_some_and(|name| name == "Effect")) || module == "effect/Effect" {
                         Some(Phase::Host)
                     } else if self.framework(&module) {
                         match (path.last().map(String::as_str), position) {
-                            (Some("domMount"), 0) | (Some("domBinding" | "effectEvent"), 1) => Some(Phase::Host),
+                            (Some("domMount"), 0) | (Some("domBinding"), 1) => {
+                                Some(Phase::Host)
+                            }
                             (Some("submit"), 0) => Some(Phase::Event),
                             // Render callbacks run while rendering, with the same purity rules.
                             (Some("observe" | "list"), 1) | (Some("slot"), 0) => Some(phase),
@@ -1268,6 +1268,9 @@ impl<'a> Analyzer<'a, '_> {
                         self.invoke(argument.clone(), &[input], span, callback_phase);
                     }
                 }
+            }
+            Kind::Global(ref root,ref path) if root=="<dispatch>"&&path.is_empty()=>{
+                if phase==Phase::Render {self.fail(Issue::invalid(span,"Views do not dispatch while rendering. Call send or patch from an event handler, a command or a DOM host; a view only reads its model."));}
             }
             Kind::Global(root,path)=>{
                 let previous=self.phase;self.phase=phase;self.check_value(&value,span);self.phase=previous;
@@ -1295,7 +1298,9 @@ impl<'a> Analyzer<'a, '_> {
                 // A function read from the model is a parent-supplied callback: the parent's closure is
                 // checked where it is created. Closures handed to it may run now and are checked below.
                 let supplied=!value.reads.is_empty();
-                if mutator(&method){self.check_mutation(&receiver,span,&method,phase);if self.error.is_some(){return;}}
+                // `model.actions.add(…)` calls a controller method; it is not `Set.add` on a snapshot.
+                let action=receiver.source.as_ref().is_some_and(|(_,path)|matches!(path.last(),Some(Some(name)) if name=="actions"));
+                if mutator(&method)&&!action{self.check_mutation(&receiver,span,&method,phase);if self.error.is_some(){return;}}
                 if !mutator(&method) && phase==Phase::Render&&!pure_method(&method)&&!supplied{self.fail(Issue::unknown(span,format!("the target of method {method}. Use a stable helper with immutable model inputs.")));}
                 for argument in arguments{if argument.callable(){let mut input=Value::data().with_reads(&receiver);
                     if receiver.ownership==Ownership::Deep { input.kind=Kind::Native;input.ownership=Ownership::Deep; }
@@ -1578,10 +1583,50 @@ impl<'a> Analyzer<'a, '_> {
                 );
                 self.check_mutation(&value, span, "assignment", self.phase);
             }
+            // `[a[i], a[j]] = [a[j], a[i]]` and `({ x } = value)`: each target is checked alone.
+            AssignmentTarget::ArrayAssignmentTarget(array) => {
+                for element in array.elements.iter().flatten() {
+                    self.maybe_default_target(element, span);
+                }
+                if let Some(rest) = &array.rest {
+                    self.mutation_target(&rest.target, span);
+                }
+            }
+            AssignmentTarget::ObjectAssignmentTarget(object) => {
+                for property in &object.properties {
+                    match property {
+                        AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(property) => {
+                            if let Some(init) = &property.init {
+                                self.visit_expression(init);
+                            }
+                            self.mutate_binding(&property.binding, span);
+                        }
+                        AssignmentTargetProperty::AssignmentTargetPropertyProperty(property) => {
+                            self.maybe_default_target(&property.binding, span);
+                        }
+                    }
+                }
+                if let Some(rest) = &object.rest {
+                    self.mutation_target(&rest.target, span);
+                }
+            }
             _ => self.fail(Issue::unknown(
                 span,
                 "ownership for this assignment target; use named local bindings",
             )),
+        }
+    }
+    fn maybe_default_target(&mut self, target: &'a AssignmentTargetMaybeDefault<'a>, span: Span) {
+        match target {
+            AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(target) => {
+                self.visit_expression(&target.init);
+                self.mutation_target(&target.binding, span);
+            }
+            _ => {
+                if let Some(target) = target.as_assignment_target() {
+                    self.mutation_target(target, span);
+                }
+            }
         }
     }
     fn simple_mutation_target(&mut self, target: &'a SimpleAssignmentTarget<'a>, span: Span) {

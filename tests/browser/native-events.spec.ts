@@ -292,3 +292,36 @@ test('native media booleans, SVG animated attributes and shared tag names serial
     },
   });
 });
+
+test('nonbubbling delegated events preserve capture order, cancellation and redispatch', async ({
+  page,
+}) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const path = '/tests/fixtures/nativeEventsFixture.tsx';
+    const { mountNonBubblingOrder } = (await import(
+      path
+    )) as typeof import('../fixtures/nativeEventsFixture');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const calls: string[] = [];
+    const mounted = mountNonBubblingOrder(host, (label) => calls.push(label));
+    const input = host.querySelector('input')!;
+    const event = new Event('change');
+    input.dispatchEvent(event);
+    input.dispatchEvent(event);
+    const ordered = calls.splice(0);
+    mounted.block();
+    input.dispatchEvent(event);
+    const cancelled = calls.splice(0);
+    mounted.dispose();
+    input.dispatchEvent(event);
+    host.remove();
+    return { ordered, cancelled, disposed: calls };
+  });
+  expect(result).toEqual({
+    ordered: ['ancestor', 'capture', 'target', 'ancestor', 'capture', 'target'],
+    cancelled: ['ancestor'],
+    disposed: [],
+  });
+});

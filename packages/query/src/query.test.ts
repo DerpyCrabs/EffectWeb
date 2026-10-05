@@ -1,14 +1,13 @@
 import { Context, Effect, Fiber, Option } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
-import { makeQueryCache } from './cache.js';
+import { queryCache } from './cache.js';
 import { cacheInternals } from './cache-internals.js';
 import { query } from './query.js';
-import { uiRuntime } from 'effectweb';
 
 const disposals: Array<() => void> = [];
 const cache = () => {
-  const model = makeQueryCache();
+  const model = queryCache();
   disposals.push(() => model.dispose());
   const internals = cacheInternals(model);
   // Mount an entry as an observer would: subscribed, so it loads and stays retained.
@@ -181,7 +180,7 @@ describe('typed shared queries', () => {
     await vi.waitFor(() => expect(interrupted).toHaveBeenCalledTimes(1));
   });
 
-  it('executes service-using reads through the application runtime and preserves typed errors', async () => {
+  it('executes service-using reads through the cache context and preserves typed errors', async () => {
     interface Catalog {
       readonly prefix: string;
     }
@@ -194,7 +193,7 @@ describe('typed shared queries', () => {
           id ? Effect.succeed(`${prefix}:${id}`) : Effect.fail<Missing>({ _tag: 'Missing', id }),
         ),
     });
-    const model = makeQueryCache(uiRuntime(Context.make(Catalog, { prefix: 'provided' })));
+    const model = queryCache(Context.make(Catalog, { prefix: 'provided' }));
     disposals.push(() => model.dispose());
     expectTypeOf(model.prefetch(data, 'a')).toEqualTypeOf<Effect.Effect<string, Missing>>();
     expect(await Effect.runPromise(model.prefetch(data, 'a'))).toBe('provided:a');
@@ -202,7 +201,7 @@ describe('typed shared queries', () => {
     expect(failure._tag).toBe('Failure');
     const typingOnly = () => {
       // @ts-expect-error A service-requiring query cannot run without its service context.
-      const invalid = makeQueryCache().prefetch(data, 'a');
+      const invalid = queryCache().prefetch(data, 'a');
       void invalid;
       // @ts-expect-error Query arguments keep their declared type.
       model.invalidateQuery(data, 4);

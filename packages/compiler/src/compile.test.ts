@@ -4,6 +4,7 @@ import { runInNewContext } from 'node:vm';
 import { compile as compileSource, diagnose } from './compile';
 
 type Markup = { tag: string; props: Record<string, unknown> };
+type Shape = [string, Record<string, unknown> | null | 0, unknown[]];
 const runtime = {
   view: (render: unknown) => render,
   slot: (render: unknown) => render,
@@ -16,7 +17,27 @@ const runtime = {
         ...(children.length ? { children: children.length > 1 ? children : children[0] } : {}),
       },
     }),
-  renderComponent: (render: (props: unknown) => unknown, props: unknown) => render(props),
+  still: (content: unknown) => content,
+  // A block passes only the values of its dynamic positions; rebuild the element tree.
+  block:
+    (site: Shape) =>
+    (...values: unknown[]): Markup => {
+      let cursor = 0;
+      const build = ([tag, attrs, children]: Shape): Markup => {
+        const applied = attrs === 0 ? (values[cursor++] as Record<string, unknown>) : attrs;
+        const items = children.map((child) =>
+          child === 1 ? values[cursor++] : Array.isArray(child) ? build(child as Shape) : child,
+        );
+        return {
+          tag,
+          props: {
+            ...applied,
+            ...(items.length ? { children: items.length > 1 ? items : items[0] } : {}),
+          },
+        };
+      };
+      return build(site);
+    },
 };
 function execute(source: string, development = false): Record<string, unknown> {
   const result = compileSource(
@@ -223,7 +244,7 @@ it('resolves an explicitly configured runtime and compiles JSX from any module',
 it('honors the explicit module JSX source for helper files and foreign framework islands', () => {
   const helper = `/** @jsxImportSource effectweb */ export const row=value=><b>{value}</b>;`;
   expect(compileSource(helper, 'helper.tsx').code).not.toContain('<b>');
-  const foreign = `/** @jsxImportSource solid-js */ import {mountView} from 'effectweb';export const App=()=> <p ref={node=>node.focus()}/>;`;
+  const foreign = `/** @jsxImportSource solid-js */ import {mount} from 'effectweb';export const App=()=> <p ref={node=>node.focus()}/>;`;
   expect(compileSource(foreign, 'foreign.tsx').code).toBe(foreign);
 });
 it.each([
@@ -292,4 +313,250 @@ it('reports original source locations and content in usable source maps', () => 
   }
   expect(mappedLines.has(1)).toBe(true); // The ordinary declaration remains debuggable.
   expect(mappedLines.has(4)).toBe(true); // Generated DOM work maps back to its JSX.
+});
+
+// JSX text, whitespace and entity handling must agree with the standard automatic transform.
+const reference = (source: string) => {
+  const js = transformSync(source, {
+    loader: 'tsx',
+    format: 'cjs',
+    target: 'es2022',
+    jsx: 'automatic',
+    jsxImportSource: 'reference',
+  }).code;
+  const stub = {
+    jsx: (tag: unknown, props: Record<string, unknown>) => ({ tag, props }),
+    jsxs: (tag: unknown, props: Record<string, unknown>) => ({ tag, props }),
+    Fragment: 'fragment',
+  };
+  const module = { exports: {} as Record<string, unknown> };
+  runInNewContext(js, { require: () => stub, exports: module.exports, module });
+  return module.exports;
+};
+it.each([
+  ['line breaks and indentation', `<p>\n  Hello  <b>world</b>\n  {m.x}\n  tail\n</p>`],
+  ['interior spaces', `<p> a <b> b </b>  c  </p>`],
+  ['explicit space expressions', `<p>a{' '}<b>b</b>{' '}c</p>`],
+  [
+    'entities in text and attributes',
+    `<p title="&quot;&amp;&lt;">&nbsp;&copy;&#169;&#xA9;&amp;lt;{'&lt;'}</p>`,
+  ],
+  ['blank lines and trailing spaces', `<p>\n\n  first   \n\n  second\n\n</p>`],
+  ['text around nested elements', `<ul>\n  <li>one</li> two\n  <li>three</li>\n</ul>`],
+  ['numbers and booleans as children', `<p>{0}{false}{null}{'x'}{1.5}</p>`],
+])('agrees with the automatic JSX transform on %s', (_name, markup) => {
+  const exports = execute(`export const render=view(m=>${markup});`);
+  const expected = reference(`export const render = (m) => ${markup};`) as {
+    render: (m: object) => unknown;
+  };
+  const render = exports.render as (m: object) => unknown;
+  const input = { x: 'X' };
+  expect(content(render(input))).toBe(content(expected.render(input)));
+  const title = (value: unknown) => (value as Markup).props.title;
+  expect(title(render(input))).toBe(title(expected.render(input)));
+});
+
+it('records the static shape of nested intrinsic elements for the renderer to clone', () => {
+  const source = `import {view} from 'effectweb';
+export const Row = view(m => <tr class={m.c}><td class="id">{m.id}</td><td><a onClick={m.pick}>{m.label}</a></td><td><input value={m.v} /></td></tr>);
+export const Wrapper = view(m => <section {...m.attrs}><Child /><p>{...m.parts}</p></section>);`;
+  const code = compileSource(source, 'shape.tsx').code.replace(/\s+/gu, '');
+  // Dynamic attributes are 0, baked literal attributes are the hoisted object, dynamic children are 1.
+  expect(code).toMatch(/=\["tr",0,\[\["td",_ew_a\d+,\[1\]\],_ew_k\d+,_ew_k\d+\]\];/u);
+  // A literal value attribute is a control binding, so the input's attributes stay dynamic.
+  expect(code).toMatch(/=\["td",null,\[\["input",0,\[\]\]\]\];/u);
+  expect(code).toMatch(/=\["td",null,\[\["a",0,\[1\]\]\]\];/u);
+  // The row is one call carrying only its dynamic values, in source order.
+  expect(code).toMatch(/=\/\*@__PURE__\*\/_ew_dom\.block\(_ew_k\d+\);/u);
+  expect(code).toMatch(
+    /view\(\(m\)=>_ew_jsx\d+\(\{"class":m\.c\},m\.id,\{"onClick":m\.pick\},m\.label,\{"value":m\.v\}\)\)/u,
+  );
+  // Spread attributes may supply children; components and spread children are dynamic positions.
+  expect(code).toMatch(/=\["section",0,\[1,\["p",null,\[1\]\]\]\];/u);
+});
+
+it('keeps elements the renderer cannot clone out of the cloned shape', () => {
+  const source = `import {view} from 'effectweb';
+export const Form = view(m => <form><input type="text" name="q" /><video autoplay src="a.mp4">{m.fallback}</video><b>{m.label}</b></form>);`;
+  const code = compileSource(source, 'unclonable.tsx').code.replace(/\s+/gu, '');
+  // A literal input is a position of its own; a media element's attributes are applied per clone.
+  expect(code).toMatch(/=\["form",null,\[1,\["video",0,\[1\]\],\["b",null,\[1\]\]\]\];/u);
+});
+
+it('appends the values an inline list callback captures', () => {
+  const source = `import {list, view} from 'effectweb';
+let total = 0;
+export const bump = () => { total++; };
+const Constant = 1;
+export const Rows = view((model, send) => {
+  const { selected } = model;
+  let moving = 0;
+  moving++;
+  return <ul>
+    {list(model.rows, (row) => <li class={row.id === selected ? 'on' : ''} onClick={() => send(row.id)}>{model.labels.short}{model.labels.short.length}{model.rows.filter(Boolean).length}{Constant}{total}</li>)}
+    {list(model.rows, (row) => row.id, (row) => <li>{row.name}</li>)}
+    {list(model.rows, (row) => <li>{moving}</li>)}
+    {list(model.rows, Row)}
+  </ul>;
+});`;
+  const code = compileSource(source, 'captures.tsx').code.replace(/\s+/gu, '');
+  // Outer values are listed once; a longer path under a listed one adds nothing; a called
+  // member depends on its receiver; reassigned module state is compared by value.
+  expect(code).toContain(',[_ew_c0,selected,send,model?.labels?.short,model?.rows,total],false)');
+  expect(code).toContain('(row)=>row.id,(row)=>_ew_jsx');
+  expect(code).toMatch(/row\.name\),\[_ew_c1\],false\)/u);
+  // A reassigned local and a callback declared elsewhere are left to identity comparison.
+  expect(code).toMatch(/moving\)\),list/u);
+  expect(code).toContain('list(model.rows,Row)');
+});
+
+const captured = (body: string) =>
+  compileSource(`import { list, view } from 'effectweb';\n${body}`, 'captures.tsx').code.replace(
+    /\s+/gu,
+    '',
+  );
+it.each([
+  [
+    'an outer row is a captured value of a nested list',
+    `view((model) => <ul>{list(model.groups, (g) => g.id, (g) => <li>{list(g.items, (it) => <b>{g.name}{it}{model.sep}</b>)}</li>)}</ul>);`,
+    ['[_ew_c0,g?.name,model?.sep],false', ',[_ew_c1,model?.sep],false'],
+  ],
+  [
+    'a callback parameter shadows an outer binding of the same name',
+    `view((model) => { const x = model.a; return <ul>{list(model.rows, (x) => <li>{x}{model.b}</li>)}</ul>; });`,
+    [',[_ew_c0,model?.b],false)'],
+  ],
+  [
+    'destructured and rest parameters are captured by name',
+    `view(({ rows, labels: { short }, ...rest }) => <ul>{list(rows, (r) => <li>{short}{rest.z}</li>)}</ul>);`,
+    [',[_ew_c0,short,rest?.z],false)'],
+  ],
+  [
+    'an optional or asserted call depends on its receiver',
+    `view((model) => <ul>{list(model.rows, (r) => <li>{model.fmt?.(r)}{model.a?.b.c}{model.x!.y}</li>)}</ul>);`,
+    [',[_ew_c0,model],false)'],
+  ],
+  [
+    'a computed member depends on the object it indexes',
+    `view((model) => <ul>{list(model.rows, (r) => <li>{model.byId[r.id].name}</li>)}</ul>);`,
+    [',[_ew_c0,model?.byId],false)'],
+  ],
+  [
+    'types are not values',
+    `view((model) => { type L = string; return <ul>{list(model.rows, (r) => <li>{r as L}</li>)}</ul>; });`,
+    ['rasL),[_ew_c0],false)'],
+  ],
+  [
+    'a component read from a local object captures that object',
+    `view((model) => { const ui = model.ui; return <ul>{list(model.rows, (r) => <ui.Row r={r} />)}</ul>; });`,
+    [',[_ew_c0,ui],false)'],
+  ],
+  [
+    'a helper declared in the view is captured as a value',
+    `view((model) => { function label(r) { return model.names[r]; } return <ul>{list(model.rows, (r) => <li>{label(r)}</li>)}</ul>; });`,
+    [',[_ew_c0,label],false)'],
+  ],
+  [
+    'loop and catch bindings are captured like any local',
+    `view((model) => { try { f(); } catch (e) { for (const g of model.groups) return list(g.rows, (r) => <li>{g.name}{e.message}</li>); } });`,
+    [',[_ew_c0,g?.name,e?.message],false)'],
+  ],
+  [
+    'a parameter default reads outer values too',
+    `view((model) => <ul>{list(model.rows, (r, i = model.start) => <li>{i}</li>)}</ul>);`,
+    [',[_ew_c0,model?.start],true)'],
+  ],
+  [
+    'spread attributes and handler closures are read like any expression',
+    `view((model, send) => <ul>{list(model.rows, (r) => <li {...model.attrs} onClick={() => send(r)} />)}</ul>);`,
+    [',[_ew_c0,model?.attrs,send],false)'],
+  ],
+  [
+    'a tagged template depends on the receiver of its tag',
+    'view((model) => <ul>{list(model.rows, (r) => <li>{`${model.a.b}-${r}`}{model.t.tag`x`}</li>)}</ul>);',
+    [',[_ew_c0,model?.a?.b,model?.t],false)'],
+  ],
+])('list captures: %s', (_name, body, expected) => {
+  const code = captured(body);
+  for (const fragment of expected) expect(code).toContain(fragment);
+});
+
+it.each([
+  [
+    'a parenthesized callback',
+    `view((model) => <ul>{list(model.rows, ((r) => <li>{model.a}</li>))}</ul>);`,
+  ],
+  [
+    'a callback containing this',
+    `view((model) => <ul>{list(model.rows, (r) => <li onClick={function () { return this; }}>{model.a}</li>)}</ul>);`,
+  ],
+  [
+    'a binding declared after the call',
+    `view((model) => { const rows = list(model.rows, (r) => <li>{later}</li>); const later = model.a; return rows; });`,
+  ],
+  [
+    'a reassigned local',
+    `view((model) => { let n = 0; n = model.a; return <ul>{list(model.rows, (r) => <li>{n}</li>)}</ul>; });`,
+  ],
+  ['a callback declared elsewhere', `view((model) => <ul>{list(model.rows, Row)}</ul>);`],
+  [
+    'a list that is not the runtime export',
+    `const list = (rows, render) => rows.map(render); view((model) => <ul>{list(model.rows, (r) => <li>{model.a}</li>)}</ul>);`,
+  ],
+])('list captures are left to identity comparison for %s', (name, body) => {
+  const source = name.startsWith('a list that is not')
+    ? `import { view } from 'effectweb';\n${body}`
+    : `import { list, view } from 'effectweb';\n${body}`;
+  const code = compileSource(source, 'uncaptured.tsx').code.replace(/\s+/gu, '');
+  // No array of captured values follows the callback.
+  expect(code).not.toMatch(/,\[[\w?.,]*\]\)/u);
+});
+
+it('appends captures for an aliased import of list', () => {
+  const code = compileSource(
+    `import { list as each, view } from 'effectweb';\nview((model) => <ul>{each(model.rows, (r) => <li>{model.a}</li>)}</ul>);`,
+    'alias.tsx',
+  ).code.replace(/\s+/gu, '');
+  expect(code).toContain(',[_ew_c0,model?.a],false)');
+});
+
+it.each([
+  [
+    'a function prop of a view records its site and the values it reads',
+    `const Row = view(p => <li/>); export const L = view((m, send) => <Row id={m.id} onPick={(id) => send({ id, list: m.list })} />);`,
+    /"onPick":_ew_dom\.captured\(\(id\)=>send\(\{id,list:m\.list\}\),\[_ew_c0,send,m\?\.list\]\)/u,
+  ],
+  [
+    'a called member captures its receiver',
+    `const Row = view(p => <li/>); export const L = view((m) => <Row onPick={() => m.actions.pick(m.row.id)} />);`,
+    /\[_ew_c0,m\?\.actions,m\?\.row\?\.id\]/u,
+  ],
+  [
+    'each site has its own identity',
+    `const Row = view(p => <li/>); export const L = view((m) => <><Row onPick={() => m.a} /><Row onPick={() => m.a} /></>);`,
+    /const_ew_c0=Symbol\(\);const_ew_c1=Symbol\(\);.*\[_ew_c0,m\?\.a\].*\[_ew_c1,m\?\.a\]/u,
+  ],
+])('function props: %s', (_name, body, expected) => {
+  expect(captured(body)).toMatch(expected);
+});
+
+it.each([
+  [
+    'a handler on an element',
+    `export const L = view((m) => <button onClick={() => m.pick(m.id)} />);`,
+  ],
+  [
+    'an async function',
+    `const Row = view(p => <li/>); export const L = view((m) => <Row onPick={async () => m.id} />);`,
+  ],
+  [
+    'a function reading a reassigned local',
+    `const Row = view(p => <li/>); export const L = view((m) => { let n = 0; n = m.n; return <Row onPick={() => n} />; });`,
+  ],
+  [
+    'a function that is not written inline',
+    `const Row = view(p => <li/>); export const L = view((m) => <Row onPick={m.pick} />);`,
+  ],
+])('function props left alone: %s', (_name, body) => {
+  expect(captured(body)).not.toContain('.captured(');
 });

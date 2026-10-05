@@ -1,8 +1,8 @@
-import { Deferred, Effect, Fiber, Scope } from 'effect';
-import { makeUiRuntime, mount } from 'effectweb';
+import { Deferred, Effect, Fiber } from 'effect';
+import { makeMount } from 'effectweb';
 import { lazyView } from 'effectweb/advanced';
 
-export async function lazyScopeCleanup(root: HTMLElement, explicitRuntime: boolean) {
+export async function lazyScopeCleanup(root: HTMLElement) {
   const release = Deferred.makeUnsafe<void>();
   let acquired = false;
   let releasing = false;
@@ -12,7 +12,6 @@ export async function lazyScopeCleanup(root: HTMLElement, explicitRuntime: boole
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const runtime = yield* makeUiRuntime<Scope.Scope>();
         const load = () =>
           Effect.gen(function* () {
             yield* Effect.acquireRelease(
@@ -28,8 +27,8 @@ export async function lazyScopeCleanup(root: HTMLElement, explicitRuntime: boole
             );
             return yield* Effect.never;
           });
-        const definition = explicitRuntime ? lazyView(load, { runtime }) : lazyView(load);
-        const mounted = yield* mount(root, definition, {
+        const definition = lazyView(load);
+        const mounted = yield* makeMount(root, definition, {
           model: () => ({}),
           subscribe: () => () => {},
         });

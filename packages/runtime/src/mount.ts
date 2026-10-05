@@ -9,49 +9,29 @@ import * as Exit from 'effect/Exit';
 import type { UiRuntime } from './runtime.js';
 export { Portal, type PortalProps } from './dom.js';
 /** Setup may return nothing, a cleanup, a disposable, or an Effect finalized with the element. */
-type Work<R = never> =
+type Work =
   | void
   | (() => void)
   | { dispose: () => void; update?: () => void }
-  | Effect.Effect<unknown, unknown, R | Scope.Scope>;
+  | Effect.Effect<unknown, unknown, Scope.Scope>;
 export interface DomMount<T extends Element = Element> {
   readonly identity: unknown;
   readonly data: unknown;
   readonly acquire: (element: T, input: () => unknown) => Work;
 }
 /** Element-owned work. Changed acquisition functions replace and interrupt the prior lifetime. */
-export function domMount<T extends Element, R = never>(
-  start: (element: T) => Work<R>,
-  ...provided: [Exclude<R, Scope.Scope>] extends [never]
-    ? [runtime?: UiRuntime<R>]
-    : [runtime: UiRuntime<R>]
-): DomMount<T> {
-  const runtime = provided[0];
-  return {
-    identity: start,
-    data: undefined,
-    acquire: (element) => {
-      const work = start(element);
-      return Effect.isEffect(work) && runtime ? runtime.provideScoped(work) : (work as Work);
-    },
-  };
+export function domMount<T extends Element>(start: (element: T) => Work): DomMount<T> {
+  return { identity: start, data: undefined, acquire: (element) => start(element) };
 }
 /** A stable DOM lifecycle with fresh immutable inputs, for focus, measurements and native events. */
-export function domBinding<T extends Element, A, R = never>(
+export function domBinding<T extends Element, A>(
   data: A | Snapshot<A>,
-  acquire: (element: T, input: () => Snapshot<A>) => Work<R>,
-  ...provided: [Exclude<R, Scope.Scope>] extends [never]
-    ? [runtime?: UiRuntime<R>]
-    : [runtime: UiRuntime<R>]
+  acquire: (element: T, input: () => Snapshot<A>) => Work,
 ): DomMount<T> {
   return {
     identity: acquire,
     data,
-    acquire: (element, input) => {
-      const work = acquire(element, input as () => Snapshot<A>);
-      const runtime = provided[0];
-      return Effect.isEffect(work) && runtime ? runtime.provideScoped(work) : (work as Work);
-    },
+    acquire: (element, input) => acquire(element, input as () => Snapshot<A>),
   };
 }
 
@@ -71,6 +51,10 @@ export function domHandle<T extends Element>(
 ): DomHandle<T> {
   let current: T | undefined;
   const mount = domMount<T>((element) => {
+    if (current && current !== element && current.isConnected)
+      console.warn(
+        'domHandle is mounted on two elements at once; only the latest is readable. Create one handle per element.',
+      );
     current = element;
     const cleanup = attached?.(element);
     return () => {

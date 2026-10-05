@@ -1,21 +1,20 @@
 import { Context, Effect, Exit, Scope } from 'effect';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import {
   available,
-  commandSlot,
   component,
-  defineTasks,
-  effectCommand,
+  ownerOf,
   collection,
   list,
   ViewBinding,
-  makeProgram,
-  mount,
+  program,
+  makeMount,
   observe,
   view,
 } from 'effectweb';
-import { lazyView, listView } from 'effectweb/advanced';
+import { lazyView } from 'effectweb/advanced';
 
-export async function mountScopedRendering(parent: HTMLElement, optimized = true) {
+export async function mountScopedRendering(parent: HTMLElement) {
   const lifetime = Scope.makeUnsafe();
   let evaluations = 0;
   const rows = collection<{ readonly id: number; readonly label: string }>((row) => row.id);
@@ -34,37 +33,32 @@ export async function mountScopedRendering(parent: HTMLElement, optimized = true
       </button>
     );
   });
-  const renderRows = listView({
-    project: (row: Row, _index: number, selected: number): Props => ({
-      row,
-      selected: row.id === selected,
-    }),
-    view: RowView,
-    equals: (previous, next) => previous.row === next.row && previous.selected === next.selected,
-  });
   return await Effect.runPromise(
     Effect.gen(function* () {
-      const source = yield* makeProgram({
-        initial: {
-          rows: Array.from({ length: 1000 }, (_, id) => ({ id, label: `row ${id}` })),
-          selected: 0,
-        },
-        update: (model, message: Message) => ({ model: { ...model, selected: message.id } }),
-      });
+      const source = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          program({
+            initial: {
+              rows: Array.from({ length: 1000 }, (_, id) => ({ id, label: `row ${id}` })),
+              selected: 0,
+            },
+            update: (model, message: Message) => ({ model: { ...model, selected: message.id } }),
+          }),
+        ),
+        (running) => running.close(),
+      );
       const App = view<{ rows: readonly Row[]; selected: number }, Message>((model, send) => (
         <section>
-          {optimized
-            ? renderRows(rows.from(model.rows), model.selected, send)
-            : list(rows.from(model.rows), (row) => (
-                <ViewBinding
-                  view={RowView}
-                  model={{ row, selected: row.id === model.selected }}
-                  send={send}
-                />
-              ))}
+          {list(rows.from(model.rows), (row) => (
+            <ViewBinding
+              view={RowView}
+              model={{ row, selected: row.id === model.selected }}
+              send={send}
+            />
+          ))}
         </section>
       ));
-      yield* mount(parent, App, source);
+      yield* makeMount(parent, App, source);
       return {
         send: source.send,
         evaluations: () => evaluations,
@@ -75,35 +69,44 @@ export async function mountScopedRendering(parent: HTMLElement, optimized = true
 }
 
 const ambient = Context.Reference('fixture/ambient', { defaultValue: () => 'default' });
-const readSlot = commandSlot('ambient');
-const AmbientComponent = component<{}, { props: {}; label: string }, 'read' | { label: string }>({
-  init: (props) => ({ props, label: '' }),
-  update: (model, message) =>
-    typeof message === 'string'
-      ? {
-          model,
-          commands: [
-            effectCommand(readSlot, () => ambient, {
-              policy: 'replace',
-              onSuccess: (label) => ({ label }),
-              onFailure: () => ({ label: 'failure' }),
-            }),
-          ],
-        }
-      : { model: { ...model, label: message.label } },
-  view: view((model, send) => (
+const readSlot = 'ambient';
+const AmbientComponent = component<{}, { label: string }, 'read' | { label: string }>(
+  {
+    init: () => ({ label: '' }),
+    update: (model, message) =>
+      typeof message === 'string'
+        ? {
+            model,
+            commands: [
+              {
+                key: readSlot,
+                policy: 'replace',
+                effect: ambient.pipe(
+                  Effect.matchCause({
+                    onSuccess: (label) => ({ label }),
+                    onFailure: () => ({ label: 'failure' }),
+                  }),
+                ),
+              },
+            ],
+          }
+        : { model: { ...model, label: message.label } },
+  },
+  view((model, send) => (
     <button id="ambient-component" onClick={() => send('read')}>
       {model.label}
     </button>
   )),
-});
-const ambientTasks = defineTasks({ init: (_props: {}) => ({}) }).tasks({
-  read: { policy: 'replace', run: () => ambient },
-});
-const AmbientTask = ambientTasks.view(
-  view((model, send) => (
-    <button id="ambient-task" onClick={() => ambientTasks.controls(send).run('read', undefined)}>
-      {available(model.tasks.read)}
+);
+const AmbientTask = component(
+  {
+    init: (_props: {}) => ({
+      read: AsyncResult.initial() as AsyncResult.AsyncResult<string, never>,
+    }),
+  },
+  view((model, patch) => (
+    <button id="ambient-task" onClick={() => ownerOf(patch).task('read', ambient, 'replace')}>
+      {available(model.read)}
     </button>
   )),
 );
@@ -113,7 +116,7 @@ const AmbientLazy = lazyView(() =>
 export async function mountInheritedContext(parent: HTMLElement) {
   const lifetime = Scope.makeUnsafe();
   await Effect.runPromise(
-    mount(
+    makeMount(
       parent,
       view<{}>(() => (
         <>
@@ -133,12 +136,17 @@ export async function checkObservationDisposal(parent: HTMLElement) {
   let released = 0;
   await Effect.runPromise(
     Effect.gen(function* () {
-      const owner = yield* makeProgram({
-        initial: { show: true, replace: false },
-        update: (model, patch: Partial<{ show: boolean; replace: boolean }>) => ({
-          model: { ...model, ...patch },
-        }),
-      });
+      const owner = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          program({
+            initial: { show: true, replace: false },
+            update: (model, patch: Partial<{ show: boolean; replace: boolean }>) => ({
+              model: { ...model, ...patch },
+            }),
+          }),
+        ),
+        (running) => running.close(),
+      );
       const first = { model: () => 0, subscribe: () => () => {} };
       const second = {
         model: () => 1,
@@ -149,7 +157,7 @@ export async function checkObservationDisposal(parent: HTMLElement) {
           };
         },
       };
-      yield* mount(
+      yield* makeMount(
         parent,
         view<{ show: boolean; replace: boolean }>((model) =>
           model.show ? observe(model.replace ? second : first, (value) => value) : null,

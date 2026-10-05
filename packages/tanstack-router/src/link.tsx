@@ -8,12 +8,24 @@ import {
 import type { JSX } from 'effectweb';
 import { jsxComponent } from 'effectweb/jsx';
 
+// These upstream options require framework preloading/active-match behavior not supplied here.
+type SupportedLinkOptions<
+  R extends AnyRouter,
+  F extends string,
+  T extends string | undefined,
+> = LinkOptions<R, F, T> & {
+  readonly preload?: never;
+  readonly preloadDelay?: never;
+  readonly preloadIntentProximity?: never;
+  readonly activeOptions?: never;
+};
+
 type Anchor = Omit<JSX.IntrinsicElements['a'], 'href' | 'onClick' | 'target' | 'children'>;
 export type LinkProps<
   Router extends AnyRouter,
   From extends string = string,
   To extends string | undefined = '.',
-> = LinkOptions<Router, From, To> &
+> = SupportedLinkOptions<Router, From, To> &
   Anchor & {
     /** Mark the link as the current page (`aria-current="page"`). Derive it from your route model. */
     readonly active?: boolean;
@@ -51,7 +63,7 @@ const options = [
 /** Resolve a typed destination to an href and a click handler that navigates in place. */
 export function linkTarget(
   router: AnyRouter,
-  props: LinkOptions<AnyRouter, string, string> & Pick<Anchor, 'download'>,
+  props: SupportedLinkOptions<AnyRouter, string, string> & Pick<Anchor, 'download'>,
 ) {
   const explicitHref = props.href;
   const blocked =

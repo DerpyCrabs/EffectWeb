@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { domMount, modelOwner, mountView, Portal, view } from 'effectweb';
+import { domMount, modelOwner, mount, Portal, view } from 'effectweb';
 
 export async function lifecycleFixture() {
   const host = document.createElement('div');
@@ -34,7 +34,7 @@ export async function lifecycleFixture() {
       </Portal>
     </section>
   ));
-  const unmount = mountView(host, Root, owner.source);
+  const unmount = mount(host, Root, owner.source);
   await Promise.resolve();
   owner.patch({ version: 1 });
   await Promise.resolve();

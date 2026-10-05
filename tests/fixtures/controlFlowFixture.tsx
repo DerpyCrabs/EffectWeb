@@ -1,4 +1,4 @@
-import { domMount, localComponent, mountView, program, view } from 'effectweb';
+import { domMount, component, mount, program, view } from 'effectweb';
 
 export function mountControlFlow(parent: HTMLElement) {
   const lifetime = { mounted: 0, disposed: 0 };
@@ -8,14 +8,14 @@ export function mountControlFlow(parent: HTMLElement) {
       lifetime.disposed++;
     };
   });
-  const Counter = localComponent<{ caption: string }, { count: number }>({
-    init: () => ({ count: 0 }),
-    view: view((model, send) => (
+  const Counter = component<{ caption: string }, { count: number }>(
+    { init: () => ({ count: 0 }) },
+    view((model, send) => (
       <button use={monitor} onClick={() => send({ count: model.count + 1 })}>
         {model.props.caption}:{model.count}
       </button>
     )),
-  });
+  );
   type Item = { kind: 'ready' | 'cached'; title: string } | { kind: 'error'; message: string };
   type State = { loading: boolean; item: Item; title: string };
   const View = view<State, never>((model, _send) => {
@@ -54,7 +54,7 @@ export function mountControlFlow(parent: HTMLElement) {
     initial: { loading: false, item: { kind: 'ready', title: 'first' }, title: 'outer' },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     set: source.send,
     lifetime,
@@ -80,7 +80,7 @@ export function mountDefaultGroup(parent: HTMLElement) {
     initial: { kind: 'same', fallback: 'same', other: 'same' },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     set: source.send,
     dispose() {

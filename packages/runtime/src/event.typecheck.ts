@@ -1,15 +1,11 @@
 import { Effect } from 'effect';
-import { effectEvent } from './effectEvent.js';
 import type { JSX } from './jsx.js';
 
-// Contextual inference retains the native element type inside the factory.
-export const ownedInput: JSX.EventHandler<HTMLInputElement, InputEvent> = effectEvent(
-  'replace',
-  (event) => {
-    const value: string = event.currentTarget.value;
-    return Effect.succeed(value);
-  },
-);
+// Contextual inference retains the native element type inside a handler returning an Effect.
+export const ownedInput: JSX.EventHandler<HTMLInputElement, InputEvent> = (event) => {
+  const value: string = event.currentTarget.value;
+  return Effect.succeed(value);
+};
 export const syncClick: JSX.EventHandler<HTMLButtonElement, MouseEvent> = () => {};
 export const conditionalClick: JSX.EventHandler<HTMLButtonElement, MouseEvent> = () => false;
 // The native listener owns the returned Effect.

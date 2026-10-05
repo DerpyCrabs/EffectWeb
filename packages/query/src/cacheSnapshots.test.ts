@@ -1,6 +1,6 @@
 import { Effect } from 'effect';
 import { expect, it } from 'vitest';
-import { makeQueryCache } from './cache.js';
+import { queryCache } from './cache.js';
 import { query } from './query.js';
 import { available } from 'effectweb';
 import { queryResource } from './observe.js';
@@ -8,7 +8,7 @@ import { queryResource } from './observe.js';
 it('protects cached data before an observer or retained loader reference can mutate it', async () => {
   const loaded = { names: ['Ada'] };
   const definition = query({ name: 'people', load: () => Effect.succeed(loaded) });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const source = queryResource({ cache }, definition);
   const seen: string[] = [];
   source.subscribe((result) => {

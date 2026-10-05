@@ -1,6 +1,6 @@
 {
   "name": "@effectweb/antd-icons",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Ant Design icons as direct DOM views for EffectWeb",
   "license": "MIT",
   "repository": {
@@ -31,8 +31,8 @@
     "@ant-design/icons-svg": "4.6.0"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.118",
-    "effectweb": "^0.8.1"
+    "effect": "^4.0.0",
+    "effectweb": "0.9.0"
   },
   "engines": {
     "node": ">=22.14"

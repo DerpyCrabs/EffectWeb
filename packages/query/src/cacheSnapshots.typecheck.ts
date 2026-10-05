@@ -1,8 +1,8 @@
 import { Effect } from 'effect';
-import { makeQueryCache } from './cache.js';
+import { queryCache } from './cache.js';
 import { query } from './query.js';
 import { available } from 'effectweb';
-import { lifetime, modelOwner } from 'effectweb';
+import { modelOwner } from 'effectweb';
 import { observeQuery } from './observe.js';
 
 export function cachedSnapshotTypes() {
@@ -19,7 +19,7 @@ export function cachedSnapshotTypes() {
       return previous.names[0] === next.names[0] ? previous : next;
     },
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   // @ts-expect-error String-key resources cannot establish shared result types.
   // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
   cache.resource('people', () => Effect.succeed(1));
@@ -33,7 +33,7 @@ export function cachedSnapshotTypes() {
     value.names.push('bad');
     return value;
   });
-  const resource = observeQuery(lifetime(), cache, people, () => {});
+  const resource = observeQuery(modelOwner({}), cache, people, () => {});
   resource.subscribe((result) => {
     // @ts-expect-error Subscribers receive immutable success values.
     // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.

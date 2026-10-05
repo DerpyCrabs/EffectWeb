@@ -1,5 +1,5 @@
 import { Cause, Effect } from 'effect';
-import { domMount, mountView, program, view, ViewBinding, type Program } from 'effectweb';
+import { domMount, mount, program, view, ViewBinding, type Program } from 'effectweb';
 import { lazyView } from 'effectweb/advanced';
 import type { LazyMessage, LazyModel } from './lazyViewModule';
 
@@ -125,9 +125,7 @@ export function createLazyViewFixture(parent: HTMLElement, withFailure = true) {
       placements.set(id, {
         source,
         host,
-        unmount: mountView(host, Placement, source, {
-          onError: (error) => errors.push(String(error)),
-        }),
+        unmount: mount(host, Placement, source, { onError: (error) => errors.push(String(error)) }),
       });
     },
     update: (id: string, title: string) =>

@@ -1,13 +1,4 @@
-import {
-  domMount,
-  localComponent,
-  mountView,
-  program,
-  slot,
-  view,
-  type JSX,
-  type Slot,
-} from 'effectweb';
+import { domMount, component, mount, program, slot, view, type JSX, type Slot } from 'effectweb';
 
 export function mountSlots(parent: HTMLElement) {
   const lifetime = { mounted: 0, disposed: 0 };
@@ -17,9 +8,9 @@ export function mountSlots(parent: HTMLElement) {
       lifetime.disposed++;
     };
   });
-  const Counter = localComponent<{ label: string; onSelect: () => void }, { count: number }>({
-    init: () => ({ count: 0 }),
-    view: view((model, send) => (
+  const Counter = component<{ label: string; onSelect: () => void }, { count: number }>(
+    { init: () => ({ count: 0 }) },
+    view((model, send) => (
       <button
         use={monitor}
         onClick={() => {
@@ -30,16 +21,16 @@ export function mountSlots(parent: HTMLElement) {
         {model.props.label}:{model.count}
       </button>
     )),
-  });
+  );
   const Forward = view<{ children?: JSX.Element }, never>((model, _send) => (
     <section>{model.children}</section>
   ));
-  const Frame = localComponent<
+  const Frame = component<
     { children?: JSX.Element; footer?: JSX.Element; row: Slot<string> },
     { second: boolean; value: string }
-  >({
-    init: () => ({ second: true, value: 'argument' }),
-    view: view((model, send) => (
+  >(
+    { init: () => ({ second: true, value: 'argument' }) },
+    view((model, send) => (
       <article>
         <button data-toggle="" onClick={() => send({ second: !model.second })}>
           Toggle
@@ -53,7 +44,7 @@ export function mountSlots(parent: HTMLElement) {
         <output>{model.props.row(model.value)}</output>
       </article>
     )),
-  });
+  );
   type State = { title: string; selected: string; visible: boolean };
   const View = view<State, Partial<State>>((model, send) => {
     const label = model.title.toUpperCase();
@@ -74,7 +65,7 @@ export function mountSlots(parent: HTMLElement) {
     initial: { title: 'first', selected: '', visible: true },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     set: source.send,
     model: source.model,
@@ -109,7 +100,7 @@ export function mountSvgSlots(parent: SVGElement) {
     initial: { x: 1 },
     update: (_model, x) => ({ model: { x } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     set: source.send,
     dispose() {
@@ -144,7 +135,7 @@ export function mountChangingSlots(parent: HTMLElement) {
     initial: { mode: 'first', value: { title: 'one', stable: { n: 1 } } },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     set: source.send,
     dispose() {

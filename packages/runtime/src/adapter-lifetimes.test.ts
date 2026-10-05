@@ -1,7 +1,12 @@
 import { Cause, Deferred, Effect, Exit, Fiber, Scope as EffectScope } from 'effect';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { expect, it } from 'vitest';
-import { defineTasks } from './tasks.js';
+import { createModelOwner } from './owner.js';
 import { makeUiRuntime } from './runtime.js';
+
+const initialRead = () => ({
+  read: AsyncResult.initial() as AsyncResult.AsyncResult<string, unknown>,
+});
 
 it('releases a task acquisition before the task owner finishes closing', async () => {
   let released = false;
@@ -10,21 +15,18 @@ it('releases a task acquisition before the task owner finishes closing', async (
     Effect.scoped(
       Effect.gen(function* () {
         const runtime = yield* makeUiRuntime<EffectScope.Scope>();
-        const tasks = defineTasks({ init: () => ({}), runtime }).tasks({
-          read: {
-            policy: 'replace',
-            run: () =>
-              Effect.acquireRelease(Effect.succeed('value'), () =>
-                Effect.sync(() => {
-                  released = true;
-                }),
-              ),
-          },
-        });
-        const source = tasks.create(undefined);
-        tasks.controls(source.send).run('read');
-        yield* source.awaitIdle();
-        yield* source.close();
+        const owner = createModelOwner(initialRead(), { runtime });
+        owner.task(
+          'read',
+          Effect.acquireRelease(Effect.succeed('value'), () =>
+            Effect.sync(() => {
+              released = true;
+            }),
+          ),
+          'replace',
+        );
+        yield* owner.awaitIdle();
+        yield* owner.close();
         releasedAtTaskClose = released;
       }),
     ),
@@ -44,31 +46,29 @@ it.each(['complete', 'failure', 'cancel', 'replace', 'close'] as const)(
       Effect.scoped(
         Effect.gen(function* () {
           const runtime = yield* makeUiRuntime();
-          const tasks = defineTasks({ init: () => ({}) }).tasks({
-            read: {
-              policy: 'replace',
-              run: () =>
-                Effect.gen(function* () {
-                  if (++attempts > 1) return 'replacement';
-                  yield* Effect.acquireRelease(Effect.void, (_, exit) =>
-                    Effect.gen(function* () {
-                      releasing = exit;
-                      yield* Deferred.await(release);
-                      releases++;
-                    }),
-                  );
-                  if (action === 'complete') return 'value';
-                  if (action === 'failure') return yield* Effect.fail('load failed');
-                  return yield* Effect.never;
-                }),
-            },
-          });
-          const source = tasks.create(undefined, runtime);
-          const controls = tasks.controls(source.send);
-          controls.run('read');
-          if (action === 'cancel') controls.cancel('read');
-          if (action === 'replace') controls.run('read');
-          const closing = Effect.runFork(source.close());
+          const owner = createModelOwner(initialRead(), { runtime });
+          const read = () =>
+            owner.task(
+              'read',
+              Effect.gen(function* () {
+                if (++attempts > 1) return 'replacement';
+                yield* Effect.acquireRelease(Effect.void, (_, exit) =>
+                  Effect.gen(function* () {
+                    releasing = exit;
+                    yield* Deferred.await(release);
+                    releases++;
+                  }),
+                );
+                if (action === 'complete') return 'value';
+                if (action === 'failure') return yield* Effect.fail('load failed');
+                return yield* Effect.never;
+              }),
+              'replace',
+            );
+          void read();
+          if (action === 'cancel') owner.cancel('read');
+          if (action === 'replace') void read();
+          const closing = Effect.runFork(owner.close());
           try {
             expect(releasing).toBeDefined();
             expect(closing.pollUnsafe()).toBeUndefined();

@@ -1,6 +1,6 @@
 import { Effect, Fiber } from 'effect';
 import { expect, it, vi } from 'vitest';
-import { makeQueryCache } from './cache.js';
+import { queryCache } from './cache.js';
 import { query, queryGroup } from './query.js';
 import { queryResource } from './observe.js';
 
@@ -22,7 +22,7 @@ it('cancels only the last unused observer and restarts an abandoned selection', 
         ),
       ),
   });
-  const cache = makeQueryCache({ unused: 'cancel' });
+  const cache = queryCache({ unused: 'cancel' });
   const a = queryResource({ cache }, definition),
     b = queryResource({ cache }, definition);
   a.select('a');
@@ -53,7 +53,7 @@ it('prefetch retains a request after its observer leaves; cancellation retains a
         ),
       ),
   });
-  const cache = makeQueryCache({ unused: 'cancel' });
+  const cache = queryCache({ unused: 'cancel' });
   const warming = Effect.runFork(cache.prefetch(definition, 'a'));
   const observer = queryResource({ cache }, definition);
   observer.select('a');
@@ -94,7 +94,7 @@ it('invalidates typed subsets and shared groups without conflating query identit
         return args;
       }),
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const observers = [queryResource({ cache }, a), queryResource({ cache }, a)];
   observers[0]!.select({ path: 'x' });
   observers[1]!.select({ path: 'y' });
@@ -114,7 +114,7 @@ it('invalidates typed subsets and shared groups without conflating query identit
 });
 
 it('close joins canceled request finalizers before an owned dependency closes', async () => {
-  const cache = makeQueryCache({ unused: 'cancel' });
+  const cache = queryCache({ unused: 'cancel' });
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -168,7 +168,7 @@ it('a canceled uninterruptible load cannot overwrite a newer cached success', as
         ),
       ),
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const observer = queryResource({ cache }, definition);
   observer.select(true);
   cache.setQueryData(definition, true, 'new');
@@ -181,7 +181,7 @@ it('a canceled uninterruptible load cannot overwrite a newer cached success', as
 
 it('retains successes across observers until the configured retention expires', async () => {
   vi.useFakeTimers();
-  const cache = makeQueryCache({ retention: 100, unused: 'cancel' });
+  const cache = queryCache({ retention: 100, unused: 'cancel' });
   let starts = 0;
   const definition = query({ name: 'retention', load: () => Effect.sync(() => ++starts) });
   try {
@@ -207,7 +207,7 @@ it('retains successes across observers until the configured retention expires', 
 it.each(['cancel', 'remove', 'reset', 'close'] as const)(
   'settles active prefetch Effects on %s instead of leaving initial-state waiters suspended',
   async (action) => {
-    const cache = makeQueryCache();
+    const cache = queryCache();
     const definition = query({ name: 'cancel-prefetch', load: () => Effect.never });
     const result = Effect.runPromiseExit(cache.prefetch(definition, true));
     if (action === 'cancel') cache.cancelQuery(definition, true);
@@ -230,7 +230,7 @@ it('batches overlapping groups once and copies declared group membership', () =>
     load: () => Effect.sync(() => ++starts),
   });
   groups.length = 0;
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const observer = queryResource({ cache }, definition);
   observer.select(true);
   cache.batch(() => {

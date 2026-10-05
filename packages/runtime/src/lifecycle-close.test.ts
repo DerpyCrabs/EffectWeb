@@ -1,7 +1,6 @@
-import { Cause, Deferred, Effect, Exit, Fiber } from 'effect';
+import { Deferred, Effect, Exit, Fiber } from 'effect';
 import { expect, it } from 'vitest';
 import { modelOwner } from './owner.js';
-import { commandSlot } from './program.js';
 
 it('joins replaced and active finalizers before closing dependencies, once', () =>
   Effect.runPromise(
@@ -14,9 +13,9 @@ it('joins replaced and active finalizers before closing dependencies, once', () 
           order.push('dependency');
         },
       });
-      const slot = commandSlot('work');
+      const key = 'work';
       owner.run(
-        slot,
+        key,
         Effect.never.pipe(
           Effect.ensuring(
             Effect.gen(function* () {
@@ -28,7 +27,7 @@ it('joins replaced and active finalizers before closing dependencies, once', () 
         ),
         'replace',
       );
-      owner.run(slot, Effect.never, 'replace');
+      owner.run(key, Effect.never, 'replace');
       const close = owner.close();
       expect(owner.close()).toBe(close);
       expect(owner.disposed).toBe(false);
@@ -44,10 +43,11 @@ it('joins replaced and active finalizers before closing dependencies, once', () 
     }),
   ));
 
-it('runs every dependency close in reverse order and preserves failures and defects', () =>
+it('runs every dependency close in reverse order and reports failures and defects', () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const owner = modelOwner({});
+      const reported: unknown[] = [];
+      const owner = modelOwner({}, { onDefect: (error) => reported.push(error) });
       const order: number[] = [];
       const failure = new Error('failed');
       const defect = new Error('defect');
@@ -72,13 +72,13 @@ it('runs every dependency close in reverse order and preserves failures and defe
             return Effect.die(defect);
           }),
       });
+      // close() still succeeds, so a release in Effect.acquireRelease never fails.
       const exit = yield* Effect.exit(owner.close());
-      expect(Exit.isFailure(exit)).toBe(true);
-      if (Exit.isFailure(exit)) {
-        const error = Cause.squash(exit.cause) as AggregateError;
-        expect(error.message).toBe('Owner cleanup failed.');
-        expect(error.errors).toEqual([defect, failure]);
-      }
+      expect(Exit.isSuccess(exit)).toBe(true);
+      const error = reported[0] as AggregateError;
+      expect(reported).toHaveLength(1);
+      expect(error.message).toBe('Owner cleanup failed.');
+      expect(error.errors).toEqual([defect, failure]);
       expect(order).toEqual([3, 2, 1]);
     }),
   ));
@@ -87,10 +87,10 @@ it('tracks closure executed while synchronous work is starting', () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const owner = modelOwner({});
-      let closed!: Fiber.Fiber<void, AggregateError>;
+      let closed!: Fiber.Fiber<void>;
       let finalized = false;
       owner.run(
-        commandSlot('reentrant'),
+        'reentrant',
         Effect.sync(() => {
           closed = Effect.runFork(owner.close());
         }).pipe(
@@ -112,9 +112,9 @@ it('returns the same close Effect to a reentrant cancellation finalizer', () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const owner = modelOwner({});
-      let inside: Effect.Effect<void, AggregateError> | undefined;
+      let inside: Effect.Effect<void> | undefined;
       owner.run(
-        commandSlot('reentrant-close'),
+        'reentrant-close',
         Effect.never.pipe(
           Effect.ensuring(
             Effect.sync(() => {

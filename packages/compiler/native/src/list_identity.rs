@@ -101,10 +101,8 @@ impl<'a> Visit<'a> for MapRows {
         }
         if let Some(member) = call.callee.without_parentheses().as_member_expression()
             && member.static_property_name() == Some("map")
-            // Literal option arrays never reorder; positional identity is exact there.
-            && !static_rows(member.object())
             && let Some(callback) = call.arguments.first().and_then(Argument::as_expression)
-            && returns_stateful_row(callback)
+            && returns_row(callback, jsx_row)
         {
             self.spans.push(call.span);
         }
@@ -220,8 +218,16 @@ fn uses_index(callback: &Expression<'_>) -> bool {
     reads.1
 }
 
-fn returns_stateful_row(callback: &Expression<'_>) -> bool {
-    returns_row(callback, stateful)
+fn jsx_row(expression: &Expression<'_>) -> bool {
+    match expression.without_parentheses() {
+        Expression::JSXElement(_) | Expression::JSXFragment(_) => true,
+        Expression::ConditionalExpression(e) => jsx_row(&e.consequent) || jsx_row(&e.alternate),
+        Expression::LogicalExpression(e) => jsx_row(&e.left) || jsx_row(&e.right),
+        Expression::TSAsExpression(e) => jsx_row(&e.expression),
+        Expression::TSSatisfiesExpression(e) => jsx_row(&e.expression),
+        Expression::TSNonNullExpression(e) => jsx_row(&e.expression),
+        _ => false,
+    }
 }
 
 fn returns_row(callback: &Expression<'_>, stateful: fn(&Expression<'_>) -> bool) -> bool {
@@ -332,10 +338,11 @@ fn element_stateful(element: &JSXElement<'_>) -> bool {
         }
         _ => {}
     }
+    // An element with a DOM binding owns a resource, and an editable element owns a draft.
     let editable = opening.attributes.iter().any(|attribute| {
         matches!(attribute, JSXAttributeItem::Attribute(attribute)
             if matches!(&attribute.name, JSXAttributeName::Identifier(name)
-                if name.name.eq_ignore_ascii_case("contenteditable")))
+                if name.name.eq_ignore_ascii_case("contenteditable") || name.name.as_str() == "use"))
     });
     editable || children_stateful(&element.children)
 }
@@ -360,7 +367,7 @@ pub struct InlineBindings {
     views: Vec<String>,
     mounts: Vec<String>,
     bindings: Vec<String>,
-    /// Constructors whose result must outlive a render: sources, collections, slot families.
+    /// Constructors whose result must outlive a render: sources and collections.
     sources: Vec<String>,
     depth: usize,
 }
@@ -392,7 +399,7 @@ impl InlineBindings {
                     "view" => found.views.push(local),
                     "domMount" => found.mounts.push(local),
                     "domBinding" => found.bindings.push(local),
-                    "mapSource" | "clock" | "collection" | "commandSlots" => {
+                    "mapSource" | "clock" | "collection" | "liveSource" => {
                         found.sources.push(local)
                     }
                     _ => {}
@@ -433,8 +440,8 @@ impl<'a> Visit<'a> for InlineBindings {
             if argument.is_some_and(inline_function) {
                 self.spans.push(call.span);
             }
-            // A source, collection or slot family built during render is new on every
-            // update: its subscription, row cache or cancellation identity never carries over.
+            // A source or collection built during render is new on every
+            // update: its subscription or row cache never carries over.
             if self.sources.iter().any(|s| s == name) {
                 self.sources_inline.push(call.span);
             }
@@ -451,125 +458,6 @@ impl<'a> Visit<'a> for InlineBindings {
         // Attribute expressions are evaluated on every render, even outside view(...).
         self.depth += 1;
         walk::walk_jsx_attribute(self, attribute);
-        self.depth -= 1;
-    }
-}
-
-/// `commandSlot(name)` returns a new slot on every call. Passing a freshly created slot
-/// straight into `run`/`effectCommand` inside a function means `replace` and `drop`
-/// never see earlier work, so stale requests race newer ones.
-pub struct InlineSlots {
-    pub spans: Vec<Span>,
-    slots: Vec<String>,
-    depth: usize,
-    /// Slots created by each enclosing function, by local name.
-    frames: Vec<Vec<(String, Span, usize)>>,
-}
-impl InlineSlots {
-    pub fn new(program: &Program<'_>, import_source: &str) -> Self {
-        let mut slots = vec![];
-        for statement in &program.body {
-            let Statement::ImportDeclaration(import) = statement else {
-                continue;
-            };
-            let source = import.source.value.as_str();
-            if source != import_source && !source.starts_with(&format!("{import_source}/")) {
-                continue;
-            }
-            for specifier in import.specifiers.iter().flatten() {
-                if let ImportDeclarationSpecifier::ImportSpecifier(specifier) = specifier
-                    && specifier.imported.name() == "commandSlot"
-                {
-                    slots.push(specifier.local.name.to_string());
-                }
-            }
-        }
-        Self {
-            spans: vec![],
-            slots,
-            depth: 0,
-            frames: vec![],
-        }
-    }
-    /// Work run twice on one local slot shares it; a single run cannot.
-    fn leave(&mut self) {
-        for (_, span, runs) in self.frames.pop().unwrap_or_default() {
-            if runs == 1 {
-                self.spans.push(span);
-            }
-        }
-    }
-    fn creates_slot(&self, expression: &Expression<'_>) -> Option<Span> {
-        if let Expression::CallExpression(inner) = expression.without_parentheses()
-            && let Expression::Identifier(id) = inner.callee.without_parentheses()
-            && self.slots.iter().any(|slot| slot == id.name.as_str())
-        {
-            return Some(inner.span);
-        }
-        None
-    }
-}
-/// `owner.run(slot, ...)`, `effectCommand(slot, ...)` and `actionCommand(slot, ...)`.
-fn runs_slot(call: &CallExpression<'_>) -> bool {
-    match call.callee.without_parentheses() {
-        Expression::Identifier(id) => {
-            matches!(id.name.as_str(), "effectCommand" | "actionCommand")
-        }
-        callee => callee
-            .as_member_expression()
-            .is_some_and(|member| member.static_property_name() == Some("run")),
-    }
-}
-impl<'a> Visit<'a> for InlineSlots {
-    fn visit_variable_declarator(&mut self, declarator: &VariableDeclarator<'a>) {
-        if let BindingPattern::BindingIdentifier(id) = &declarator.id
-            && let Some(span) = declarator
-                .init
-                .as_ref()
-                .and_then(|init| self.creates_slot(init))
-            && let Some(frame) = self.frames.last_mut()
-        {
-            frame.push((id.name.to_string(), span, 0));
-        }
-        walk::walk_variable_declarator(self, declarator);
-    }
-    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-        if self.depth > 0 {
-            for argument in &call.arguments {
-                let Some(argument) = argument.as_expression() else {
-                    continue;
-                };
-                if let Some(span) = self.creates_slot(argument) {
-                    self.spans.push(span);
-                }
-                // A slot created and run once by the same invocation is just as fresh. Closures
-                // that capture a controller's slot run later and share it.
-                if runs_slot(call)
-                    && let Expression::Identifier(id) = argument.without_parentheses()
-                    && let Some(slot) = self.frames.last_mut().and_then(|frame| {
-                        frame
-                            .iter_mut()
-                            .find(|(name, _, _)| name == id.name.as_str())
-                    })
-                {
-                    slot.2 += 1;
-                }
-            }
-        }
-        walk::walk_call_expression(self, call);
-    }
-    fn visit_function(&mut self, function: &Function<'a>, flags: oxc::syntax::scope::ScopeFlags) {
-        self.depth += 1;
-        self.frames.push(vec![]);
-        walk::walk_function(self, function, flags);
-        self.leave();
-        self.depth -= 1;
-    }
-    fn visit_arrow_function_expression(&mut self, function: &ArrowFunctionExpression<'a>) {
-        self.depth += 1;
-        self.frames.push(vec![]);
-        walk::walk_arrow_function_expression(self, function);
-        self.leave();
         self.depth -= 1;
     }
 }

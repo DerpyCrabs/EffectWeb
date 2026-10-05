@@ -1,5 +1,5 @@
 import { list } from 'effectweb';
-import { mountView, program, view } from 'effectweb';
+import { mount, program, view } from 'effectweb';
 
 export function mountLexicalCapture(parent: HTMLElement) {
   type State = { title: string; values: readonly string[]; selected: string };
@@ -34,7 +34,7 @@ export function mountLexicalCapture(parent: HTMLElement) {
     initial: { title: 'outer', values: ['a', 'b'], selected: '' },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     set: source.send,
     model: source.model,
@@ -47,7 +47,7 @@ export function mountLexicalCapture(parent: HTMLElement) {
 
 export function mountSvgContexts(parent: Element) {
   type State = { visible: boolean; x: number; rows: readonly number[] };
-  // This view mounts into an existing SVG element, exercising mountView's detached root.
+  // This view mounts into an existing SVG element, exercising mount's detached root.
   const View = view<State, never>((model, _send) => (
     <>
       {model.visible && <circle data-dynamic="" cx={model.x} cy="10" r="5" />}
@@ -73,7 +73,7 @@ export function mountSvgContexts(parent: Element) {
     initial: { visible: true, x: 10, rows: [1, 2] },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     set: source.send,
     dispose() {
@@ -111,8 +111,8 @@ export function mountDestructured(parent: HTMLElement) {
     initial: { user: { name: 'Alice' }, items: ['a', 'b'], unrelated: 0, selected: '' },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const simple = mountView(parent, Simple, source);
-  const complex = mountView(parent, Complex, source);
+  const simple = mount(parent, Simple, source);
+  const complex = mount(parent, Complex, source);
   return {
     model: source.model,
     set: source.send,

@@ -1,23 +1,20 @@
+import { controllerView } from 'effectweb';
 /* oxlint-disable effectweb/valid-view -- Compile-time API fixtures deliberately contain invalid render operations. */
-import { Effect } from 'effect';
 import {
   collection,
   entities,
   sequence,
   component,
-  defineTasks,
-  localComponent,
   program,
   slot,
+  ownerOf,
   view,
   ViewBinding,
   type Snapshot,
 } from './index.js';
-import { programView } from './advanced.js';
 
 type Item = { name: string; tags: string[] };
 type Props = { items: Item[] };
-type Model = Props & { props: Props };
 
 /** Public composition accepts shared snapshot branches while callbacks cannot mutate them. */
 export function snapshotComposition(props: Snapshot<Props>) {
@@ -37,73 +34,85 @@ export function snapshotComposition(props: Snapshot<Props>) {
     });
     return content(model);
   });
-  localComponent<Props, Props>({
-    init(input) {
-      // @ts-expect-error Initial parent input is borrowed immutable data.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      input.items.push({ name: 'bad', tags: [] });
-      return input;
+  component<Props, Props>(
+    {
+      init(input) {
+        // @ts-expect-error Initial parent input is borrowed immutable data.
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
+        input.items.push({ name: 'bad', tags: [] });
+        return input;
+      },
     },
-    view: view((model, send) => {
+    view((model, send) => {
       send({ items: model.items });
       // @ts-expect-error Parent props remain outside local patch ownership.
       send({ props: model.props });
       return null;
     }),
-  });
-  component<Props, Model, never>({
-    init(input) {
-      // @ts-expect-error Initial input never becomes a mutable parent alias.
-      input.items[0]!.name = 'bad';
-      return { props: input, items: input.items };
+  );
+  component<Props, Props, never>(
+    {
+      init(input) {
+        // @ts-expect-error Initial input never becomes a mutable parent alias.
+        input.items[0]!.name = 'bad';
+        return { items: input.items };
+      },
+      receive(model) {
+        // @ts-expect-error New parent input is immutable on receive too.
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
+        model.props.items[0]!.tags.sort();
+        return { model: { ...model, items: model.props.items } };
+      },
+      update: (model) => ({ model }),
     },
-    receive(model, input) {
-      // @ts-expect-error New parent input is immutable on receive too.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      input.items[0]!.tags.sort();
-      return { model: { ...model, props: input, items: input.items } };
+    view((model) => model.items[0]?.name),
+  );
+  controllerView<Props, Props, object>(
+    {
+      controller(input: Snapshot<Props>) {
+        // @ts-expect-error Controllers cannot mutate borrowed props.
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
+        input.items.pop();
+        const source = program<Props, never>({ initial: input, update: (model) => ({ model }) });
+        return {
+          source,
+          dispose: source.dispose,
+          receive(next: Snapshot<Props>) {
+            // @ts-expect-error Controller receive preserves the same boundary.
+            next.items[0]!.tags[0] = 'bad';
+          },
+        };
+      },
     },
-    update: (model) => ({ model }),
-    view: view((model) => model.items[0]?.name),
-  });
-  programView<Props, Props, never>({
-    create(input) {
-      // @ts-expect-error Program adapters cannot mutate borrowed props.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      input.items.pop();
-      return program<Props, never>({ initial: input, update: (model) => ({ model }) });
-    },
-    receive(_source, input) {
-      // @ts-expect-error Program adapter receive preserves the same boundary.
-      input.items[0]!.tags[0] = 'bad';
-    },
-    view: Child,
-  });
+    Child,
+  );
   const source = program<Props, never>({ initial: props, update: (model) => ({ model }) });
   source.dispose();
 }
 
-export function taskSnapshotBoundaries(props: Snapshot<Props>) {
-  const builder = defineTasks<Props, Props>({
-    init(input) {
-      // @ts-expect-error Task builder initialization receives immutable parent data.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      input.items[0]!.tags.push('bad');
-      return input;
+export function componentSnapshotBoundaries(props: Snapshot<Props>) {
+  return component(
+    {
+      init(input: Snapshot<Props>) {
+        // @ts-expect-error Component initialization receives immutable parent data.
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
+        input.items[0]!.tags.push('bad');
+        return input as Props;
+      },
+      identity(input: Snapshot<Props>) {
+        // @ts-expect-error Component identity receives immutable parent data.
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
+        input.items.shift();
+        return input.items[0]?.name;
+      },
     },
-    identity(input) {
-      // @ts-expect-error Task builder identity receives immutable parent data.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      input.items.shift();
-      return input.items[0]?.name;
-    },
-  }).tasks({ Count: { policy: 'replace', run: (model) => Effect.succeed(model.items.length) } });
-  const source = builder.create(props);
-  builder.receive(source, props);
-  builder.controls(source.send).patch({ items: source.model().items });
-  // @ts-expect-error Parent props remain outside task field ownership.
-  builder.controls(source.send).patch({ props });
-  source.dispose();
+    view((model, patch) => {
+      ownerOf(patch).patch({ items: model.items });
+      // @ts-expect-error Parent props remain outside the component owner's fields.
+      ownerOf(patch).patch({ props });
+      return null;
+    }),
+  );
 }
 
 export function symbolIndexIsNotAnOpaqueBrand(
@@ -126,7 +135,7 @@ export function collectionSnapshotBoundaries(
   rows
     .from(model.items)
     .filter((item) => item.tags.length > 0)
-    .map((item) => {
+    .items.map((item) => {
       // @ts-expect-error Collection rendering cannot mutate nested snapshot data.
       // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
       item.tags.push('bad');
@@ -145,13 +154,13 @@ export function collectionSnapshotBoundaries(
   // @ts-expect-error Sharing always borrows, even when the inputs were freshly allocated.
   // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
   owned.push({ id: 'b', name: 'B', tags: [] });
-  entities(model.items).map((item) => {
+  entities(model.items).items.map((item) => {
     // @ts-expect-error Entity helpers preserve readonly access.
     // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
     item.tags.sort();
     return item.id;
   });
-  sequence([{ tags: ['a'] }]).map((item) => {
+  sequence([{ tags: ['a'] }]).items.map((item) => {
     // @ts-expect-error Positional helpers borrow immutable values too.
     // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
     item.tags.pop();

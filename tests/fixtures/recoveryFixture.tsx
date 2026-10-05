@@ -1,23 +1,21 @@
+import { controllerView } from 'effectweb';
 import { Cause, Effect } from 'effect';
 import {
   component,
+  ownerOf,
   slot,
   type Slot,
-  defineTasks,
-  localComponent,
   program,
   domMount,
   errorBoundary,
   modelOwner,
-  mountView,
+  mount,
   Portal,
   view,
   ViewBinding,
-  commandSlot,
   type DomMount,
   type Snapshot,
 } from 'effectweb';
-import { programView } from 'effectweb/advanced';
 
 interface Props {
   id: string;
@@ -32,16 +30,16 @@ interface Model extends State {
 }
 type Patch = { count: number };
 
-const Nested = localComponent<{ label: string }, { draft: string }>({
-  init: (props) => ({ draft: props.label }),
-  view: view((model, patch) => (
+const Nested = component<{ label: string }, { draft: string }>(
+  { init: (props) => ({ draft: props.label }) },
+  view((model, patch) => (
     <input
       data-draft
       value={model.draft}
       onInput={(event) => patch({ draft: event.currentTarget.value })}
     />
   )),
-});
+);
 const EditorView = view<Model, Patch>((model, send) => (
   <section data-editor use={model.host}>
     <button data-increment onClick={() => send({ count: model.count + 1 })}>
@@ -56,7 +54,7 @@ const EditorView = view<Model, Patch>((model, send) => (
 
 export function mountIdentityFixture(
   parent: HTMLElement,
-  kind: 'component' | 'local' | 'program' | 'tasks',
+  kind: 'component' | 'local' | 'controller' | 'owner',
 ) {
   const events: string[] = [];
   const sources: Array<ReturnType<typeof program<Model, Partial<Model>>>> = [];
@@ -70,84 +68,90 @@ export function mountIdentityFixture(
     }),
   });
   const identity = (props: Snapshot<Props>) => props.id;
-  const slot = commandSlot('owned');
-  const tasks = defineTasks({ identity, init }).tasks({
-    Work: {
-      policy: 'replace',
-      run: (model) =>
-        Effect.never.pipe(
-          Effect.ensuring(
-            Effect.sync(() => {
-              events.push(`cancel:${model.props.id}`);
-            }),
-          ),
-        ),
-    },
-  });
-  const TaskEditor = tasks.view(
-    view((model, send) => {
-      const controls = tasks.controls(send);
-      return (
-        <ViewBinding
-          view={EditorView}
-          model={model}
-          send={(patch) => {
-            controls.patch(patch);
-            controls.run('Work');
-          }}
-        />
-      );
-    }),
+  const key = 'owned';
+  const OwnerEditor = component<Props, State>(
+    { identity, init },
+    view((model, patch) => (
+      <ViewBinding
+        view={EditorView}
+        model={model}
+        send={(fields) => {
+          patch(fields);
+          ownerOf(patch).run(
+            'Work',
+            Effect.never.pipe(
+              Effect.ensuring(
+                Effect.sync(() => {
+                  events.push(`cancel:${model.props.id}`);
+                }),
+              ),
+            ),
+            'replace',
+          );
+        }}
+      />
+    )),
   );
   const Editor =
-    kind === 'tasks'
-      ? TaskEditor
+    kind === 'owner'
+      ? OwnerEditor
       : kind === 'local'
-        ? localComponent<Props, State>({ identity, init, view: EditorView })
+        ? component<Props, State>({ identity, init }, EditorView)
         : kind === 'component'
-          ? component<Props, Model, Patch>({
-              identity,
-              init: (props) => ({ ...init(props), props }),
-              receive: (model, props) => {
-                events.push(`receive:${model.props.id}:${props.id}`);
-                return { model: { ...model, props } };
-              },
-              update: (model, patch) => ({
-                model: { ...model, ...patch },
-                commands: [
-                  {
-                    slot,
-                    policy: 'replace',
-                    effect: Effect.never.pipe(
-                      Effect.ensuring(
-                        Effect.sync(() => {
-                          events.push(`cancel:${model.props.id}`);
-                        }),
+          ? component<Props, State, Patch>(
+              {
+                identity,
+                init,
+                receive: (model) => {
+                  events.push(`receive:${model.props.id}`);
+                  return { model };
+                },
+                update: (model, patch) => ({
+                  model: { ...model, ...patch },
+                  commands: [
+                    {
+                      key,
+                      policy: 'replace',
+                      effect: Effect.never.pipe(
+                        Effect.ensuring(
+                          Effect.sync(() => {
+                            events.push(`cancel:${model.props.id}`);
+                          }),
+                        ),
                       ),
-                    ),
-                  },
-                ],
-              }),
-              view: EditorView,
-            })
-          : programView<Props, Model, Partial<Model>>({
-              identity,
-              create: (props) => {
-                const source = program<Model, Partial<Model>>({
-                  initial: { ...init(props), props },
-                  update: (model, patch) => ({ model: { ...model, ...patch } }),
-                });
-                sources.push(source);
-                return source;
+                    },
+                  ],
+                }),
               },
-              receive: (source, props) => {
-                events.push(`receive:${source.model().props.id}:${props.id}`);
-                source.send({ props });
+              EditorView,
+            )
+          : controllerView(
+              {
+                identity,
+                controller: (props) => {
+                  const source = program<Model, Partial<Model>>({
+                    initial: { ...init(props), props },
+                    update: (model, patch) => ({ model: { ...model, ...patch } }),
+                  });
+                  sources.push(source);
+                  return {
+                    source,
+                    patch: source.send,
+                    receive: (next) => {
+                      events.push(`receive:${source.model().props.id}:${next.id}`);
+                      source.send({ props: next as Props });
+                    },
+                    dispose: source.dispose,
+                    close: source.close,
+                  };
+                },
               },
-              view: EditorView,
-            });
+              view((model) => (
+                <ViewBinding view={EditorView} model={model} send={model.actions.patch} />
+              )),
+            );
   const owner = modelOwner<Props>({ id: 'a', label: 'first' });
-  const unmount = mountView(parent, Editor, owner.source);
+  const unmount = mount(parent, Editor, owner.source);
   return {
     update: owner.patch,
     events: () => [...events],
@@ -254,7 +258,7 @@ export function mountRecoveryFixture(parent: HTMLElement, initialBroken = false,
           : { ...model, ...message },
     }),
   });
-  const unmount = mountView(parent, Root, source, {
+  const unmount = mount(parent, Root, source, {
     onError: (error) => {
       unhandled.push(String(error));
     },
@@ -288,23 +292,23 @@ export function mountDefectFixture(parent: HTMLElement, kind: 'host' | 'event' |
       events.push('dispose');
     };
   });
-  const Faulty = component<{ host: DomMount }, { props: { host: DomMount } }, 'Break'>({
-    init: (props) => ({ props }),
-    update: (model) => {
-      if (kind === 'event') throw new Error('event failed');
-      return {
-        model,
-        commands: [
-          { slot: commandSlot('defect'), policy: 'replace', effect: Effect.die('command failed') },
-        ],
-      };
+  const Faulty = component<{ host: DomMount }, {}, 'Break'>(
+    {
+      init: () => ({}),
+      update: (model) => {
+        if (kind === 'event') throw new Error('event failed');
+        return {
+          model,
+          commands: [{ key: 'defect', policy: 'replace', effect: Effect.die('command failed') }],
+        };
+      },
     },
-    view: view((model, send) => (
+    view((model, send) => (
       <button data-defect use={model.props.host} onClick={() => send('Break')}>
         Break
       </button>
     )),
-  });
+  );
   const Failure = view<{ model: { host: DomMount }; error: unknown }>(() => (
     <aside data-defect-fallback>Failed</aside>
   ));
@@ -315,7 +319,7 @@ export function mountDefectFixture(parent: HTMLElement, kind: 'host' | 'event' |
     },
   });
   const owner = modelOwner({ host });
-  const stop = mountView(parent, Safe, owner.source);
+  const stop = mount(parent, Safe, owner.source);
   return {
     state: () => ({ errors, events }),
     close: async () => {
@@ -337,24 +341,26 @@ export async function staleBoundaryCleanupFixture() {
   const rejection = new Promise<void>((resolve) => {
     rejected = resolve;
   });
-  const Child = programView<Props, Props, never>({
-    create: (props) => {
-      const source = program<Props, never>({ initial: props, update: (model) => ({ model }) });
-      return {
-        ...source,
-        close: () =>
-          Effect.gen(function* () {
-            yield* source.close();
-            if (props.id === 'a') {
-              yield* Effect.promise(() => gate);
-              return yield* Effect.fail(new Error('old cleanup'));
-            }
-          }),
-      };
+  const Child = controllerView(
+    {
+      controller: (props: Snapshot<Props>) => {
+        const source = program<Props, never>({ initial: props, update: (model) => ({ model }) });
+        return {
+          source,
+          dispose: source.dispose,
+          close: () =>
+            Effect.gen(function* () {
+              yield* source.close();
+              if (props.id === 'a') {
+                yield* Effect.promise(() => gate);
+                return yield* Effect.fail(new Error('old cleanup'));
+              }
+            }),
+        };
+      },
     },
-    receive: () => {},
-    view: view((model) => <span data-stale-content>{model.id}</span>),
-  });
+    view((model) => <span data-stale-content>{model.id}</span>),
+  );
   const Failure = view<{ model: Props; error: unknown }>(() => (
     <span data-stale-fallback>Failed</span>
   ));
@@ -367,7 +373,7 @@ export async function staleBoundaryCleanupFixture() {
     },
   });
   const owner = modelOwner<Props>({ id: 'a', label: 'first' });
-  const stop = mountView(host, Safe, owner.source);
+  const stop = mount(host, Safe, owner.source);
   owner.patch({ id: 'b' });
   release();
   await rejection;
@@ -403,7 +409,7 @@ export async function lazyCloseFixture() {
     ),
   );
   const source = modelOwner<Props>({ id: 'a', label: 'first' });
-  const stop = mountView(host, Lazy, source.source);
+  const stop = mount(host, Lazy, source.source);
   let closed = false;
   const closing = Effect.runPromise(stop.close()).then(() => {
     closed = true;
@@ -425,7 +431,7 @@ export async function lazyFinalizerFailureFixture() {
     Effect.never.pipe(Effect.ensuring(Effect.die(new Error('lazy cleanup failed')))),
   );
   const source = modelOwner<Props>({ id: 'a', label: 'first' });
-  const stop = mountView(host, Lazy, source.source, {
+  const stop = mount(host, Lazy, source.source, {
     onError: (cause) => {
       errors.push(String(Cause.squash(cause as Cause.Cause<unknown>)));
     },
@@ -460,7 +466,7 @@ export async function slotBoundaryFixture() {
     />
   ));
   const owner = modelOwner({ broken: false });
-  const stop = mountView(host, Root, owner.source, {
+  const stop = mount(host, Root, owner.source, {
     onError: (error) => {
       unhandled.push(String(error));
     },

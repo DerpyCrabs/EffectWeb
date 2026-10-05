@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { view, program, mountView, domMount, effectEvent, type JSX, type View } from 'effectweb';
+import { view, program, mount as mountView, domMount, type JSX, type View } from 'effectweb';
 
 const MountPublication = view<{ count: number }, number>((model, send) => (
   <section>
@@ -22,12 +22,11 @@ const OptionalSpread = view<Events>((model) => (
 ));
 
 const records: string[] = [];
-const start = effectEvent('replace', () =>
+const start = () =>
   Effect.callback<void>(() => {
     records.push('started');
     return Effect.sync(() => records.push('interrupted'));
-  }),
-);
+  });
 const DirectEffect = view<{ label: string }>((model) => (
   <button data-label={model.label} onClick={start}>
     direct
@@ -40,24 +39,22 @@ const SpreadEffect = view<{ label: string }>((model) => (
 ));
 
 const InlineDirect = view<{ label: string }>((model) => (
-  <button data-label={model.label} onClick={(event) => start(event)}>
+  <button data-label={model.label} onClick={() => start()}>
     inline direct
   </button>
 ));
 const InlineSpread = view<{ label: string }>((model) => (
-  <button {...{ 'data-label': model.label, onClick: (event: MouseEvent) => start(event) }}>
-    inline spread
-  </button>
+  <button {...{ 'data-label': model.label, onClick: () => start() }}>inline spread</button>
 ));
 const FactoryDirect = view<{ label: string }>((model) => (
   <button
     data-label={model.label}
-    onClick={effectEvent('replace', () =>
+    onClick={() =>
       Effect.callback<void>(() => {
         records.push('started');
         return Effect.sync(() => records.push('interrupted'));
-      }),
-    )}
+      })
+    }
   >
     factory direct
   </button>
@@ -66,12 +63,11 @@ const FactorySpread = view<{ label: string }>((model) => (
   <button
     {...{
       'data-label': model.label,
-      onClick: effectEvent('replace', () =>
+      onClick: () =>
         Effect.callback<void>(() => {
           records.push('started');
           return Effect.sync(() => records.push('interrupted'));
         }),
-      ),
     }}
   >
     factory spread
@@ -225,12 +221,11 @@ export async function ownershipContracts() {
     click();
     fixture.source.send({ click: start });
     click();
-    const replacement = effectEvent('replace', () =>
+    const replacement = () =>
       Effect.callback<void>(() => {
         records.push('replacement');
         return Effect.sync(() => records.push('replacement interrupted'));
-      }),
-    );
+      });
     fixture.source.send({ click: replacement });
     click();
     fixture.source.send({});

@@ -1,34 +1,23 @@
+import { Effect } from 'effect';
 /* oxlint-disable effecttsgo/missing-effect-context -- Negative service-requirement type contracts. */
 import { Context } from 'effect';
-import {
-  commandSlot,
-  effectCommand,
-  errorBoundary,
-  localComponent,
-  program,
-  uiRuntime,
-  view,
-  ViewBinding,
-} from './index.js';
-import type { Transition } from './program.js';
+import { component, errorBoundary, program, view, ViewBinding } from './index.js';
+import type { Command, Transition } from './program.js';
 
 class Store extends Context.Service<Store, { readonly count: number }>()('Composition/Store') {}
-const runtime = uiRuntime(Context.make(Store, { count: 1 }));
-const command = effectCommand(commandSlot('store'), () => Store, {
+const context = Context.make(Store, { count: 1 });
+const command: Command<number, Store> = {
+  key: 'store',
   policy: 'replace',
-  onSuccess: (store) => store.count,
-  onFailure: () => 0,
-});
+  effect: Store.pipe(Effect.matchCause({ onSuccess: (store) => store.count, onFailure: () => 0 })),
+};
 const transition: Transition<{ rows: { count: number }[] }, number, Store> = {
   model: { rows: [{ count: 0 }] },
   commands: [command],
 };
-runtime.program({ initial: transition.model, update: () => transition });
-program({
-  initial: transition.model,
-  // @ts-expect-error A program cannot erase the commands' required services.
-  update: () => transition,
-});
+program({ context, initial: transition.model, update: () => transition });
+// @ts-expect-error A program cannot erase the commands' required services.
+program({ initial: transition.model, update: () => transition });
 
 const Child = view<{ count: number }, 'Increment'>((model, send) => (
   <button onClick={() => send('Increment')}>{model.count}</button>
@@ -57,13 +46,15 @@ const WrongMessage = view<{ model: { count: number }; error: unknown }, 'Delete'
 );
 // @ts-expect-error The fallback cannot introduce unsupported messages.
 errorBoundary(Child, { fallback: WrongMessage });
-const Local = localComponent<{ id: string }, { draft: string }>({
-  identity: (props) => {
-    // @ts-expect-error Entity identity cannot mutate parent inputs.
-    props.id = 'changed';
-    return props.id;
+const Local = component<{ id: string }, { draft: string }>(
+  {
+    identity: (props) => {
+      // @ts-expect-error Entity identity cannot mutate parent inputs.
+      props.id = 'changed';
+      return props.id;
+    },
+    init: (props) => ({ draft: props.id }),
   },
-  init: (props) => ({ draft: props.id }),
-  view: view((model) => model.draft),
-});
+  view((model) => model.draft),
+);
 void Local;

@@ -8,7 +8,7 @@ declare global {
   }
 }
 
-for (const kind of ['component', 'local', 'program', 'tasks'] as const) {
+for (const kind of ['component', 'local', 'controller', 'owner'] as const) {
   test(`${kind} identity preserves same-entity state and replaces the whole subtree on change`, async ({
     page,
   }) => {
@@ -38,7 +38,7 @@ for (const kind of ['component', 'local', 'program', 'tasks'] as const) {
     expect(events).toContain('dispose:a');
     expect(events).toContain('mount:b');
     expect(events).not.toContain('receive:a:b');
-    if (kind === 'component' || kind === 'tasks') expect(events).toContain('cancel:a');
+    if (kind === 'component' || kind === 'owner') expect(events).toContain('cancel:a');
     await page.evaluate(() => window.identityTest.close());
     await expect(page.locator('[data-identity-portal]')).toHaveCount(0);
     expect(

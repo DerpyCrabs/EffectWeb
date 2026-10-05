@@ -1,6 +1,6 @@
 {
   "name": "effectweb-workspace",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "private": true,
   "workspaces": [
     "packages/runtime",
@@ -22,6 +22,7 @@
     "build": "npm run build:compiler && node scripts/build.mjs",
     "build:js": "node scripts/build.mjs",
     "test": "vp test --run",
+    "test:coverage": "vp test --run --coverage --coverage.include='packages/*/src/**' --coverage.exclude='**/*.test.ts' --coverage.exclude='**/*.typecheck.*'",
     "test:compiler": "cargo test --manifest-path packages/compiler/native/Cargo.toml --locked",
     "test:package": "node scripts/package-smoke.mjs",
     "fmt": "cargo fmt --manifest-path packages/compiler/native/Cargo.toml && vp fmt",
@@ -29,27 +30,38 @@
     "pack:release": "node scripts/pack-release.mjs",
     "version:release": "node scripts/version-release.mjs",
     "test:browser": "playwright test",
-    "dev:example": "vp dev --config examples/reading-list/vite.config.ts",
-    "build:example": "vp build --config examples/reading-list/vite.config.ts",
     "check:browser": "tsc --noEmit -p tsconfig.browser.json",
     "build:benchmark": "vp build --config vite.benchmark.config.ts",
-    "measure:bundles": "node scripts/measure-bundles.mjs --check"
+    "measure:bundles": "node scripts/measure-bundles.mjs --check",
+    "dev:site": "vp dev --config website/vite.config.ts",
+    "prebuild:site": "node scripts/build-lucide.mjs",
+    "build:site": "vp build --config website/vite.config.ts",
+    "preview:site": "vp preview --config website/vite.config.ts",
+    "test:docs": "node website/scripts/check-snippets.mjs",
+    "test:site": "node website/scripts/check-site.mjs"
   },
   "devDependencies": {
     "@effect/tsgo": "0.47.1",
+    "@fontsource-variable/inter": "5.3.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@lucide/icons": "1.49.0",
     "@playwright/test": "1.63.0",
+    "@types/markdown-it": "14.2.0",
     "@types/node": "^26.6.3",
-    "effect": "4.0.0-rc.118",
+    "@vitest/coverage-v8": "5.0.1",
+    "effect": "4.0.0",
     "esbuild": "0.28.2",
     "happy-dom": "20.14.5",
     "idb": "8.0.3",
+    "markdown-it": "15.0.2",
     "oxfmt": "0.71.0",
     "oxlint": "1.86.0",
     "oxlint-tsgolint": "7.0.2003",
+    "shiki": "4.5.0",
     "typescript": "7.0.2",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
-    "vite-plus": "1.0.0"
+    "vite-plus": "1.0.0",
+    "yuku-parser": "^0.9.5"
   },
   "overrides": {
     "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0"

@@ -1,7 +1,7 @@
 import { list } from 'effectweb';
 import {
   domMount,
-  mountView,
+  mount,
   program,
   slot,
   ViewBinding,
@@ -113,7 +113,7 @@ export function mountContracts(parent: HTMLElement) {
     },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, Contract, source, {
+  const unmount = mount(parent, Contract, source, {
     onError: (error) => errors.push(String(error)),
   });
   return {

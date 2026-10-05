@@ -36,6 +36,6 @@ export function registerCache<R>(cache: QueryCache<R>, internals: CacheInternals
 /** Private implementation access; deliberately absent from package exports. */
 export function cacheInternals<R>(cache: QueryCache<R>): CacheInternals<R> {
   const internals = caches.get(cache);
-  if (!internals) throw new TypeError('Use makeQueryCache() to create a cache.');
+  if (!internals) throw new TypeError('Use queryCache() to create a cache.');
   return internals as CacheInternals<R>;
 }

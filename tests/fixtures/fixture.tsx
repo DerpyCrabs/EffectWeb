@@ -1,6 +1,6 @@
 import { list } from 'effectweb';
 import { Effect } from 'effect';
-import { commandSlot, collection, mountView, program, view, ViewBinding } from 'effectweb';
+import { collection, mount, program, view, ViewBinding } from 'effectweb';
 
 export interface Item {
   readonly id: number;
@@ -22,7 +22,7 @@ type Message =
   | { type: 'Acknowledged'; id: number; serverId: number };
 const items = collection<Item>((item) => item.id);
 import { counters, label } from './fixtureInstrumentation';
-const commandSend = commandSlot('send');
+const commandSend = 'send';
 // The counter is instrumentation only. Production view helpers must be pure.
 const ItemView = view<Item, Message>((model, send) => {
   const { id, text } = model;
@@ -78,7 +78,7 @@ export function mountFixture(parent: HTMLElement, count = 1000) {
             model: { ...model, items: [...model.items, { id: message.id, text: message.text }] },
             commands: [
               {
-                slot: commandSend,
+                key: commandSend,
                 policy: 'parallel',
                 effect: Effect.callback<Message>((resume) => {
                   acknowledgements.set(message.id, (serverId) =>
@@ -103,7 +103,7 @@ export function mountFixture(parent: HTMLElement, count = 1000) {
       }
     },
   });
-  const unmount = mountView(parent, FixtureView, source);
+  const unmount = mount(parent, FixtureView, source);
   const set = (patch: Partial<Model>) =>
     source.send({ type: 'Replace', model: { ...source.model(), ...patch } });
   return {
@@ -154,7 +154,7 @@ export function mountPrimitiveList(parent: HTMLElement, values: readonly string[
     initial: values,
     update: (model: readonly string[], _message: string) => ({ model }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return () => {
     unmount();
     source.dispose();
@@ -186,7 +186,7 @@ export function mountEventSnapshot(parent: HTMLElement) {
           : { ...model, seen: action.value },
     }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     model: source.model,
     dispose() {
@@ -211,7 +211,7 @@ export function mountRootList(parent: HTMLElement) {
     initial: { visible: true, values: ['a', 'b', 'c'] },
     update: (_model, model) => ({ model }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     set: source.send,
     dispose() {
@@ -243,7 +243,7 @@ export function mountAttributes(parent: HTMLElement) {
     text: 'content',
   };
   const source = program<State, State>({ initial, update: (_model, model) => ({ model }) });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     set: (patch: Partial<State>) => source.send({ ...source.model(), ...patch }),
     dispose() {

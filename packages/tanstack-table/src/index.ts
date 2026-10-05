@@ -50,8 +50,7 @@ export function createTable<F extends TableFeatures, T extends RowData, Model>(
   });
   const state = table.store.subscribe(source.changed);
   const settings = table.optionsStore?.subscribe(source.changed);
-  source.start();
-  return {
+  const controller = {
     table,
     source,
     dispose() {
@@ -63,4 +62,11 @@ export function createTable<F extends TableFeatures, T extends RowData, Model>(
       source.dispose();
     },
   };
+  try {
+    source.start();
+    return controller;
+  } catch (error) {
+    controller.dispose();
+    throw error;
+  }
 }

@@ -13,7 +13,7 @@ type Context = {
   }) => void;
 };
 type Identifier = { type: string; name: string };
-type Declaration = { id: Identifier | { type: string } | null };
+type Declaration = { id: Identifier | { type: string } | null; init?: { type: string } | null };
 const results = new WeakMap<
   Source,
   { text: string; diagnostics: Map<string, readonly Diagnostic[]> }
@@ -75,7 +75,9 @@ function rule(category: Diagnostic['category'] | 'errors' | 'render-safety' | 'b
           for (const diagnostic of diagnostics) {
             const selected =
               category === 'render-safety'
-                ? ['EW1000', 'EW1003', 'EW2001'].includes(diagnostic.code)
+                ? ['EW1000', 'EW1003', 'EW1004', 'EW1005', 'EW1006', 'EW2001'].includes(
+                    diagnostic.code,
+                  )
                 : category === 'unprovable-dependency'
                   ? diagnostic.code === 'EW2002' || diagnostic.code === 'EW1000'
                   : category === 'identity'
@@ -94,13 +96,18 @@ function rule(category: Diagnostic['category'] | 'errors' | 'render-safety' | 'b
     },
   };
 }
-/** There are no hooks. A `useX` name imports React vocabulary and hides what the value is. */
+/**
+ * There are no hooks. A `useX` name imports React vocabulary and hides what the value is.
+ * Only functions and values built by a call are reported: `const useCurrent = a && b` is a flag.
+ */
 const noHookNames = {
   meta: { type: 'suggestion' as const, schema: [] },
   create(context: Context) {
-    const check = (node: Declaration) => {
+    const built = new Set(['ArrowFunctionExpression', 'FunctionExpression', 'CallExpression']);
+    const check = (node: Declaration, variable = false) => {
       const id = node.id;
       if (!id || id.type !== 'Identifier') return;
+      if (variable && !built.has(node.init?.type ?? '')) return;
       const name = (id as Identifier).name;
       if (!/^use[A-Z]/u.test(name)) return;
       context.report({
@@ -108,7 +115,10 @@ const noHookNames = {
         message: `[EW3007] ${name} reads as a React hook, but EffectWeb has no hooks. Name it after what it is or creates: create${name.slice(3)}, ${name.charAt(3).toLowerCase()}${name.slice(4)}Controller, or a noun.`,
       });
     };
-    return { FunctionDeclaration: check, VariableDeclarator: check };
+    return {
+      FunctionDeclaration: (node: Declaration) => check(node),
+      VariableDeclarator: (node: Declaration) => check(node, true),
+    };
   },
 };
 export default {

@@ -133,6 +133,7 @@ import * as data from '@effectweb/lucide/data';
 import { buildLucideIconElement, buildLucideSvg, buildLucideDataUri } from '@effectweb/lucide/build';
 import { Scope } from 'effectweb/dom';
 import { domMount } from 'effectweb';
+import { renderView } from 'effectweb/testing';
 const check = (value, message) => { if (!value) throw new Error(message); };
 const shape = element => [element.localName,
   Object.fromEntries([...element.attributes].filter(a => a.name !== 'key').map(a => [a.name, a.value]).sort()),
@@ -164,8 +165,8 @@ const props = { size: 32, title: 'Photo', absoluteStrokeWidth: true, class: 'cus
   classList: { active: true }, style: { color: 'red' }, 'data-state': 'ready',
   onClick: () => { clicks++; }, onClickCapture: () => { captures++; },
   use: domMount(() => { mounts++; return () => { disposals++; }; }) };
-const scope = new Scope(props, () => {});
-icons.Camera.build(scope, host, null);
+// Mounted the way an application mounts it, so delegated events reach their handlers.
+const rendered = renderView(host, icons.Camera, props);
 await Promise.resolve();
 const svg = host.querySelector('svg'), path = svg.querySelector('path');
 check(mounts === 1, 'Mount callback');
@@ -176,9 +177,9 @@ svg.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 check(clicks === 1 && captures === 1, 'Native events');
 const observer = new MutationObserver(() => {});
 observer.observe(svg, { subtree: true, childList: true, attributes: true, characterData: true });
-scope.set({ ...props });
+rendered.update({ ...props });
 check(observer.takeRecords().length === 0, 'Equal props caused DOM mutations');
-scope.set({ size: '1em', color: 'blue', strokeWidth: 0, 'aria-label': 'New camera',
+rendered.update({ size: '1em', color: 'blue', strokeWidth: 0, 'aria-label': 'New camera',
   class: 'next', style: { backgroundColor: 'blue' }, onClick: () => { clicks += 10; } });
 check(host.querySelector('svg') === svg && svg.querySelector('path') === path, 'Update replaced geometry');
 check(svg.getAttribute('width') === '1em' && svg.getAttribute('stroke') === 'blue' && svg.getAttribute('stroke-width') === '0', 'Updated presentation');
@@ -189,9 +190,9 @@ check(!path.hasAttribute('vector-effect'), 'Stroke scaling reset');
 svg.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 check(clicks === 11 && captures === 1, 'Fresh and removed handlers');
 check(disposals === 1, 'Mount cleanup after removal');
-scope.set({});
+rendered.update({});
 check(svg.getAttribute('aria-hidden') === 'true' && !svg.hasAttribute('role'), 'Accessibility reset');
-scope.dispose();
+rendered.dispose();
 svg.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 check(clicks === 11, 'Listener cleanup');
 observer.disconnect();

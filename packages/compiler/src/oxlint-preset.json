@@ -13,7 +13,7 @@
         "paths": [
           {
             "name": "effectweb/dom",
-            "message": "Compiler implementation API. Use view, domMount, mountView, and owned application APIs."
+            "message": "Compiler implementation API. Use view, domMount, mount, and owned application APIs."
           },
           {
             "name": "effectweb/jsx-runtime",

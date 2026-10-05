@@ -211,7 +211,7 @@ it.each([
   `import {MutableRef} from 'effect';view(m=><p>{MutableRef.set(m.ref,2)}</p>);`,
   `import {Effect} from 'effect';const run=Effect.runSync;view(m=><p>{run(m.effect)}</p>);`,
   `import {DateTime} from 'effect';view(m=><p>{DateTime.nowUnsafe()}</p>);`,
-  `import {mountView} from 'effectweb';view(m=><p>{mountView(m.element,m.view,m.source)}</p>);`,
+  `import {mount} from 'effectweb';view(m=><p>{mount(m.element,m.view,m.source)}</p>);`,
   `const visit=(items,borrowed,again)=>{if(again)visit(borrowed,borrowed,false);items.push(1)};view(m=><p>{visit([],m.items,true)}</p>);`,
 ])('requires evidence for every execution form and library effect: %s', (body) => {
   expect(() => checkRender(`import {view} from 'effectweb';${body}`, 'effects.tsx')).toThrow();
@@ -269,11 +269,10 @@ it.each([
 });
 
 it('treats framework view factories as compiled views', () => {
-  const source = `import {view, collection} from 'effectweb'; import {listView} from 'effectweb/advanced';
-    const rows=collection(t=>t.id);
-    const cards=listView({project:(t,_i,m)=>({t,selected:m.selected===t.id}),view:view(p=><b>{p.t.id}</b>)});
-    view(m=><div>{cards(rows.from(m.items),m)}</div>);`;
-  expect(() => checkRender(source, 'list-view.tsx')).not.toThrow();
+  const source = `import {view} from 'effectweb'; import {memoView} from 'effectweb/advanced';
+    const Card=memoView(view(p=><b>{p.t.id}</b>),(a,b)=>a.t===b.t);
+    view(m=><div><Card t={m.item} /></div>);`;
+  expect(() => checkRender(source, 'memo-view.tsx')).not.toThrow();
 });
 
 it('proves factory parameters read by views unless something writes to them', () => {

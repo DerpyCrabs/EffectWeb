@@ -1,4 +1,4 @@
-import { mountView, program, view, type JSX } from 'effectweb';
+import { mount, modelOwner, program, view, type JSX } from 'effectweb';
 
 declare module 'effectweb/jsx' {
   namespace JSX {
@@ -125,7 +125,7 @@ export function mountNativeEvents(
     initial: { label: 'first', listening: true },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, Content, source);
+  const unmount = mount(parent, Content, source);
   return {
     set: source.send,
     dispose() {
@@ -197,11 +197,33 @@ export function mountNativeAttributes(parent: HTMLElement) {
     initial: { changed: false },
     update: (_model, changed) => ({ model: { changed } }),
   });
-  const unmount = mountView(parent, Content, source);
+  const unmount = mount(parent, Content, source);
   return {
     set: source.send,
     dispose() {
       unmount();
+      source.dispose();
+    },
+  };
+}
+
+export function mountNonBubblingOrder(parent: HTMLElement, record: (label: string) => void) {
+  const source = modelOwner({ blocked: false });
+  const App = view<{ blocked: boolean }>((model) => (
+    <div
+      onChangeCapture={(event) => {
+        record('ancestor');
+        if (model.blocked) event.stopPropagation();
+      }}
+    >
+      <input onChange={() => record('target')} onChangeCapture={() => record('capture')} />
+    </div>
+  ));
+  const mounted = mount(parent, App, source.source);
+  return {
+    block: () => source.patch({ blocked: true }),
+    dispose: () => {
+      mounted();
       source.dispose();
     },
   };

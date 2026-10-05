@@ -1,5 +1,11 @@
-import { mountView, program, view } from 'effectweb';
-import { patchModel } from 'effectweb/advanced';
+import { mount, program, view } from 'effectweb';
+
+/** A shallow patch that keeps the model identity when nothing changes. */
+function patchModel<Model extends object>(model: Model, patch: Partial<Model>): Model {
+  return (Object.keys(patch) as (keyof Model)[]).some((key) => !Object.is(model[key], patch[key]))
+    ? { ...model, ...patch }
+    : model;
+}
 
 export function mountControls(parent: HTMLElement) {
   type Model = { text: string; checked: boolean | undefined };
@@ -43,7 +49,7 @@ export function mountControls(parent: HTMLElement) {
     initial: { text: 'x', checked: false },
     update: (model, patch) => ({ model: patchModel(model, patch) }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     model: source.model,
     set: source.send,
@@ -66,6 +72,6 @@ export function mountConstrainedControls(parent: HTMLElement) {
       <input aria-label="Value last" type="range" min={0} max={model.max} value={model.value} />
     </section>
   ));
-  mountView(parent, View, source);
+  mount(parent, View, source);
   return source;
 }

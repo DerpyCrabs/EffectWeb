@@ -1,4 +1,4 @@
-import { domMount, mountView, Portal, program, view } from 'effectweb';
+import { domMount, mount, Portal, program, view } from 'effectweb';
 
 export function mountPortal(
   parent: HTMLElement,
@@ -34,7 +34,7 @@ export function mountPortal(
           : { ...model, target: message.target, label: message.label },
     }),
   });
-  const unmount = mountView(parent, Content, source);
+  const unmount = mount(parent, Content, source);
   return {
     lifetime,
     update: (next: Element | undefined, label: string) =>
@@ -59,7 +59,7 @@ export function mountSvgPortal(parent: HTMLElement, target: Element) {
     initial: { target, radius: 5 },
     update: (model, radius) => ({ model: { ...model, radius } }),
   });
-  const unmount = mountView(parent, Content, source);
+  const unmount = mount(parent, Content, source);
   return {
     update: source.send,
     dispose() {

@@ -1,6 +1,6 @@
 import { Cause, Deferred, Effect, Exit, Fiber } from 'effect';
 import { expect, it } from 'vitest';
-import { mount } from './render.js';
+import { makeMount } from './render.js';
 import { domMount, startMount } from './mount.js';
 
 it('passes view setup failure to its resource finalizers', async () => {
@@ -14,7 +14,7 @@ it('passes view setup failure to its resource finalizers', async () => {
     return yield* Effect.fail('setup failed');
   });
   const result = await Effect.runPromiseExit(
-    Effect.scoped(mount({} as Node, setup, { model: () => 0, subscribe: () => () => {} })),
+    Effect.scoped(makeMount({} as Node, setup, { model: () => 0, subscribe: () => () => {} })),
   );
   expect(Exit.isFailure(result)).toBe(true);
   expect(released?._tag).toBe('Failure');
@@ -39,7 +39,7 @@ it('preserves setup interruption and joins asynchronous resource release', async
     return yield* Effect.never;
   });
   const application = Effect.runFork(
-    Effect.scoped(mount({} as Node, setup, { model: () => 0, subscribe: () => () => {} })),
+    Effect.scoped(makeMount({} as Node, setup, { model: () => 0, subscribe: () => () => {} })),
   );
   await Effect.runPromise(Deferred.await(acquired));
   const interrupt = Effect.runFork(Fiber.interrupt(application));

@@ -1,7 +1,6 @@
 import { Effect } from 'effect';
 import { available } from './result.js';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { defineActions } from './actions.js';
 import { modelOwner } from './owner.js';
 import { program, type Transition } from './program.js';
 import type { Snapshot, snapshotOpaque } from './snapshot.js';
@@ -10,24 +9,28 @@ import { view } from './dom.js';
 type Model = { items: { text: string; tags: string[] }[]; selected: number };
 
 export function publishedSnapshotTypes() {
-  const actions = defineActions<Model>()({
-    Rename: (model, text: string): Transition<Model, never> => ({
-      model: { ...model, items: model.items.map((item) => ({ ...item, text })) },
-    }),
-    Keep: (model) => ({ model }),
-    Invalid: (model) => {
-      // @ts-expect-error Published arrays cannot be mutated.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      model.items.push({ text: 'bad', tags: [] });
-      // @ts-expect-error Published nested objects cannot be mutated.
-      model.items[0]!.text = 'bad';
-      // @ts-expect-error Deeply nested arrays cannot be mutated.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      model.items[0]!.tags.sort();
-      return { model };
-    },
-  });
-  const app = program({ initial: { items: [], selected: 0 } as Model, update: actions.update });
+  type Message = { type: 'Rename'; text: string } | { type: 'Keep' } | { type: 'Invalid' };
+  const update = (model: Snapshot<Model>, message: Message): Transition<Model, Message> => {
+    switch (message.type) {
+      case 'Rename':
+        return {
+          model: { ...model, items: model.items.map((item) => ({ ...item, text: message.text })) },
+        };
+      case 'Keep':
+        return { model };
+      case 'Invalid':
+        // @ts-expect-error Published arrays cannot be mutated.
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
+        model.items.push({ text: 'bad', tags: [] });
+        // @ts-expect-error Published nested objects cannot be mutated.
+        model.items[0]!.text = 'bad';
+        // @ts-expect-error Deeply nested arrays cannot be mutated.
+        // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
+        model.items[0]!.tags.sort();
+        return { model };
+    }
+  };
+  const app = program({ initial: { items: [], selected: 0 } as Model, update });
   // @ts-expect-error Reads have the same immutable contract as reducers.
   // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
   app.model().items.pop();

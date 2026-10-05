@@ -165,7 +165,7 @@ it('keeps pure helper locals and event-only work outside render capture checks',
   ).toContain('.markup(');
   expect(
     checkRender(
-      `import {defineActions} from 'effectweb';const actions=defineActions()({Run:()=>Date.now()});view((model,send)=>{const dispatch=actions.bind(send);return <button onClick={()=>dispatch.Run()}/>;});`,
+      `import {ownerOf} from 'effectweb';view((model,patch)=>{const owner=ownerOf(patch);return <button onClick={()=>owner.task('saved',save(model.draft),'drop')} disabled={model.saved.waiting}/>;});`,
     ),
   ).toContain('"onClick":');
   expect(
@@ -176,6 +176,30 @@ it('keeps pure helper locals and event-only work outside render capture checks',
   expect(
     checkRender(`const clock=Date; view(model=><p>{clock.UTC(model.year,0,1)}</p>);`),
   ).toContain('.markup(');
+});
+
+it.each([
+  `view((model,send)=>{send({type:'x'});return <p/>;});`,
+  `view((model,patch)=><p>{patch({open:true})}</p>);`,
+  `view((model,send)=>{const go=()=>send('x');go();return <p/>;});`,
+])('rejects dispatching while rendering: %s', (source) => {
+  expect(() => checkRender(source)).toThrow(/do not dispatch while rendering/u);
+});
+it.each([
+  `import {ownerOf} from 'effectweb';view((model,patch)=>{ownerOf(patch).task('saved',save,'drop');return <p/>;});`,
+  `import {ownerOf} from 'effectweb';view((model,patch)=>{const owner=ownerOf(patch);return <p>{owner.run('x',work,'drop')}</p>;});`,
+])('rejects starting component owner work while rendering: %s', (source) => {
+  expect(() => checkRender(source)).toThrow(/ownerOf\.(task|run) is a render operation/u);
+});
+it('accepts dispatch from handlers, DOM hosts and passed-down callbacks', () => {
+  expect(
+    checkRender(
+      `import {domMount} from 'effectweb';view((model,send)=><button onClick={()=>send('x')} use={domMount(()=>{send('ready');})}>{model.a}</button>);`,
+    ),
+  ).toContain('"onClick":');
+  expect(
+    checkRender(`view((model,send)=><Child onDone={()=>send('x')} dispatch={send}/>);`),
+  ).toContain('Child(');
 });
 
 it('points at the mutation expression and rejects builtin mutations', () => {
@@ -264,19 +288,6 @@ it('keeps direct spread event callbacks deferred and checks eager spread express
     );
 });
 
-it.each(['effectweb', 'effectweb/effectEvent'])(
-  'keeps recognized Effect event callbacks deferred in every attribute form: %s',
-  (module) => {
-    for (const attribute of [
-      `onClick={request('replace', () => Effect.sync(() => records.push('clicked')))}`,
-      `{...{ onClick: request('replace', () => Effect.sync(() => records.push('clicked'))) }}`,
-    ]) {
-      const source = `import {effectEvent as request} from '${module}'; import {Effect} from 'effect'; const records=[]; view(model=><button ${attribute}/>);`;
-      expect(checkRender(source)).toContain('.markup(');
-    }
-  },
-);
-
 it.each([
   `onClick={(() => window.alert('eager'))()}`,
   `{...{onClick:(() => window.alert('eager'))()}}`,
@@ -349,7 +360,49 @@ import { cache, user } from './queries';
 view((model) => <p>{observe(querySource(cache, user, { id: model.id }), (result) => result._tag)}</p>);`;
   expect(lint(observed, 'observed.tsx')).toEqual([]);
   const created = `import { view } from 'effectweb';
-import { makeQueryCache } from '@effectweb/query';
-view(() => <p>{String(makeQueryCache())}</p>);`;
+import { queryCache } from '@effectweb/query';
+view(() => <p>{String(queryCache())}</p>);`;
   expect(lint(created, 'created.tsx')).toEqual([expect.objectContaining({ code: 'EW1003' })]);
+});
+
+it.each([
+  // A swap on a local copy, reached from a handler.
+  `const move=(rows:number[],i:number)=>{const moved=[...rows];[moved[i-1],moved[i]]=[moved[i],moved[i-1]];return moved;}; view(model=><button onClick={()=>move(model.rows,1)}/>);`,
+  `view(model=>{let a=1,b=2;[a,b]=[b,a];return <p>{a+b}</p>;});`,
+  `view(model=>{let first='',rest:number[]=[];({first,...rest}={first:'x',...{}} as any);return <p>{first}</p>;});`,
+])('accepts destructuring assignments to local bindings: %s', (source) => {
+  expect(() => checkRender(source)).not.toThrow();
+});
+
+it('still rejects destructuring into data the view borrowed', () => {
+  expect(() =>
+    checkRender(
+      `view(model=>{[model.rows[0],model.rows[1]]=[model.rows[1],model.rows[0]];return <p/>;});`,
+    ),
+  ).toThrow();
+});
+
+it('accepts controller actions whose names look like collection methods', () => {
+  expect(() =>
+    checkRender(
+      `view((model:any)=><button onClick={()=>{model.actions.add(1);model.actions.delete(2);model.actions.clear();}}/>);`,
+    ),
+  ).not.toThrow();
+  expect(() =>
+    checkRender(`view((model:any)=><button onClick={()=>model.tags.add(1)}/>);`),
+  ).toThrow(/mutating method add/u);
+});
+
+it('accepts reading a liveSource by key while rendering, and reports creating one in a view', () => {
+  const header = `import { liveSource, observe, view } from 'effectweb';`;
+  expect(() =>
+    checkRender(
+      `import { liveSource, observe } from 'effectweb'; const viewers = liveSource({ initial: (_id: string) => [] as string[], subscribe: (_id, _publish) => () => {} }); view<{ id: string }>((m) => <p>{observe(viewers(m.id), (names) => names.join(', '))}</p>);`,
+    ),
+  ).not.toThrow();
+  const inline = lint(
+    `${header} export const V = view<{ id: string }>((m) => <p>{observe(liveSource({ initial: (_id: string) => 0, subscribe: () => () => {} })(m.id), (n) => n)}</p>);`,
+    'inline.tsx',
+  );
+  expect(inline.map((d) => d.code)).toContain('EW3004');
 });

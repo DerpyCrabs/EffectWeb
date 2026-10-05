@@ -1,16 +1,16 @@
 import { Effect } from 'effect';
-import { localComponent, view } from 'effectweb';
+import { component, view } from 'effectweb';
 import { renderView } from 'effectweb/testing';
 
 type Props = { readonly label: string };
-const Counter = localComponent<Props, { count: number }>({
-  init: () => ({ count: 0 }),
-  view: view((model, patch) => (
+const Counter = component<Props, { count: number }>(
+  { init: () => ({ count: 0 }) },
+  view((model, patch) => (
     <button onClick={() => patch({ count: model.count + 1 })}>
       {model.props.label}:{model.count}
     </button>
   )),
-});
+);
 const Row = view<Props, 'picked'>((model, send) => (
   <button onClick={() => send('picked')}>{model.label}</button>
 ));

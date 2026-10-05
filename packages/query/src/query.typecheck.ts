@@ -1,8 +1,8 @@
 import { Context, Effect, Option, Scope } from 'effect';
 import { query, type Query } from './query.js';
-import { makeQueryCache } from './cache.js';
+import { queryCache } from './cache.js';
 import { infiniteQuery, infiniteResource } from './infinite-query.js';
-import { available, lifetime, modelOwner, type Snapshot, makeUiRuntime } from 'effectweb';
+import { available, modelOwner, type Snapshot } from 'effectweb';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { observeQuery } from './observe.js';
 
@@ -15,7 +15,7 @@ export function queryTypes() {
     name: 'data',
     load: (args) => Effect.succeed(args.nested.status),
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const valid = cache.prefetch(data, { id: 'a', nested: { status: 'open' } });
   const projected = {
     name: 'bad',
@@ -48,9 +48,9 @@ export function querySnapshotArguments() {
       return Effect.succeed({ names: args.ids.slice() });
     },
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const args: Snapshot<Args> = { ids: ['a'], filters: [{ tags: ['open'] }] };
-  const resource = observeQuery(lifetime(), cache, data, () => {});
+  const resource = observeQuery(modelOwner({}), cache, data, () => {});
   resource.select(args);
   cache.invalidateQuery(data, args);
   const fetched = cache.prefetch(data, args);
@@ -84,9 +84,9 @@ export function querySnapshotArguments() {
     name: 'array',
     load: (ids) => Effect.succeed(ids.length),
   });
-  const arrayCache = makeQueryCache();
+  const arrayCache = queryCache();
   const readonlyIds: readonly string[] = ['a'];
-  observeQuery(lifetime(), arrayCache, arrayQuery, () => {}).select(readonlyIds);
+  observeQuery(modelOwner({}), arrayCache, arrayQuery, () => {}).select(readonlyIds);
   const arrayResult = arrayCache.prefetch(arrayQuery, readonlyIds);
   arrayCache.invalidateQuery(arrayQuery, readonlyIds);
   arrayCache.setQueryData(arrayQuery, readonlyIds, 1);
@@ -125,10 +125,10 @@ export function observedQueryScopes() {
     name: 'typed-scoped-load',
     load: (id) => Effect.acquireRelease(Effect.succeed(id), () => Effect.void),
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const prefetched: Effect.Effect<string> = cache.prefetch(scoped, true);
   const explicit: Effect.Effect<string> = cache.prefetch(explicitlyTyped, 'one');
-  observeQuery(lifetime(), cache, scoped, () => {}).select(true);
+  observeQuery(modelOwner({}), cache, scoped, () => {}).select(true);
   const pages = infiniteQuery({
     name: 'scoped-pages',
     initial: 0,
@@ -138,7 +138,7 @@ export function observedQueryScopes() {
   });
   const paginated = infiniteResource(cache, pages);
   paginated.select('one');
-  const nextPage: Effect.Effect<unknown> = paginated.loadNext();
+  const nextPage: Effect.Effect<unknown> = paginated.fetchNextPage();
   const requiringStorage = query({
     name: 'service-and-scope',
     load: () =>
@@ -149,10 +149,9 @@ export function observedQueryScopes() {
   // @ts-expect-error Owning the query Scope must not erase an application's service requirement.
   const missingService = cache.prefetch(requiringStorage, true);
   // @ts-expect-error A query observation must also retain application service requirements.
-  observeQuery(lifetime(), cache, requiringStorage, () => {});
+  observeQuery(modelOwner({}), cache, requiringStorage, () => {});
   const provided: Effect.Effect<string, never, Storage | Scope.Scope> = Effect.gen(function* () {
-    const runtime = yield* makeUiRuntime<Storage>();
-    const owned = makeQueryCache(runtime);
+    const owned = queryCache(yield* Effect.context<Storage>());
     yield* Effect.addFinalizer(() => owned.close());
     return yield* owned.prefetch(requiringStorage, true);
   });
@@ -172,7 +171,7 @@ export function immutableQueryInputs() {
 }
 
 export function keyedObservationTypes() {
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const count = query({ name: 'count', load: () => Effect.succeed(1) });
   const owner = modelOwner<{
     result: AsyncResult.AsyncResult<number, never>;
@@ -187,11 +186,11 @@ export function keyedObservationTypes() {
   // @ts-expect-error A projection must produce the key's type.
   observeQuery(owner, cache, count, 'label', available);
   // @ts-expect-error Keys require a model owner.
-  observeQuery(lifetime(), cache, count, 'result');
+  observeQuery(modelOwner({}), cache, count, 'result');
 }
 
 export function keyedObservationAcceptsMutableModels() {
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const rows = query({ name: 'rows', load: () => Effect.succeed([1, 2]) });
   const owner = modelOwner({
     rows: AsyncResult.initial<number[], never>() as AsyncResult.AsyncResult<number[], never>,

@@ -9,3 +9,9 @@ test-results/
 playwright-report/
 dist-benchmark/
 benchmarks/results/
+coverage
+
+website/.snippets/
+website/dist/
+packages/runtime/docs/
+packages/runtime/docs.next/

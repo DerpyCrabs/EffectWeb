@@ -5,15 +5,15 @@ import { cacheInternals } from './cache-internals.js';
 import { query } from './query.js';
 import { available, resourceError } from 'effectweb';
 import { Cause } from 'effect';
-import { makeQueryCache } from './cache.js';
-import { modelOwner, lifetime } from 'effectweb';
+import { queryCache } from './cache.js';
+import { modelOwner } from 'effectweb';
 import { queryResource, observeQuery, querySource } from './observe.js';
 
 it('selects typed query arguments, shares across sessions, and clears values across account changes', async () => {
   let account = 'first';
   const load = vi.fn((id: string) => Effect.succeed(`${account}:${id}`));
   const profile = query({ name: 'profile', load });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const context = { cache, changed: vi.fn() };
   const first = queryResource(context, profile);
   const second = queryResource(context, profile);
@@ -50,7 +50,7 @@ it('retains same-query values during failed refreshes and does not refresh on or
     staleTime: 0,
     load: () => (++calls === 2 ? Effect.fail('offline') : Effect.succeed('cached')),
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const source = queryResource({ cache, changed() {} }, data);
   source.select(true);
   source.select(true);
@@ -76,7 +76,7 @@ it('coalesces refreshes during a pending read, then permits revalidation after c
         finish = () => resume(Effect.succeed(value));
       }),
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const first = queryResource({ cache, changed() {} }, data);
   const second = queryResource({ cache, changed() {} }, data);
   try {
@@ -111,7 +111,7 @@ it('owns typed query publications, shares requests, retains undefined successes 
   const owner = modelOwner<{ result: AsyncResult.AsyncResult<undefined, string> }>({
     result: AsyncResult.initial(),
   });
-  const cache = owner.own(makeQueryCache());
+  const cache = owner.own(queryCache());
   let calls = 0;
   let finish!: () => void;
   const definition = query({
@@ -156,7 +156,7 @@ it('formats query errors without exposing the Error constructor prefix', () => {
 });
 
 it('never delivers a superseded result after a listener selects another query', async () => {
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const definition = query({ name: 'selection', load: (id: string) => Effect.succeed(id) });
   await Effect.runPromise(cache.prefetch(definition, 'A'));
   await Effect.runPromise(cache.prefetch(definition, 'B'));
@@ -177,7 +177,7 @@ it('never delivers a superseded result after a listener selects another query', 
 it.each(['select', 'reset', 'dispose'] as const)(
   'releases subscriptions after reentrant %s during setup',
   (action) => {
-    const cache = makeQueryCache();
+    const cache = queryCache();
     const internals = cacheInternals(cache);
     const original = internals.subscribe.bind(internals);
     const releases: Array<ReturnType<typeof vi.fn>> = [];
@@ -213,7 +213,7 @@ it.each(['select', 'reset', 'dispose'] as const)(
 
 it('isolates throwing query listeners and stops publication when disposed', () => {
   const report = vi.spyOn(console, 'error').mockImplementation(() => {});
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const definition = query({ name: 'listeners', load: () => Effect.succeed(1) });
   const source = queryResource({ cache }, definition);
   const seen = vi.fn<(result: AsyncResult.AsyncResult<number, never>) => void>();
@@ -233,9 +233,9 @@ it('isolates throwing query listeners and stops publication when disposed', () =
   report.mockRestore();
 });
 
-it('lets a lifetime own queries and cleanups in reverse order', () => {
-  const cache = makeQueryCache();
-  const scope = lifetime();
+it('lets an owner without a model own queries and cleanups in reverse order', () => {
+  const cache = queryCache();
+  const scope = modelOwner({});
   const changed = vi.fn();
   const order: string[] = [];
   scope.own(() => order.push('first'));
@@ -262,7 +262,7 @@ it('shares one query source per arguments, updates it live and releases it when 
   let version = 0;
   const load = vi.fn((id: string) => Effect.succeed(`${id}:${++version}`));
   const user = query({ name: 'source-user', load });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const first = querySource(cache, user, 'alice');
   expect(querySource(cache, user, 'alice')).toBe(first);
   expect(querySource(cache, user, 'bob')).not.toBe(first);
@@ -285,7 +285,7 @@ it('patches query results and projections into a model key', async () => {
     result: AsyncResult.AsyncResult<number, never>;
     value: number | undefined;
   }>({ result: AsyncResult.initial(), value: undefined });
-  const cache = owner.own(makeQueryCache());
+  const cache = owner.own(queryCache());
   const definition = query({ name: 'keyed', load: () => Effect.succeed(7) });
   const full = observeQuery(owner, cache, definition, 'result');
   const projected = observeQuery(owner, cache, definition, 'value', available);

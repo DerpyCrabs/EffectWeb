@@ -84,3 +84,59 @@ describe('clock', () => {
     expect(() => clock(0)).toThrow(RangeError);
   });
 });
+
+it('clock keeps ticking for remaining observers when one unsubscribes during a tick', () => {
+  vi.useFakeTimers({ now: 0 });
+  try {
+    const second = clock(1_000);
+    const seen: string[] = [];
+    let stopFirst = () => {};
+    stopFirst = second.subscribe((now) => {
+      seen.push(`first:${now}`);
+      stopFirst();
+    });
+    const stopSecond = second.subscribe((now) => seen.push(`second:${now}`));
+    vi.advanceTimersByTime(1_000);
+    expect(seen).toEqual(['first:1000', 'second:1000']);
+    vi.advanceTimersByTime(1_000);
+    expect(seen).toEqual(['first:1000', 'second:1000', 'second:2000']);
+    expect(vi.getTimerCount()).toBe(1);
+    stopSecond();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('a projection follows watched inputs until they are released or it is disposed', async () => {
+  const input = program({ initial: 1, update: (_model, model: number) => ({ model }) });
+  const projection = projectionSource({ project: () => ({ doubled: input.model() * 2 }) });
+  expect(() => projection.model()).toThrow(/Start projection/u);
+  const release = projection.watch(input);
+  projection.start();
+  const values: number[] = [];
+  projection.subscribe((model) => values.push(model.doubled));
+  input.send(2);
+  input.send(3);
+  await Promise.resolve();
+  // Notifications in one turn publish once, with the latest inputs.
+  expect(values).toEqual([6]);
+  release();
+  release();
+  input.send(4);
+  await Promise.resolve();
+  expect(values).toEqual([6]);
+  const second = projection.watch(input);
+  input.send(5);
+  await Promise.resolve();
+  expect(values).toEqual([6, 10]);
+  projection.dispose();
+  expect(projection.disposed).toBe(true);
+  input.send(6);
+  await Promise.resolve();
+  expect(values).toEqual([6, 10]);
+  // Watching after disposal subscribes to nothing.
+  expect(projection.watch(input)).toBeTypeOf('function');
+  second();
+  input.dispose();
+});

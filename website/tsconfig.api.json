@@ -1,0 +1,17 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": ".api",
+    "rootDir": "../packages",
+    "incremental": false
+  },
+  "include": ["../packages/*/src"],
+  "exclude": [
+    "../packages/**/*.test.ts",
+    "../packages/**/*.typecheck.ts",
+    "../packages/**/*.typecheck.tsx"
+  ]
+}

@@ -7,9 +7,9 @@ test('failed bindings, branches and cleanups leave siblings usable and release a
   const result = await page.evaluate(async () => {
     const domPath = '/tests/fixtures/runtime.ts',
       programPath = '/tests/fixtures/runtime.ts';
-    const { compiled, element, text, mountView } = (await import(
+    const { compiled, element, text, mount } = (await import(
       domPath
-    )) as typeof import('effectweb/dom');
+    )) as typeof import('../fixtures/runtime');
     const { program } = (await import(programPath)) as typeof import('effectweb');
     const errors: unknown[] = [],
       disposed: number[] = [];
@@ -63,7 +63,7 @@ test('failed bindings, branches and cleanups leave siblings usable and release a
         () => scope.value,
       );
     });
-    const stop = mountView(host, view, source, {
+    const stop = mount(host, view, source, {
       onError: (error) => {
         errors.push(error);
       },
@@ -95,66 +95,11 @@ test('failed bindings, branches and cleanups leave siblings usable and release a
   });
 });
 
-test('the independent reading-list app persists edits and keeps existing row nodes', async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/examples/reading-list/index.html');
-  await expect(page.getByRole('status')).toContainText('saved entries');
-  await page
-    .getByRole('textbox', { name: 'Book or article' })
-    .fill('Designing Data-Intensive Applications');
-  await page.getByRole('button', { name: 'Add to list' }).click();
-  const row = page.locator('li').filter({ hasText: 'Designing Data-Intensive Applications' });
-  await row.getByRole('checkbox').check();
-  await expect(page.getByRole('status')).toHaveText('1 saved entries');
-  await page.evaluate(() => {
-    document.querySelector('li')!.setAttribute('data-retained', 'yes');
-  });
-  await page
-    .getByRole('textbox', { name: 'Book or article' })
-    .fill('A Philosophy of Software Design');
-  await page.getByRole('button', { name: 'Add to list' }).click();
-  await expect(row).toHaveAttribute('data-retained', 'yes');
-  await expect(page.getByRole('status')).toHaveText('2 saved entries');
-  await page.reload();
-  await expect(row.getByRole('checkbox')).toBeChecked();
-  await page.getByRole('textbox', { name: 'Filter' }).fill('philosophy');
-  await expect(page.locator('li')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Remove A Philosophy of Software Design' }).click();
-  await expect(page.getByRole('status')).toHaveText('1 saved entries');
-  expect(errors).toEqual([]);
-});
-
-test('the same reading-list UI also runs with synchronous Effect storage', async ({ page }) => {
-  await page.goto('/');
-  await page.evaluate(async () => {
-    const appPath = '/examples/reading-list/app.tsx',
-      storagePath = '/examples/reading-list/memoryStorage.ts';
-    const { mountReadingList } = (await import(
-      appPath
-    )) as typeof import('../../examples/reading-list/app');
-    const { memoryStorage } = (await import(
-      storagePath
-    )) as typeof import('../../examples/reading-list/memoryStorage');
-    mountReadingList(
-      document.body,
-      memoryStorage([{ id: 'one', title: 'Working Effectively with Legacy Code', read: false }]),
-    );
-  });
-  await expect(page.getByRole('status')).toHaveText('1 saved entries');
-  await page.getByRole('checkbox').check();
-  await expect(page.getByRole('checkbox')).toBeChecked();
-  await page.getByRole('button', { name: 'Remove Working Effectively with Legacy Code' }).click();
-  await expect(page.getByRole('status')).toHaveText('0 saved entries');
-});
-
 test('mount observes model publications made during synchronous child setup', async ({ page }) => {
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/runtime.ts';
-    const { compiled, element, text, mountView, program } = (await import(
+    const { compiled, element, text, mount, program } = (await import(
       path
     )) as typeof import('../fixtures/runtime');
     const source = program({ initial: 0, update: (_model: number, model: number) => ({ model }) });
@@ -170,7 +115,7 @@ test('mount observes model publications made during synchronous child setup', as
       );
       source.send(1);
     });
-    const stop = mountView(host, View, source);
+    const stop = mount(host, View, source);
     const result = { text: host.textContent, model: source.model() };
     stop();
     source.dispose();
@@ -216,7 +161,7 @@ test('a DOM acquisition keeps its identity and fresh input when setup publishes 
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/runtime.ts';
-    const { compiled, element, attach, domBinding, mountView, program } = (await import(
+    const { compiled, element, attach, domBinding, mount, program } = (await import(
       path
     )) as typeof import('../fixtures/runtime');
     const source = program({ initial: 0, update: (_model: number, model: number) => ({ model }) });
@@ -243,7 +188,7 @@ test('a DOM acquisition keeps its identity and fresh input when setup publishes 
         () => domBinding(scope.value, acquire),
       );
     });
-    const stop = mountView(host, View, source, {
+    const stop = mount(host, View, source, {
       onError: (error) => {
         errors.push(error);
       },
@@ -263,7 +208,7 @@ for (const keyed of [true, false]) {
     await page.goto('/');
     const result = await page.evaluate(async (keyed) => {
       const path = '/tests/fixtures/runtime.ts';
-      const { compiled, view, renderComponent, list, element, mountView, program } = (await import(
+      const { compiled, view, renderComponent, list, element, mount, program } = (await import(
         path
       )) as typeof import('../fixtures/runtime');
       const host = document.createElement('div');
@@ -286,7 +231,7 @@ for (const keyed of [true, false]) {
         const render = (id: number) => renderComponent(Child, { id });
         return keyed ? list(model, render) : model.map(render);
       });
-      stop = mountView(host, Root, source, {
+      stop = mount(host, Root, source, {
         onError: (error) => {
           errors.push(String(error));
         },
@@ -307,8 +252,9 @@ for (const keyed of [true, false]) {
       const result = await page.evaluate(
         async ({ keyed, phase }) => {
           const path = '/tests/fixtures/runtime.ts';
-          const { compiled, view, renderComponent, list, element, mountView, program } =
-            (await import(path)) as typeof import('../fixtures/runtime');
+          const { compiled, view, renderComponent, list, element, mount, program } = (await import(
+            path
+          )) as typeof import('../fixtures/runtime');
           const host = document.createElement('div');
           document.body.append(host);
           const releases: number[] = [];
@@ -340,7 +286,7 @@ for (const keyed of [true, false]) {
               renderComponent(Child, { id, stopOnUpdate: model.stopOnUpdate });
             return keyed ? list(model.ids, render) : model.ids.map(render);
           });
-          stop = mountView(host, Root, source, {
+          stop = mount(host, Root, source, {
             onError: (error) => {
               errors.push(String(error));
             },
@@ -373,7 +319,7 @@ test('positional lists render each sparse-array placeholder with its own identit
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const path = '/tests/fixtures/runtime.ts';
-    const { view, list, sequence, markup, mountView, program } = (await import(
+    const { view, list, sequence, markup, mount, program } = (await import(
       path
     )) as typeof import('../fixtures/runtime');
     const host = document.createElement('div');
@@ -384,7 +330,7 @@ test('positional lists render each sparse-array placeholder with its own identit
     const Root = view<readonly undefined[]>((model) =>
       list(sequence(model), (_item, index) => row({ children: index })),
     );
-    const stop = mountView(host, Root, source);
+    const stop = mount(host, Root, source);
     const result = { text: host.textContent, count: host.querySelectorAll('b').length };
     stop();
     source.dispose();

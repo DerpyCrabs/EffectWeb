@@ -1,9 +1,9 @@
 import { Cause, Option } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { AsyncContent, domMount, submit, mountView, program, slot, view } from 'effectweb';
+import { domMount, submit, mount, program, resourceError, view } from 'effectweb';
 
-export function mountAsyncContent(parent: HTMLElement) {
-  type Model = { result: AsyncResult.AsyncResult<number | undefined, string>; delay: number };
+export function mountAsyncResult(parent: HTMLElement) {
+  type Model = { result: AsyncResult.AsyncResult<number | undefined, string> };
   const lifetime = { mounted: 0, disposed: 0 };
   const monitor = domMount(() => {
     lifetime.mounted++;
@@ -11,29 +11,31 @@ export function mountAsyncContent(parent: HTMLElement) {
       lifetime.disposed++;
     };
   });
-  const View = view<Model, never>((model, _send) => (
-    <AsyncContent
-      result={model.result}
-      pendingDelay={model.delay}
-      content={slot((value: number | undefined) => (
-        <section use={monitor}>
-          <input aria-label="Persistent input" />
-          <output>{String(value)}</output>
-        </section>
-      ))}
-      pending={<p data-pending="">Loading</p>}
-      empty={<p data-empty="">Empty</p>}
-      refreshing={<p data-refreshing="">Refreshing</p>}
-      failure={slot((cause: Cause.Cause<string>) => (
-        <p role="alert">{Cause.pretty(cause)}</p>
-      ))}
-    />
-  ));
+  // The pattern the guide recommends: stale data, a refresh marker and the error side by side.
+  const View = view<Model>((model) => {
+    const data = AsyncResult.value(model.result);
+    const error = model.result.waiting ? undefined : resourceError(model.result);
+    return (
+      <>
+        {Option.isSome(data) ? (
+          <section use={monitor}>
+            <input aria-label="Persistent input" />
+            <output>{String(data.value)}</output>
+          </section>
+        ) : null}
+        {model.result.waiting && Option.isSome(data) ? <p data-refreshing="">Refreshing</p> : null}
+        {error ? <p role="alert">{error}</p> : null}
+        {AsyncResult.isInitial(model.result) && !model.result.waiting ? (
+          <p data-empty="">Empty</p>
+        ) : null}
+      </>
+    );
+  });
   const source = program<Model, Partial<Model>>({
-    initial: { result: AsyncResult.initial(), delay: 50 },
+    initial: { result: AsyncResult.initial() },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     lifetime,
     waiting: () => source.send({ result: AsyncResult.waiting(source.model().result) }),
@@ -91,7 +93,7 @@ export function mountForm(parent: HTMLElement) {
     initial: { text: '', checked: false, number: undefined, submitted: 0 },
     update: (model, patch) => ({ model: { ...model, ...patch } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     model: source.model,
     set: source.send,
@@ -117,7 +119,7 @@ export function mountSelect(parent: HTMLElement) {
     initial: { kind: '' },
     update: (_model, kind) => ({ model: { kind } }),
   });
-  const unmount = mountView(parent, View, source);
+  const unmount = mount(parent, View, source);
   return {
     model: () => source.model(),
     dispose() {

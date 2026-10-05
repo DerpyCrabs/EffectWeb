@@ -132,7 +132,7 @@ for (const layout of ['whole', 'prefix', 'suffix', 'both', 'multiple-roots'] as 
       const path = '/tests/fixtures/runtime.ts';
       const { Scope, each, element, event } = (await import(
         path
-      )) as typeof import('effectweb/dom');
+      )) as typeof import('../fixtures/runtime');
       const host = document.createElement('div');
       document.body.append(host);
       const prefix = layout === 'prefix' || layout === 'both';

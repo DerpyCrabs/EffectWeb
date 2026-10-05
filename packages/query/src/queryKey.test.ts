@@ -1,7 +1,7 @@
 import { Effect } from 'effect';
 import { expect, it } from 'vitest';
 import { encodeQueryKey, query, type QueryKey } from './query.js';
-import { makeQueryCache } from './cache.js';
+import { queryCache } from './cache.js';
 import { cacheInternals } from './cache-internals.js';
 import { queryResource } from './observe.js';
 
@@ -75,7 +75,7 @@ it('rejects unsupported inputs without executing getters', () => {
 });
 
 it('uses the same identity for query cache acquisition, selection, prefetch and invalidation', async () => {
-  const cache = makeQueryCache();
+  const cache = queryCache();
   let loads = 0;
   const definition = query({
     name: 'structured',
@@ -105,8 +105,8 @@ it('uses the same identity for query cache acquisition, selection, prefetch and 
 it('preserves string keys and isolates definitions and cache ownership', async () => {
   const first = query({ name: 'same', load: (id: string) => Effect.succeed(id) });
   const second = query({ name: 'same', load: (id: string) => Effect.succeed(id) });
-  const a = makeQueryCache();
-  const b = makeQueryCache();
+  const a = queryCache();
+  const b = queryCache();
   expect(cacheInternals(a).query(first, 'a:b')).toBe(cacheInternals(a).query(first, 'a:b'));
   expect(cacheInternals(a).query(first, 'a:b')).not.toBe(cacheInternals(a).query(second, 'a:b'));
   expect(cacheInternals(a).query(first, 'a:b')).not.toBe(cacheInternals(b).query(first, 'a:b'));
@@ -117,7 +117,7 @@ it('preserves string keys and isolates definitions and cache ownership', async (
 });
 
 it('changes selections when any nested request argument changes', () => {
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const definition = query({
     name: 'items',
     load: (args: { filter: { id: string; status: string } }) => Effect.succeed(args.filter.status),
@@ -132,7 +132,7 @@ it('changes selections when any nested request argument changes', () => {
 });
 
 it('cannot forge a definition by copying a public query', async () => {
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const original = query({ name: 'number', load: () => Effect.succeed(123) });
   const copied = { ...original };
   expect(await Effect.runPromiseExit(cache.prefetch(copied, true))).toMatchObject({

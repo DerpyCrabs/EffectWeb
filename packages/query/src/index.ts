@@ -7,12 +7,7 @@ export {
   type QueryGroup,
   type QueryEncoding,
 } from './query.js';
-export {
-  makeQueryCache,
-  scopedQueryCache,
-  type QueryCache,
-  type QueryCacheOptions,
-} from './cache.js';
+export { queryCache, type QueryCache, type QueryCacheOptions } from './cache.js';
 export { observeQuery, querySource, type QueryResource } from './observe.js';
 export {
   infiniteQuery,

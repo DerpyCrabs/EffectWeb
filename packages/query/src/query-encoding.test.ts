@@ -1,7 +1,7 @@
 import { Data, Effect, Option } from 'effect';
 import * as TestClock from 'effect/testing/TestClock';
 import { expect, it } from 'vitest';
-import { makeQueryCache, scopedQueryCache } from './cache.js';
+import { queryCache } from './cache.js';
 import { query } from './query.js';
 import { infiniteQuery, infiniteResource } from './infinite-query.js';
 import { queryResource } from './observe.js';
@@ -10,7 +10,7 @@ class Request extends Data.Class<{ readonly id: string; readonly filter: Option.
 const encode = (args: Request) => ({ id: args.id, filter: Option.getOrNull(args.filter) });
 
 it('uses explicit Effect-value encoding consistently for lookup, selection, writes and invalidation', async () => {
-  const cache = makeQueryCache();
+  const cache = queryCache();
   let loads = 0;
   const definition = query({
     name: 'effect-data',
@@ -48,10 +48,10 @@ it('uses the same explicit cursor encoding for pagination and retries', async ()
     next: (_value: string, cursor: Cursor) =>
       cursor.page < 2 ? new Cursor({ page: 2 }) : undefined,
   });
-  const cache = makeQueryCache();
+  const cache = queryCache();
   const resource = infiniteResource(cache, definition);
   resource.select(new Request({ id: 'one', filter: Option.none() }));
-  const loaded = await Effect.runPromise(resource.loadNext());
+  const loaded = await Effect.runPromise(resource.fetchNextPage());
   expect(loaded.pages.map((page) => page.value)).toEqual(['one:1', 'one:2']);
   const retried = await Effect.runPromise(resource.retryPage(new Cursor({ page: 1 })));
   expect(retried.pages.map((page) => page.value)).toEqual(['one:1', 'one:2']);
@@ -69,7 +69,10 @@ it('uses the captured Effect clock for cache freshness', async () => {
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const cache = yield* scopedQueryCache();
+        const cache = yield* Effect.acquireRelease(
+          Effect.map(Effect.context<never>(), (context) => queryCache(context)),
+          (cache) => cache.close(),
+        );
         const resource = queryResource({ cache }, definition);
         resource.select('one');
         expect(loads).toBe(1);

@@ -18,3 +18,6 @@ export const home = <Link to="/">Home</Link>;
 export const missing = <Link to="/missing">Missing</Link>;
 // @ts-expect-error Required params are checked for the chosen route.
 export const withoutParams = <Link to="/files/$name">File</Link>;
+
+// @ts-expect-error Link preloading is not implemented; use router.preloadRoute explicitly.
+export const unsupportedPreload = <Link to="/" preload="intent" />;

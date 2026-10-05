@@ -155,3 +155,63 @@ test('links preserve external destinations and native download clicks', async ()
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(history.location.pathname).toBe('/files/normal');
 });
+
+for (const phase of ['loader', 'beforeLoad', 'preload'] as const) {
+  test(`closing a router interrupts ${phase} and prevents late commits`, async () => {
+    const { Scope, Exit } = await import('effect');
+    let signal: AbortSignal | undefined;
+    let finish!: () => void;
+    let began!: () => void;
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    const root = new RootRoute();
+    const wait = ({
+      params,
+      abortController,
+    }: {
+      params: { name: string };
+      abortController: AbortController;
+    }) => {
+      if (params.name === 'seed') return;
+      signal = abortController.signal;
+      began();
+      return new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    };
+    const file = new Route({
+      getParentRoute: () => root,
+      path: 'files/$name',
+      ...(phase === 'beforeLoad' ? { beforeLoad: wait } : { loader: wait }),
+    });
+    const router = createRouter({
+      isServer: false,
+      origin: 'http://localhost',
+      routeTree: root.addChildren([file]),
+      history: createMemoryHistory({ initialEntries: ['/files/seed'] }),
+    });
+    const scope = Scope.makeUnsafe();
+    const source = await Effect.runPromise(mountRouter(router).pipe(Scope.provide(scope)));
+    const work =
+      phase === 'preload'
+        ? router.preloadRoute({ to: '/files/$name', params: { name: 'slow' } })
+        : router.navigate({ to: '/files/$name', params: { name: 'slow' } });
+    await started;
+    await Effect.runPromise(Scope.close(scope, Exit.void));
+    const snapshot = source.model();
+    expect(signal?.aborted).toBe(true);
+    finish();
+    await work;
+    expect(source.model()).toBe(snapshot);
+    expect(router.state.matches.at(-1)?.params).toEqual({ name: 'seed' });
+    expect(router.history.subscribers.size).toBe(0);
+    await expect(router.load()).rejects.toThrow('disposed router');
+    await expect(
+      router.navigate({ to: '/files/$name', params: { name: 'again' } }),
+    ).rejects.toThrow('disposed router');
+    await expect(
+      router.preloadRoute({ to: '/files/$name', params: { name: 'again' } }),
+    ).rejects.toThrow('disposed router');
+  });
+}

@@ -47,7 +47,7 @@ writeFileSync(
         ]),
       ),
       devDependencies: {
-        effect: '4.0.0-rc.118',
+        effect: '4.0.0',
         vite: '8.3.1',
         typescript: '7.0.2',
         oxlint: '1.86.0',
@@ -141,8 +141,10 @@ assert.equal(refreshedEntities.items[1], previousEntities.items[0]);
 const runtimeExports = await import(
   pathToFileURL(join(temp, 'node_modules/effectweb/dist/index.js')).href
 );
-assert.equal(runtimeExports.makeQueryCache, undefined, 'Queries live in @effectweb/query');
-assert.equal(typeof runtimeExports.commandSlots, 'function');
+assert.equal(runtimeExports.queryCache, undefined, 'Queries live in @effectweb/query');
+assert.equal(runtimeExports.commandSlot, undefined);
+assert.equal(runtimeExports.commandSlots, undefined);
+
 assert.equal(runtimeExports.lazyView, undefined, 'Specialized APIs live in effectweb/advanced');
 const runtimeManifest = JSON.parse(
   readFileSync(join(temp, 'node_modules/effectweb/package.json'), 'utf8'),
@@ -156,7 +158,8 @@ assert.deepEqual(Object.keys(runtimeManifest.exports).sort(), [
   './jsx-runtime',
   './testing',
 ]);
-assert.ok(existsSync(join(temp, 'node_modules/effectweb/AUTHORING.md')));
+assert.ok(existsSync(join(temp, 'node_modules/effectweb/docs/README.md')));
+assert.ok(existsSync(join(temp, 'node_modules/effectweb/docs/api-runtime.md')));
 const advancedExports = await import(
   pathToFileURL(join(temp, 'node_modules/effectweb/dist/advanced.js')).href
 );
@@ -224,7 +227,8 @@ writeFileSync(
 writeFileSync(
   join(temp, 'app.tsx'),
   `import { Context, Effect } from 'effect';
-import { available, defineTasks, mountView, program, uiRuntime, view, type JSX } from 'effectweb';
+import * as AsyncResult from 'effect/reactivity/AsyncResult';
+import { available, component, ownerOf, mount, program, view, type JSX } from 'effectweb';
 import Camera from '@effectweb/lucide/icons/camera';
 import type { LucideProps } from '@effectweb/lucide/types';
 import AlarmCheck from '@effectweb/lucide/icons/alarm-check';
@@ -243,19 +247,16 @@ const name: IconName = 'camera';
 // @ts-expect-error Unknown icon names must fail at compile time.
 const badName: IconName = 'not-a-lucide-icon';
 class CounterService extends Context.Service<CounterService, { increment: (value: number) => Effect.Effect<number> }>()('Counter') {}
-const runtime = uiRuntime(Context.make(CounterService, { increment: value => Effect.succeed(value + 1) }));
-const counter = defineTasks({ runtime, init: (_props: {}) => ({}) }).tasks({
-  increment: { policy: 'drop', run: (_model, value: number) => Effect.flatMap(CounterService, service => service.increment(value)) },
-});
+const services = Context.make(CounterService, { increment: value => Effect.succeed(value + 1) });
 const Frame = view<{ children?: JSX.Element }, never>((props, _send) => <section>{props.children}</section>);
-const Counter = counter.view(view((model, send) => {
-  const actions = counter.controls(send);
-  const count = available(model.tasks.increment) ?? 0;
-  return <Frame><button onClick={() => actions.run('increment', count)}><Camera size={24 + count} title="Take a photo" data-count={count} /><AlarmCheck aria-label="Alarm" />Count: {count}</button></Frame>;
+const Counter = component({ init: (_props: {}) => ({ count: AsyncResult.initial() as AsyncResult.AsyncResult<number, never> }) }, view((model, patch) => {
+  const count = available(model.count) ?? 0;
+  const increment = () => ownerOf(patch).task('count', Effect.flatMap(CounterService, service => service.increment(count)).pipe(Effect.provideContext(services)), 'drop');
+  return <Frame><button onClick={increment}><Camera size={24 + count} title="Take a photo" data-count={count} /><AlarmCheck aria-label="Alarm" />Count: {count}</button></Frame>;
 }));
 const source = program<{}, never>({ initial: {}, update: model => ({ model }) });
 document.documentElement.dataset.snapshotFrozen = String(Object.isFrozen(source.model()));
-mountView(document.getElementById('app')!, Counter, source);
+mount(document.getElementById('app')!, Counter, source);
 `,
 );
 writeFileSync(
@@ -265,7 +266,7 @@ import { defineCatalog, type Spec } from '@json-render/core';
 import { z } from 'zod';
 import { Renderer, defineRegistry, setPointer, type ActionEvent } from '@effectweb/json-render';
 import { schema } from '@effectweb/json-render/schema';
-import { mountView, program, view } from 'effectweb';
+import { mount, program, view } from 'effectweb';
 const catalog = defineCatalog(schema, { components: {
   Frame: { props: z.object({}), slots: ['default'] },
   Badge: { props: z.object({ label: z.string() }), slots: [] },
@@ -286,7 +287,7 @@ export function mountJsonRenderer(host: HTMLElement) {
   });
   const App = view<{ state: Record<string, unknown> }, ActionEvent>((model, send) =>
     <Renderer spec={spec} registry={registry} state={model.state} dispatch={send} />);
-  const unmount = mountView(host, App, source);
+  const unmount = mount(host, App, source);
   return { dispose: () => { unmount(); source.dispose(); } };
 }
 `,
@@ -378,14 +379,12 @@ for (const file of [
   'contracts.typecheck.tsx',
   'render-contract.typecheck.tsx',
   'effect-contract.typecheck.ts',
-  'async.typecheck.tsx',
   'scoped.typecheck.tsx',
   'commands.typecheck.ts',
-  'tasks.typecheck.ts',
+  'owner-task.typecheck.tsx',
   'lazy.typecheck.tsx',
   'portal.typecheck.tsx',
   'native-jsx.typecheck.ts',
-  'authoring-guide.typecheck.tsx',
 ]) {
   const source = packageImports(readFileSync(`packages/runtime/src/${file}`, 'utf8'), file);
   writeFileSync(join(temp, file), source);
@@ -456,6 +455,7 @@ writeFileSync(
     rules: {
       'effectweb/valid-view': 'error',
       'effectweb/query-key': 'error',
+      'effectweb/identity': 'error',
       'effecttsgo/floating-effect': 'error',
       'typescript/no-explicit-any': 'error',
       'typescript/no-floating-promises': ['error', { ignoreVoid: false }],
@@ -468,6 +468,16 @@ writeFileSync(
       'typescript/switch-exhaustiveness-check': 'error',
     },
   }),
+);
+writeFileSync(
+  join(temp, 'non-array-map.tsx'),
+  `import type { JSX } from 'effectweb';
+const option = { map: (render: (value: string) => JSX.Element) => render('present') };
+export function renderOption() {
+  // oxlint-disable-next-line effectweb/identity -- This receiver is a custom non-array collection.
+  return option.map(value => <b>{value}</b>);
+}
+`,
 );
 run(process.execPath, ['node_modules/typescript/bin/tsc', '--noEmit'], temp);
 // Negative type probes are checked by tsc above; syntax lint does not interpret @ts-expect-error.
@@ -542,14 +552,17 @@ const { Effect, Context, Fiber } = await import(
   Context: await import(pathToFileURL(join(temp, 'node_modules/effect/dist/Context.js')).href),
   Fiber: await import(pathToFileURL(join(temp, 'node_modules/effect/dist/Fiber.js')).href),
 }));
-const { uiRuntime } = await import(
-  pathToFileURL(join(temp, 'node_modules/effectweb/dist/index.js')).href
+const keyOwner = runtimeExports.modelOwner({});
+assert.deepEqual(
+  (await Effect.runPromise(keyOwner.run(['smoke', 1], Effect.succeed(42), 'replace').await)).value,
+  42,
 );
-const { makeQueryCache, query, scopedQueryCache } = await import(
+keyOwner.dispose();
+const { queryCache, query } = await import(
   pathToFileURL(join(temp, 'node_modules/@effectweb/query/dist/index.js')).href
 );
 const service = Context.Service('package-smoke/service');
-const cache = makeQueryCache(uiRuntime(Context.make(service, 'shared')));
+const cache = queryCache(Context.make(service, 'shared'));
 const definition = query({ name: 'smoke', load: () => service });
 assert.equal(await Effect.runPromise(cache.prefetch(definition, true)), 'shared');
 assert.equal(cache.setQueryData(definition, true, 'written'), 'written');
@@ -567,7 +580,10 @@ const queryGate = new Promise((resolve) => {
 await Effect.runPromise(
   Effect.scoped(
     Effect.gen(function* () {
-      const scopedCache = yield* scopedQueryCache();
+      const scopedCache = yield* Effect.acquireRelease(
+        Effect.sync(() => queryCache()),
+        (cache) => cache.close(),
+      );
       const scopedDefinition = query({
         name: 'packaged-scoped-load',
         load: () =>
@@ -835,7 +851,7 @@ try {
   assert.deepEqual(
     ownership.optionalTransitions,
     Array.from({ length: 4 }, () => ({
-      events: ['started', 'interrupted', 'replacement', 'replacement interrupted'],
+      events: ['started', 'replacement', 'interrupted', 'replacement interrupted'],
       errors: [],
     })),
   );
