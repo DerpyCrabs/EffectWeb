@@ -397,10 +397,10 @@ impl<'a> Visit<'a> for Lower<'_> {
             // dynamic positions. Attributes that can carry the element's children have no
             // fixed shape.
             let mut site = None;
-            if !fully_static
-                && !name.contains('-')
-                && !name.contains(':')
-                && !(children.is_empty() && supplied_children)
+            if !(fully_static
+                || name.contains('-')
+                || name.contains(':')
+                || children.is_empty() && supplied_children)
             {
                 let mut holes = vec![];
                 let attributes = if props.is_empty() {
