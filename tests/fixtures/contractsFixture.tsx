@@ -3,11 +3,11 @@ import {
   domMount,
   mount,
   program,
-  slot,
   ViewBinding,
   Portal as Overlay,
   type DomMount,
   type JSX,
+  type Slot,
 } from 'effectweb';
 // oxlint-disable-next-line no-restricted-imports -- Regression fixture exercises explicit foreign compiled content boundaries.
 import { view as importedView } from 'effectweb/dom';
@@ -32,11 +32,11 @@ const Button = view<{ label: string }, 'Clicked'>((model, send) => (
   </button>
 ));
 const Contract = view<Model, Partial<Model>>((model, send) => {
-  const cell = slot<{ text: string }>((value) => (
+  const cell: Slot<{ text: string }> = (value) => (
     <b data-cell use={model.host}>
       {model.label}:{value.text}
     </b>
-  ));
+  );
   return (
     <main>
       <select data-direct value={model.selected}>

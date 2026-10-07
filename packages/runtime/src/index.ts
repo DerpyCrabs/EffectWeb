@@ -10,7 +10,6 @@ export {
   view,
   list,
   observe,
-  slot,
   ViewBinding,
   mount,
   type View,
@@ -66,7 +65,7 @@ export {
 } from './program.js';
 
 // Sources
-export { mapSource, clock, liveSource, type Source } from './source.js';
+export { mapSource, clock, type Source } from './source.js';
 
 // Form events
 export { submit } from './form.js';

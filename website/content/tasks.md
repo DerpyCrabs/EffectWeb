@@ -85,14 +85,14 @@ import { modelOwner } from 'effectweb';
 
 declare const documents: { save: (text: string) => Effect.Effect<number, Error> }; // @hide
 
-const owner = modelOwner({
+const owner = modelOwner<{ text: string; saved: AsyncResult.AsyncResult<number, Error> }>({
   text: '',
-  saved: AsyncResult.initial() as AsyncResult.AsyncResult<number, Error>,
+  saved: AsyncResult.initial(),
 });
 export const save = (text: string) => owner.task('saved', documents.save(text), 'drop');
 ```
 
-`AsyncResult` comes from `effect/reactivity` (`import * as AsyncResult from 'effect/reactivity/AsyncResult'`), not from `effect`. Declare the field as `AsyncResult.AsyncResult<A, E>`; `AsyncResult.initial()` on its own has a narrower type, and the type error says so. In the view, read `model.saved.waiting`, `resourceError(model.saved)` and `available(model.saved)`.
+`AsyncResult` comes from `effect/reactivity` (`import * as AsyncResult from 'effect/reactivity/AsyncResult'`), not from `effect`. Give the owner its model type, as above, so the field is declared as `AsyncResult.AsyncResult<A, E>`; without it the field is inferred from `AsyncResult.initial()` alone, which is narrower, and later results do not fit. In the view, read `model.saved.waiting`, `resourceError(model.saved)` and `available(model.saved)`.
 
 A failed `AsyncResult` holds an Effect `Cause`, not your error, and in Effect 4 a `Cause` has no `_tag`. Do not inspect it by hand:
 
@@ -119,10 +119,10 @@ declare const api: {
   remove: (id: string) => Effect.Effect<void, Error>;
 }; // @hide
 
-const owner = modelOwner({
-  issues: [] as readonly Issue[],
-  searching: AsyncResult.initial() as AsyncResult.AsyncResult<readonly Issue[], Error>,
-});
+const owner = modelOwner<{
+  issues: readonly Issue[];
+  searching: AsyncResult.AsyncResult<readonly Issue[], Error>;
+}>({ issues: [], searching: AsyncResult.initial() });
 
 export const search = (text: string) =>
   owner.task(

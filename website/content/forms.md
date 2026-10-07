@@ -15,12 +15,11 @@ type Props = {
   readonly save: (id: string, title: string) => Effect.Effect<void, Error>;
 };
 
-export const RenameForm = component(
+type State = { readonly draft: string; readonly saved: AsyncResult.AsyncResult<void, Error> };
+
+export const RenameForm = component<Props, State>(
   {
-    init: (props: Snapshot<Props>) => ({
-      draft: props.title,
-      saved: AsyncResult.initial() as AsyncResult.AsyncResult<void, Error>,
-    }),
+    init: (props) => ({ draft: props.title, saved: AsyncResult.initial() }),
     identity: (props) => props.id,
   },
   view((model, patch) => {

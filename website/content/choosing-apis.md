@@ -2,16 +2,14 @@ Find what you want to do, then follow the link for an example. Everything here i
 
 ## Showing data
 
-| I want to…                                | Use                                      | Guide                                                         |
-| ----------------------------------------- | ---------------------------------------- | ------------------------------------------------------------- |
-| Show some props                           | `view((props) => …)`                     | [Views](/docs/views/)                                         |
-| Accept children or a render callback      | a `children` prop, `Slot<A>`             | [Views](/docs/views/#props-and-children)                      |
-| Render rows that can change or hold state | `list(entities(rows), render)`           | [Lists](/docs/lists/)                                         |
-| Render strings or numbers                 | `list(values, render)`                   | [Lists](/docs/lists/#choosing-a-key)                          |
-| Show loading and error states             | `available`, `resourceError`, `.waiting` | [Server data](/docs/queries/#show-the-result)                 |
-| Show the current time                     | `observe(clock(ms), render)`             | [DOM and time](/docs/dom/#show-the-current-time)              |
-| Show live data per item (who is viewing)  | `observe(liveSource(…)(id), render)`     | [DOM and time](/docs/dom/#show-live-data-from-a-subscription) |
-| Render into another element (overlays)    | `<Portal mount={element}>`               | [DOM and time](/docs/dom/#render-elsewhere-with-portal)       |
+| I want to…                                | Use                                      | Guide                                          |
+| ----------------------------------------- | ---------------------------------------- | ---------------------------------------------- |
+| Show some props                           | `view((props) => …)`                     | [Views](/docs/views/)                          |
+| Accept children or a render callback      | a `children` prop, `Slot<A>`             | [Views](/docs/views/#props-and-children)       |
+| Render rows that can change or hold state | `list(entities(rows), render)`           | [Lists](/docs/lists/)                          |
+| Render strings or numbers                 | `list(values, render)`                   | [Lists](/docs/lists/#choosing-a-key)           |
+| Show loading and error states             | `available`, `resourceError`, `.waiting` | [Server data](/docs/queries/#show-the-result)  |
+| Render into another element (overlays)    | `<Portal mount={element}>`               | [DOM](/docs/dom/#render-elsewhere-with-portal) |
 
 ## Holding state
 
@@ -47,14 +45,14 @@ Find what you want to do, then follow the link for an example. Everything here i
 
 ## The DOM, the app and tests
 
-| I want to…                                    | Use                                                       | Guide                                                   |
-| --------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------- |
-| Focus an input or attach a chart library      | `use={domMount(setup)}`, `domBinding`                     | [DOM and time](/docs/dom/)                              |
-| Let a controller scroll or measure an element | `domHandle()`                                             | [DOM and time](/docs/dom/#give-a-controller-an-element) |
-| Start the app and provide services            | `makeMount`, a `context` option                           | [App setup](/docs/services/)                            |
-| Catch a rendering error                       | `errorBoundary(view, { fallback })`                       | [App setup](/docs/services/#catch-rendering-errors)     |
-| Add routing                                   | `@effectweb/tanstack-router`                              | [Integrations](/docs/integrations/#routing)             |
-| Test a view or a request race                 | `renderView`, `controlledEffect` from `effectweb/testing` | [Testing](/docs/testing/)                               |
+| I want to…                                    | Use                                                       | Guide                                               |
+| --------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------- |
+| Focus an input or attach a chart library      | `use={domMount(setup)}`, `domBinding`                     | [DOM](/docs/dom/)                                   |
+| Let a controller scroll or measure an element | `domHandle()`                                             | [DOM](/docs/dom/#give-a-controller-an-element)      |
+| Start the app and provide services            | `makeMount`, a `context` option                           | [App setup](/docs/services/)                        |
+| Catch a rendering error                       | `errorBoundary(view, { fallback })`                       | [App setup](/docs/services/#catch-rendering-errors) |
+| Add routing                                   | `@effectweb/tanstack-router`                              | [Integrations](/docs/integrations/#routing)         |
+| Test a view or a request race                 | `renderView`, `controlledEffect` from `effectweb/testing` | [Testing](/docs/testing/)                           |
 
 ## Import paths
 

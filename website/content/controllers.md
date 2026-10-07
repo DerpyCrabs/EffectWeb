@@ -12,9 +12,9 @@ import { modelOwner } from 'effectweb';
 declare const documents: { save: (text: string) => Effect.Effect<number, Error> }; // @hide
 
 export function documentController() {
-  const owner = modelOwner({
+  const owner = modelOwner<{ text: string; saved: AsyncResult.AsyncResult<number, Error> }>({
     text: '',
-    saved: AsyncResult.initial() as AsyncResult.AsyncResult<number, Error>,
+    saved: AsyncResult.initial(),
   });
 
   return {

@@ -11,7 +11,7 @@ export interface Diagnostic {
   readonly remedy: string;
 }
 export interface CompilerOptions {
-  /** The module exporting view and slot. Defaults to effectweb. */
+  /** The module exporting view. Defaults to effectweb. */
   importSource?: string;
   runtimeModule?: string;
   development?: boolean;

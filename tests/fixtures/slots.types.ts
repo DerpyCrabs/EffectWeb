@@ -1,10 +1,8 @@
-import { slot, type JSX, type Slot } from 'effectweb';
+import type { JSX, Slot } from 'effectweb';
 
 export function slotTypes(content: Slot<{ title: string }>, footer: Slot) {
-  // oxlint-disable-next-line effectweb/valid-view -- Type-only slot inference probe is never mounted or executed.
-  const inferred: Slot<{ title: string }> = slot((value) => value.title);
-  // oxlint-disable-next-line effectweb/valid-view -- Type-only slot assignment probe is never mounted or executed.
-  const simple: JSX.Element = slot(() => 'Footer')();
+  const inferred: Slot<{ title: string }> = (value) => value.title;
+  const simple: JSX.Element = (() => 'Footer')();
   const child: JSX.Element = content({ title: 'Typed content' });
   const empty: JSX.Element = footer();
   // @ts-expect-error Parameterized slots need their placement value.

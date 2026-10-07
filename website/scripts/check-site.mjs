@@ -57,7 +57,7 @@ for (const [url, doc] of documents) {
   for (const element of doc.querySelectorAll('a[href], link[href], script[src], img[src]'))
     await checkLink(element.getAttribute('href') ?? element.getAttribute('src'), url);
   assert.ok(doc.querySelector('link[rel="stylesheet"]'), `${url}: missing production styles`);
-  assert.ok(doc.querySelector('script[src="/assets/site.js"]'), `${url}: missing production entry`);
+  assert.ok(doc.querySelector('script[type="module"][src]'), `${url}: missing production entry`);
 }
 const search = JSON.parse(await readFile(path.join(output, 'search.json'), 'utf8'));
 assert.ok(search.length > 150, 'Expected searchable guides and API symbols');

@@ -86,7 +86,7 @@ const referencePages = [
     description: 'Every export of the main package, grouped by topic.',
     entries: ['effectweb'],
     categories: [
-      ['Views', ['view', 'ViewBinding', 'slot', 'View', 'Send', 'Slot', 'JSX', 'CompiledContent']],
+      ['Views', ['view', 'ViewBinding', 'View', 'Send', 'Slot', 'JSX', 'CompiledContent']],
       ['Lists', ['list', 'entities', 'sequence', 'collection', 'Rows', 'Collection']],
       ['Components', ['component', 'ownerOf', 'ComponentOwner', 'FieldsPatch']],
       [
@@ -107,7 +107,7 @@ const referencePages = [
         ['program', 'RunPolicy', 'RunKey', 'Command', 'Transition', 'Program', 'RunningProgram'],
       ],
       ['Showing results', ['available', 'resourceError']],
-      ['Sources', ['observe', 'mapSource', 'clock', 'liveSource', 'Source']],
+      ['Sources', ['observe', 'mapSource', 'clock', 'Source']],
       [
         'DOM',
         [

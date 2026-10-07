@@ -40,11 +40,9 @@ const runtime = {
     },
 };
 function execute(source: string, development = false): Record<string, unknown> {
-  const result = compileSource(
-    `import { view, slot } from 'effectweb';\n${source}`,
-    'semantics.tsx',
-    { development },
-  );
+  const result = compileSource(`import { view } from 'effectweb';\n${source}`, 'semantics.tsx', {
+    development,
+  });
   const js = transformSync(result.code, { target: 'es2022', format: 'cjs', loader: 'ts' }).code;
   const exports = {};
   // Execute generated code against a value-only JSX host to inspect JavaScript evaluation.
@@ -178,9 +176,9 @@ it('passes __proto__ as an own JSX prop without changing the props prototype', (
     export const output=<Panel __proto__={{injected:true}}/>;`);
   expect(output).toEqual({ own: true, value: { injected: true }, inherited: undefined });
 });
-it('supports namespace components, ordinary slot callbacks and higher-order view factories', () => {
+it('supports namespace components, ordinary render callbacks and higher-order view factories', () => {
   const { render } = execute(`import * as EW from 'effectweb';
-    const make=factory=>factory;const define=make(EW.view);const row=slot(({label})=><b>{label}</b>);
+    const make=factory=>factory;const define=make(EW.view);const row=({label})=><b>{label}</b>;
     const ui={Panel:define(props=><section>{props.children}</section>)};
     export const render=define(model=><ui.Panel>{row(model)}</ui.Panel>);`) as {
     render: (model: object) => unknown;
@@ -252,7 +250,6 @@ it.each([
   "import {view} from 'effectweb'; const escaped=[view]; export {escaped};",
   "export {view as render} from 'effectweb';",
   "export * from 'effectweb';",
-  "import {slot} from 'effectweb'; export const content=slot(()=> 'hello');",
 ])('preserves ordinary public functions and exports: %s', (source) => {
   expect(compileSource(source, 'ordinary.ts').code).toBe(source);
 });

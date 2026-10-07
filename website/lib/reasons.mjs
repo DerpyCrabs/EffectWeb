@@ -19,7 +19,6 @@ export const reasons = {
   list: 'Give rows a stable identity so focus, local component state, DOM resources, and running tasks follow the right entity through edits and reordering. Use entities for id fields, an explicit identity function for other keys, or sequence for positional content.',
   observe:
     'Place a Source inside a view and let the renderer own the subscription. Use it for clocks, query results, and projected external state; observations are released when their placement disappears.',
-  slot: 'Name reusable renderable content with a typed input, such as a row or footer a wrapper renders. The compiler lints the slot body as render code.',
   ViewBinding:
     'Place a message-emitting view with an explicit model and send function. It keeps the dispatcher visible in the type contract instead of relying on implicit context.',
   mount:
@@ -62,8 +61,6 @@ export const reasons = {
     'Derive an observable snapshot from an existing Source. Construct it once outside rendering to preserve subscription identity.',
   clock:
     'Publish time as observable model data. Observe it instead of reading Date.now() while rendering, because a view has no hidden clock dependency.',
-  liveSource:
-    'One live value per key from a subscription API, subscribed while observed and stopped when the last observer leaves. Use it for presence or live prices instead of managing unsubscribe functions by hand.',
   submit:
     'Adapt a form submit handler and always prevent the browser’s default navigation. Keep controlled values in state and choose an owned task for submission work.',
   projectionSource:
@@ -76,8 +73,6 @@ export const reasons = {
     'Supply an explicit equality comparison at a view boundary. Use only when the default identity and shallow-prop comparison does not express the relevant rendering inputs.',
   lazyView:
     'Load a view module through an owned Effect. Use for code splitting with explicit pending and failure presentation; interrupting the wait cannot cancel a browser module download.',
-  programDriver:
-    'Inspect active command keys and await settlement in program tests. Pass the Context the program got, and run() executes test Effects with the same services.',
   controlledEffect:
     'Create a request that tests settle explicitly with succeed, fail, or die. Its pending and canceled counters make request races and lifetime behavior observable.',
   renderView:
@@ -191,8 +186,6 @@ Object.assign(reasons, {
     'Per-field structural-sharing strategies for shareValue. Use when a model mixes ordinary immutable fields with collections needing domain-aware reconciliation.',
   LazyViewOptions:
     'The pending and failure views of a deferred view. The lazy placement owns its loading lifetime; the loader runs with the services captured by makeMount.',
-  ProgramDriver:
-    'The test-facing program contract with active keys, settlement helpers, and execution under application services. It avoids timing guesses and private scheduler access.',
   RenderedView:
     'A mounted test view that accepts replacement input and records emitted messages. Dispose it after a test to release DOM resources and event work.',
   Query:

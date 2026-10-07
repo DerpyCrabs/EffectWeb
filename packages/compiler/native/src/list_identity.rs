@@ -399,9 +399,7 @@ impl InlineBindings {
                     "view" => found.views.push(local),
                     "domMount" => found.mounts.push(local),
                     "domBinding" => found.bindings.push(local),
-                    "mapSource" | "clock" | "collection" | "liveSource" => {
-                        found.sources.push(local)
-                    }
+                    "mapSource" | "clock" | "collection" => found.sources.push(local),
                     _ => {}
                 }
             }

@@ -1,7 +1,5 @@
 import { protectSnapshot, type Snapshot } from './snapshot.js';
 import { reportError, reportSafely } from './errors.js';
-import { encodeKey } from './command-key.js';
-import type { RunKey } from './program.js';
 
 /** A current immutable value and its publications. Observation does not own the producer. */
 export interface Source<A> {
@@ -184,97 +182,5 @@ export function clock(interval: number): Source<number> {
         if (!listeners.size) clearInterval(timer);
       };
     },
-  };
-}
-
-/**
- * A live value per key, such as who is viewing a card or a stock price, from a subscription
- * API. `subscribe(key, publish)` starts when something first observes the key and the function
- * it returns stops it when the last observer leaves, so `observe(viewers(card.id), render)`
- * watches a card exactly while that part of the page is shown. Equal keys share one
- * subscription. Until the first publication, and after it stops, the value is `initial(key)`.
- */
-export function liveSource<Key extends RunKey, A>(options: {
-  readonly initial: (key: Key) => A;
-  readonly subscribe: (key: Key, publish: (value: A) => void) => () => void;
-}): (key: Key) => Source<A> {
-  type Entry = {
-    value: Snapshot<A>;
-    listeners: Set<(value: Snapshot<A>) => void>;
-    stop?: (() => void) | undefined;
-    starting: boolean;
-  };
-  const entries = new Map<string, { entry: Entry; source: Source<A> }>();
-  const create = (key: Key, id: string) => {
-    const entry: Entry = {
-      value: protectSnapshot(options.initial(key)) as Snapshot<A>,
-      listeners: new Set(),
-      starting: false,
-    };
-    const source: Source<A> = {
-      // A retained handle follows the current entry after the idle entry was evicted.
-      model: () => {
-        const current = entries.get(id);
-        return current ? current.entry.value : entry.value;
-      },
-      subscribe(listener) {
-        const current = entries.get(id);
-        if (current && current.entry !== entry) return current.source.subscribe(listener);
-        // Each subscription owns its own listener, even when callbacks are shared.
-        const notify = (value: Snapshot<A>) => listener(value);
-        entry.listeners.add(notify);
-        if (!entry.stop && !entry.starting) {
-          if (!entries.has(id)) entries.set(id, { entry, source });
-          let active = true;
-          entry.starting = true;
-          try {
-            const stop = options.subscribe(key, (value) => {
-              if (!active) return;
-              const next = protectSnapshot(value) as Snapshot<A>;
-              if (Object.is(next, entry.value)) return;
-              entry.value = next;
-              for (const notify of Array.from(entry.listeners)) notify(next);
-            });
-            entry.stop = () => {
-              active = false;
-              stop();
-            };
-          } catch (error) {
-            active = false;
-            entry.listeners.delete(notify);
-            if (!entry.listeners.size) release();
-            throw error;
-          } finally {
-            entry.starting = false;
-          }
-          // A publication during setup may have ended the observation already.
-          if (!entry.listeners.size) release();
-        }
-        let subscribed = true;
-        return () => {
-          if (!subscribed) return;
-          subscribed = false;
-          entry.listeners.delete(notify);
-          if (!entry.listeners.size) release();
-        };
-      },
-    };
-    const release = () => {
-      const stop = entry.stop;
-      entry.stop = undefined;
-      if (entries.get(id)?.entry === entry) entries.delete(id);
-      entry.value = protectSnapshot(options.initial(key)) as Snapshot<A>;
-      stop?.();
-    };
-    return { entry, source };
-  };
-  return (key) => {
-    const id = encodeKey(key);
-    let found = entries.get(id);
-    if (!found) {
-      found = create(key, id);
-      entries.set(id, found);
-    }
-    return found.source;
   };
 }

@@ -107,7 +107,7 @@ A view that sends messages is placed with `<ViewBinding view={…} model={…} s
 
 ## Rendering from inputs
 
-A view describes the current screen from its inputs. Put changing values in state or observe a source, such as a [clock](/docs/dom/#show-the-current-time). Reading `Date.now()`, `Math.random()`, storage or mutable globals during rendering does not subscribe to changes. Start work and change state in handlers or controllers, not while rendering. The compiler’s [lint rules](/docs/compiler/#diagnostic-codes) catch common mistakes.
+A view describes the current screen from its inputs. Put changing values in state or observe a source. Reading `Date.now()`, `Math.random()`, storage or mutable globals during rendering does not subscribe to changes. For the current time, declare `const minute = clock(60_000)` at module scope and render `observe(minute, (now) => …)`; the clock ticks only while observed. Start work and change state in handlers or controllers, not while rendering. The compiler’s [lint rules](/docs/compiler/#diagnostic-codes) catch common mistakes.
 
 ## When a view runs again
 

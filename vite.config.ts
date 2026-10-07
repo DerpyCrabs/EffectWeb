@@ -17,7 +17,7 @@ export default defineConfig({
     include: ['packages/*/src/**/*.test.ts', 'tests/unit/**/*.test.ts'],
   },
   lint: {
-    ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**', 'vendor/**'],
+    ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**', 'vendor/**', 'website/**'],
     plugins: ['typescript', 'unicorn', 'oxc', 'effecttsgo'],
     jsPlugins: ['./packages/compiler/dist/oxlint.js'],
     options: { typeAware: true, typeCheck: true },
@@ -90,7 +90,14 @@ export default defineConfig({
     ],
   },
   fmt: {
-    ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**', 'vendor/**'],
+    ignorePatterns: [
+      '**/dist/**',
+      '**/target/**',
+      'artifacts/**',
+      'vendor/**',
+      'website/node_modules/**',
+      'website/.astro/**',
+    ],
     semi: true,
     singleQuote: true,
     objectWrap: 'collapse',

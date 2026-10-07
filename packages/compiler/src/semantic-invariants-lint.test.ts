@@ -263,8 +263,7 @@ it.each([
     `import {view, list, entities} from 'effectweb'; view(m=><ul>{list(entities(m.rows),(r)=><li>{Math.random()}</li>)}</ul>);`,
     /random/u,
   ],
-  [`import {slot} from 'effectweb'; export const S=slot((v)=><b>{Date.now()}</b>);`, /Date/u],
-])('checks list and slot render callbacks as render code: %s', (source, error) => {
+])('checks list render callbacks as render code: %s', (source, error) => {
   expect(() => checkRender(source, 'render-callbacks.tsx')).toThrow(error);
 });
 

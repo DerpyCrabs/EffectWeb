@@ -7,7 +7,6 @@ export {
   block,
   captured,
   view,
-  slot,
   list,
   ViewBinding,
   text,

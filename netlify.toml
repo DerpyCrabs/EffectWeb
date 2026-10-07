@@ -1,8 +1,9 @@
 [build]
-command = "npm run build:site && npm run test:site"
+command = "npm run install:site && npm run build:site && npm run test:site"
 publish = "website/dist"
 
 [build.environment]
 NODE_VERSION = "24"
 
-# Each documentation URL has its own index.html. No SPA rewrite or server is needed.
+# The site is an Astro static build in website/ with its own dependencies. Each documentation
+# URL has its own index.html; no SPA rewrite or server is needed.

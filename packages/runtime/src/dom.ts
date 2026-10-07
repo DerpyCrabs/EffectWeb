@@ -178,10 +178,6 @@ export interface CompiledContent {
 export interface Slot<A = void> {
   (value: A | Snapshot<A>): JSX.Element;
 }
-/* @__NO_SIDE_EFFECTS__ */
-export function slot<A = void>(render: (value: Snapshot<A>) => JSX.Element): Slot<A> {
-  return render as Slot<A>;
-}
 interface MountedContent extends ContentRange {
   set(value: unknown): void;
   dispose(): void;
@@ -772,7 +768,6 @@ class ElementMount implements MountedContent {
     if (adopted || !input) {
       // An existing element of a cloned site.
       this.node = adopted!;
-      trackClonedStyle(this.node);
       this.select = adopted!.tagName === 'SELECT';
       return;
     }
@@ -784,7 +779,6 @@ class ElementMount implements MountedContent {
       if (skeleton) {
         // Clone the site's static tree and bind only its dynamic positions.
         this.node = skeleton.cloneNode(true) as Element;
-        trackClonedStyle(this.node);
         this.select = tag === 'select';
         this.block = site;
         this.holes = [];
@@ -804,7 +798,6 @@ class ElementMount implements MountedContent {
     const template = value.still ? staticTemplate(tag, value, svg) : undefined;
     if (template) {
       this.node = template.cloneNode(true) as Element;
-      trackClonedStyle(this.node);
       this.select = false;
       this.attrs = value.attrs;
       this.applied = value.attrs ?? noAttributes;
@@ -882,7 +875,7 @@ class ElementMount implements MountedContent {
       holes.push(mount);
       if (mount.select) (this.selects ??= []).push(mount);
       const applied = values[this.cursor++] as MarkupAttributes;
-      mount.applyAttributes(applied ?? noAttributes);
+      mount.applyAttributes(applied ?? noAttributes, true);
       mount.attrs = applied;
     } else if (root) {
       this.attrs = attrs;
@@ -1126,8 +1119,11 @@ class ElementMount implements MountedContent {
     }
     if (errors) reportSafely(this.report, new AggregateError(errors, 'UI work failed'));
   }
-  /** Reconcile merged JSX attributes. Each host, event and control owns its cleanup. */
-  applyAttributes(next: Readonly<Record<string, unknown>>) {
+  /**
+   * Reconcile merged JSX attributes. Each host, event and control owns its cleanup. `fresh`
+   * marks a cloned element that has no attributes of its own yet.
+   */
+  applyAttributes(next: Readonly<Record<string, unknown>>, fresh = false) {
     const element = this.node;
     const previous = this.applied;
     if (previous !== noAttributes)
@@ -1160,9 +1156,9 @@ class ElementMount implements MountedContent {
         this.bind(name, value, false);
         continue;
       }
-      if (!Object.hasOwn(previous, name) || !Object.is(previous[name], value)) {
+      if (fresh || !Object.hasOwn(previous, name) || !Object.is(previous[name], value)) {
         if (controlConstraints.has(name)) constrained = true;
-        attribute(element, name, value);
+        attribute(element, name, value, fresh);
       }
     }
     if (controls) for (const name of controls) this.bind(name, next[name], constrained);
@@ -1683,10 +1679,6 @@ function styleValue(property: string, value: unknown): string {
 let booleanAttributes: Set<string> | undefined;
 const styleProperties = new WeakMap<Element, Set<string>>();
 /** Cloning copies CSS declarations but not the reconciliation metadata of the template. */
-function trackClonedStyle(element: Element) {
-  if (element.hasAttribute('style') && 'style' in element)
-    styleProperties.set(element, new Set(Array.from(element.style as CSSStyleDeclaration)));
-}
 function scalar(value: unknown): string {
   if (value == null) return '';
   if (
@@ -1700,7 +1692,9 @@ function scalar(value: unknown): string {
     'DOM values must be scalar. Render objects as compiled child views or domain collections.',
   );
 }
-export function attribute(element: Element, name: string, value: unknown) {
+/** `fresh` marks a cloned element with no attributes yet: nothing to compare or remove. */
+export function attribute(element: Element, name: string, value: unknown, fresh = false) {
+  if (fresh && value == null) return;
   const aliases: Readonly<Record<string, string>> = attributeData.aliases;
   const key = aliases[name] ?? name;
   const booleanValues: Readonly<Record<string, Readonly<Record<string, string>>>> =
@@ -1727,8 +1721,10 @@ export function attribute(element: Element, name: string, value: unknown) {
         ] as const,
     );
     const next = new Set(entries.map(([property]) => property));
-    for (const property of styleProperties.get(element) ?? [])
-      if (!next.has(property)) style.removeProperty(property);
+    // An untracked element may carry the inline style of the template it was cloned from.
+    const current =
+      styleProperties.get(element) ?? (element.hasAttribute('style') ? Array.from(style) : []);
+    for (const property of current) if (!next.has(property)) style.removeProperty(property);
     for (const [property, value] of entries) style.setProperty(property, value);
     styleProperties.set(element, next);
   } else if (name === 'value' && 'value' in element && element.localName !== 'option') {
@@ -1755,9 +1751,9 @@ export function attribute(element: Element, name: string, value: unknown) {
     element.removeAttribute(key);
   } else {
     const next = scalar(value);
-    if (element.getAttribute(key) !== next) element.setAttribute(key, next);
+    if (fresh || element.getAttribute(key) !== next) element.setAttribute(key, next);
   }
-  if (key === 'class')
+  if (key === 'class' && !fresh)
     for (const token of classTokens.get(element) ?? []) element.classList.add(token);
   if (name === 'style' && (value == null || typeof value !== 'object')) {
     if (value == null) styleProperties.delete(element);
@@ -1782,7 +1778,28 @@ const isEvent = (name: string) => {
     eventNames.set(name, (event = /^on[A-Z]/u.test(name) || name.startsWith('on:')));
   return event;
 };
-const controlRestorations = new WeakMap<EventTarget, Set<(type: string, event: Event) => void>>();
+/** A controlled element's edit tracking, reached from the mount root's capture listeners. */
+interface ControlState {
+  handled(type: string, event: Event): void;
+  edit(event: Event): void;
+  start(): void;
+  end(): void;
+}
+const controlStates = new WeakMap<EventTarget, Set<ControlState>>();
+const controlEvents = ['input', 'compositionstart', 'compositionend'] as const;
+// Nested roots see the same event; its control state is updated once.
+const controlDispatched = new WeakSet<Event>();
+function dispatchControl(event: Event) {
+  if (controlDispatched.has(event)) return;
+  controlDispatched.add(event);
+  const states = event.target && controlStates.get(event.target);
+  if (!states) return;
+  for (const state of states) {
+    if (event.type === 'input') state.edit(event);
+    else if (event.type === 'compositionstart') state.start();
+    else state.end();
+  }
+}
 
 /** Handled edits can change a control even when dispatch publishes no new model. */
 export function bindControl<M, E>(
@@ -1905,19 +1922,14 @@ export function bindControl<M, E>(
     } else if (type === 'click') handledClick = true;
     restore();
   };
-  let restorations = controlRestorations.get(element);
-  if (!restorations) controlRestorations.set(element, (restorations = new Set()));
-  restorations.add(handled);
-  element.addEventListener('compositionstart', start);
-  element.addEventListener('compositionend', end);
-  element.addEventListener('input', edit, true);
+  const state: ControlState = { handled, edit, start, end };
+  let states = controlStates.get(element);
+  if (!states) controlStates.set(element, (states = new Set()));
+  states.add(state);
   scope.cleanups.push(() => {
     clearTimeout(pending);
-    restorations.delete(handled);
-    if (!restorations.size) controlRestorations.delete(element);
-    element.removeEventListener('compositionstart', start);
-    element.removeEventListener('compositionend', end);
-    element.removeEventListener('input', edit, true);
+    states.delete(state);
+    if (!states.size) controlStates.delete(element);
   });
 }
 
@@ -2307,8 +2319,28 @@ function dispatchDelegated(event: Event) {
     delete (event as { eventPhase?: unknown }).eventPhase;
   }
 }
+const armedKey = (type: string) => `$ew:armed:${type}`;
+/**
+ * A delegated type dispatched without bubbling (a synthetic `new Event('click')`) never
+ * reaches the root's bubble listener. Its target gets a one-shot listener while the event is
+ * still capturing, so the handler runs at the target in its native order.
+ */
+const armedFlags = (node: EventTarget) => node as unknown as Record<string, boolean | undefined>;
+function armNonBubbling(event: Event) {
+  const target = event.target;
+  if (!target || !delegatedHandlers(target as Node)[delegateKey(event.type)]) return;
+  const armed = armedKey(event.type);
+  if (armedFlags(target)[armed]) return;
+  armedFlags(target)[armed] = true;
+  target.addEventListener(event.type, dispatchNonBubblingOnce, { once: true });
+}
+function dispatchNonBubblingOnce(event: Event) {
+  armedFlags(event.currentTarget!)[armedKey(event.type)] = false;
+  dispatchNonBubbling(event);
+}
 /** Reset progress once per dispatch, including redispatch of the same Event. */
 function beginDelegatedDispatch(event: Event) {
+  if (!event.bubbles) armNonBubbling(event);
   const path = event.composedPath();
   for (let index = path.length - 1; index >= 0; index--) {
     if (delegationHosts.has(path[index] as Node)) {
@@ -2337,7 +2369,10 @@ function delegate(type: string) {
 function delegationHost(host: Node): () => void {
   const count = delegationHosts.get(host) ?? 0;
   delegationHosts.set(host, count + 1);
-  if (!count) for (const type of delegatedTypes) listenAt(host, type);
+  if (!count) {
+    for (const type of delegatedTypes) listenAt(host, type);
+    for (const type of controlEvents) host.addEventListener(type, dispatchControl, true);
+  }
   let released = false;
   return () => {
     if (released) return;
@@ -2352,6 +2387,7 @@ function delegationHost(host: Node): () => void {
       host.removeEventListener(type, dispatchDelegated);
       host.removeEventListener(type, beginDelegatedDispatch, true);
     }
+    for (const type of controlEvents) host.removeEventListener(type, dispatchControl, true);
   };
 }
 /**
@@ -2395,8 +2431,8 @@ class EventBinding implements Binding {
       // Restore only after an application handler commits or rejects an edit.
       // The target also covers handlers delegated to an ancestor.
       if (event.target && restoringEvents.has(this.type)) {
-        const restorations = controlRestorations.get(event.target);
-        if (restorations) for (const restore of restorations) restore(this.type, event);
+        const states = controlStates.get(event.target);
+        if (states) for (const state of states) state.handled(this.type, event);
       }
     }
   }
@@ -2414,16 +2450,13 @@ class EventBinding implements Binding {
     if (this.delegated) {
       delegatedHandlers(this.element)[delegateKey(this.type)] = this;
       delegate(this.type);
-      this.element.addEventListener(this.type, dispatchNonBubbling);
     } else this.element.addEventListener(this.type, this, this.capture);
   }
   private stop() {
     if (this.listening) {
       this.listening = false;
-      if (this.delegated) {
-        delegatedHandlers(this.element)[delegateKey(this.type)] = undefined;
-        if (!detaching) this.element.removeEventListener(this.type, dispatchNonBubbling);
-      } else if (!detaching) this.element.removeEventListener(this.type, this, this.capture);
+      if (this.delegated) delegatedHandlers(this.element)[delegateKey(this.type)] = undefined;
+      else if (!detaching) this.element.removeEventListener(this.type, this, this.capture);
     }
     this.effects?.dispose();
     this.effects = undefined;

@@ -43,21 +43,21 @@ The rules recognize `view`, `list`, `domMount`, the other helpers only when they
 
 ## Diagnostic codes
 
-| Code   | Problem                                                                  | Fix                                                                                       |
-| ------ | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| EW1001 | `key`, `ref` or `innerHTML` in JSX                                       | `list(entities(rows), render)` for keys, `use={domMount(setup)}` for elements             |
-| EW1003 | `send` or `patch` called while rendering                                 | Call it from an event handler, a `domMount` setup or a controller                         |
-| EW1003 | `new Date()` or `Math.random()` while rendering                          | `observe(clock(…), …)`; create random values in an event or Effect                        |
-| EW1003 | `model.rows.sort()` or `.push()` in a view                               | Copy first: `[...model.rows].sort()`                                                      |
-| EW1003 | `onClick={async () => { await save(); }}`                                | `onClick={() => save}`, or run it through an owner                                        |
-| EW1004 | `update` writes to its model, calls a prop callback or runs an Effect    | Return a copied model, and return the work as a command                                   |
-| EW1005 | `owner.patch` in `Effect.ensuring` of work run under `replace`           | `owner.task(field, effect, 'replace')`, or `Effect.tap` + `Effect.tapCause`               |
-| EW1006 | `makeMount(…)` called as a statement                                     | `yield* makeMount(…)` inside your app's Effect, or `mount(…)` outside Effect              |
-| EW2001 | Reading a changing module variable or unknown global in a view           | Put the value in the model                                                                |
-| EW2002 | `query({ key: [...], load })`                                            | Remove `key`; every argument is already part of the identity                              |
-| EW3001 | Any `.map` callback returning JSX                                        | `list(scalars, render)`, `list(entities(rows), render)` or `list(rows, identity, render)` |
-| EW3002 | `domMount(…)` created inside a view                                      | Declare it at module scope                                                                |
-| EW3004 | `mapSource`, `clock`, `liveSource` or `collection` created inside a view | Declare it once outside the view                                                          |
-| EW3005 | `list(sequence(rows.filter(…)), …)` with inputs                          | `list(entities(rows.filter(…)), …)`                                                       |
-| EW3006 | A key built from the row index                                           | Key by a domain field such as `row.id`                                                    |
-| EW3007 | A function named `use…`, or a constant holding one                       | Name it as a noun, such as `selectionController`                                          |
+| Code   | Problem                                                               | Fix                                                                                       |
+| ------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| EW1001 | `key`, `ref` or `innerHTML` in JSX                                    | `list(entities(rows), render)` for keys, `use={domMount(setup)}` for elements             |
+| EW1003 | `send` or `patch` called while rendering                              | Call it from an event handler, a `domMount` setup or a controller                         |
+| EW1003 | `new Date()` or `Math.random()` while rendering                       | `observe(clock(…), …)`; create random values in an event or Effect                        |
+| EW1003 | `model.rows.sort()` or `.push()` in a view                            | Copy first: `[...model.rows].sort()`                                                      |
+| EW1003 | `onClick={async () => { await save(); }}`                             | `onClick={() => save}`, or run it through an owner                                        |
+| EW1004 | `update` writes to its model, calls a prop callback or runs an Effect | Return a copied model, and return the work as a command                                   |
+| EW1005 | `owner.patch` in `Effect.ensuring` of work run under `replace`        | `owner.task(field, effect, 'replace')`, or `Effect.tap` + `Effect.tapCause`               |
+| EW1006 | `makeMount(…)` called as a statement                                  | `yield* makeMount(…)` inside your app's Effect, or `mount(…)` outside Effect              |
+| EW2001 | Reading a changing module variable or unknown global in a view        | Put the value in the model                                                                |
+| EW2002 | `query({ key: [...], load })`                                         | Remove `key`; every argument is already part of the identity                              |
+| EW3001 | Any `.map` callback returning JSX                                     | `list(scalars, render)`, `list(entities(rows), render)` or `list(rows, identity, render)` |
+| EW3002 | `domMount(…)` created inside a view                                   | Declare it at module scope                                                                |
+| EW3004 | `mapSource`, `clock` or `collection` created inside a view            | Declare it once outside the view                                                          |
+| EW3005 | `list(sequence(rows.filter(…)), …)` with inputs                       | `list(entities(rows.filter(…)), …)`                                                       |
+| EW3006 | A key built from the row index                                        | Key by a domain field such as `row.id`                                                    |
+| EW3007 | A function named `use…`, or a constant holding one                    | Name it as a noun, such as `selectionController`                                          |

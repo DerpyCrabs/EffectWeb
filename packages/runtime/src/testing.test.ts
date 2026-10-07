@@ -2,7 +2,8 @@ import { Context, Deferred, Effect, Fiber } from 'effect';
 import { TestClock } from 'effect/testing';
 import { describe, expect, it } from 'vitest';
 import { program } from './program.js';
-import { programDriver, controlledEffect } from './testing.js';
+import { controlledEffect } from './testing.js';
+import { programDriver } from '../../../tests/fixtures/testing-support.js';
 
 const commandRead = 'read';
 const commandDelay = 'delay';

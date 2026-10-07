@@ -392,17 +392,3 @@ it('accepts controller actions whose names look like collection methods', () => 
     checkRender(`view((model:any)=><button onClick={()=>model.tags.add(1)}/>);`),
   ).toThrow(/mutating method add/u);
 });
-
-it('accepts reading a liveSource by key while rendering, and reports creating one in a view', () => {
-  const header = `import { liveSource, observe, view } from 'effectweb';`;
-  expect(() =>
-    checkRender(
-      `import { liveSource, observe } from 'effectweb'; const viewers = liveSource({ initial: (_id: string) => [] as string[], subscribe: (_id, _publish) => () => {} }); view<{ id: string }>((m) => <p>{observe(viewers(m.id), (names) => names.join(', '))}</p>);`,
-    ),
-  ).not.toThrow();
-  const inline = lint(
-    `${header} export const V = view<{ id: string }>((m) => <p>{observe(liveSource({ initial: (_id: string) => 0, subscribe: () => () => {} })(m.id), (n) => n)}</p>);`,
-    'inline.tsx',
-  );
-  expect(inline.map((d) => d.code)).toContain('EW3004');
-});

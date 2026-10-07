@@ -3,7 +3,6 @@ import { Cause, Effect } from 'effect';
 import {
   component,
   ownerOf,
-  slot,
   type Slot,
   program,
   domMount,
@@ -459,11 +458,7 @@ export async function slotBoundaryFixture() {
     },
   });
   const Root = view<{ broken: boolean }>((model) => (
-    <Safe
-      content={slot(() => (
-        <span>{checked(model.broken, 'slot failed')}</span>
-      ))}
-    />
+    <Safe content={() => <span>{checked(model.broken, 'slot failed')}</span>} />
   ));
   const owner = modelOwner({ broken: false });
   const stop = mount(host, Root, owner.source, {

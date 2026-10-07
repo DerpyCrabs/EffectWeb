@@ -1047,21 +1047,15 @@ impl<'a> Analyzer<'a, '_> {
                 if self.framework(module)
                     && matches!(
                         path.first().map(String::as_str),
-                        Some("domMount" | "domBinding" | "slot")
+                        Some("domMount" | "domBinding")
                     ) =>
             {
                 Value::new(Kind::Compiled)
             }
             Kind::Import(ref module, ref path)
                 if self.framework(module)
-                    && [
-                        "collection",
-                        "component",
-                        "controllerView",
-                        "ownerOf",
-                        "liveSource",
-                    ]
-                    .contains(&path.first().map(String::as_str).unwrap_or("")) =>
+                    && ["collection", "component", "controllerView", "ownerOf"]
+                        .contains(&path.first().map(String::as_str).unwrap_or("")) =>
             {
                 Value::new(Kind::Api(module.clone(), path.clone(), arguments.to_vec()))
             }
@@ -1233,7 +1227,7 @@ impl<'a> Analyzer<'a, '_> {
                     if let Some(argument)=arguments.first(){input.reads.extend(&argument.reads);input.source=argument.source.clone().map(|(span,mut path)|{path.push(None);(span,path)});}
                     for callback in callbacks{if matches!(callback.kind,Kind::Function(_)){self.invoke(callback,&[input.clone()],span,phase);}}
                 }
-                if phase==Phase::Render&&self.framework(&module)&&!matches!(path.last().map(String::as_str),Some("collection"|"component"|"controllerView"|"ownerOf"|"from"|"view"|"liveSource")) {self.fail(Issue::unknown(span,format!("framework method {} is a render operation",path.join("."))));}
+                if phase==Phase::Render&&self.framework(&module)&&!matches!(path.last().map(String::as_str),Some("collection"|"component"|"controllerView"|"ownerOf"|"from"|"view")) {self.fail(Issue::unknown(span,format!("framework method {} is a render operation",path.join("."))));}
                 for argument in arguments{if matches!(argument.kind,Kind::Function(_)){self.invoke(argument.clone(),&[Value::data()],span,if matches!(path.last().map(String::as_str),Some("map"|"from")){phase}else{Phase::Host});}}
                 let _=module;
             }
@@ -1253,7 +1247,7 @@ impl<'a> Analyzer<'a, '_> {
                             }
                             (Some("submit"), 0) => Some(Phase::Event),
                             // Render callbacks run while rendering, with the same purity rules.
-                            (Some("observe" | "list"), 1) | (Some("slot"), 0) => Some(phase),
+                            (Some("observe" | "list"), 1) => Some(phase),
                             _ => None,
                         }
                     } else if module == "effect" || module.starts_with("effect/") { Some(phase) } else { None };

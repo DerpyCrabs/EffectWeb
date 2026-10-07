@@ -1,0 +1,93 @@
+---
+import { ClientRouter } from 'astro:transitions';
+import interUrl from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
+import monoUrl from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url';
+import '../styles/style.css';
+import { repo } from '../lib/data.mjs';
+
+interface Props {
+  title: string;
+  description: string;
+  section?: 'home' | 'docs' | 'api';
+}
+const { title, description, section = 'docs' } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f8f9f6" />
+    <title>{title} · EffectWeb</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script is:inline>
+      try {
+        const t = localStorage.getItem('effectweb-theme');
+        document.documentElement.dataset.theme =
+          t || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      } catch {}
+    </script>
+    <link rel="preload" href={interUrl} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={monoUrl} as="font" type="font/woff2" crossorigin />
+    <ClientRouter />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="/" aria-label="EffectWeb home"
+          ><span class="brand-mark" aria-hidden="true">≋</span>EffectWeb</a
+        >
+        <nav class="top-nav" aria-label="Main navigation">
+          <a aria-current={section === 'docs' ? 'page' : undefined} href="/docs/getting-started/"
+            >Docs</a
+          >
+          <a aria-current={section === 'api' ? 'page' : undefined} href="/docs/api-runtime/"
+            >API reference</a
+          >
+        </nav>
+        <div class="header-actions">
+          <button class="search-trigger" type="button" aria-label="Search documentation"
+            ><span>⌕</span> <span class="search-label">Search docs</span><kbd>⌘ K</kbd></button
+          >
+          <a class="github-link" href={repo}>GitHub <span aria-hidden="true">↗</span></a>
+          <button
+            class="theme-toggle icon-button"
+            aria-label="Toggle color theme"
+            title="Toggle color theme">◐</button
+          >
+          <button class="menu-toggle icon-button" aria-label="Open navigation" aria-expanded="false"
+            >☰</button
+          >
+        </div>
+      </div>
+    </header>
+    <slot />
+    <footer class="site-footer">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">≋</span>EffectWeb</a>
+      <div>
+        <a href={repo}>GitHub <span aria-hidden="true">↗</span></a>
+        <a href={`${repo}/blob/main/LICENSE`}>MIT License</a>
+      </div>
+    </footer>
+    <dialog class="search-dialog" aria-labelledby="search-title">
+      <form method="dialog" class="search-top">
+        <label id="search-title" for="search-input">Search documentation</label>
+        <button aria-label="Close search">Esc</button>
+      </form>
+      <input
+        id="search-input"
+        type="search"
+        autocomplete="off"
+        placeholder="Try “search as you type” or “modelOwner”…"
+      />
+      <div id="search-status" role="status" aria-live="polite"></div>
+      <div id="search-results"></div>
+      <div class="search-hint">Type to find guides and API entries.</div>
+    </dialog>
+    <script src="../scripts/site.ts"></script>
+  </body>
+</html>

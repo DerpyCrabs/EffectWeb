@@ -112,8 +112,8 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                 let ImportDeclarationSpecifier::ImportSpecifier(specifier) = specifier else {
                     continue;
                 };
-                // Slots are render callbacks too; lint them as independent render roots.
-                if matches!(specifier.imported.name().as_str(), "view" | "slot") && dom {
+                // Views are independent render roots.
+                if specifier.imported.name() == "view" && dom {
                     views.insert(specifier.local.symbol_id.get().unwrap());
                 }
                 if specifier.imported.name() == "query" && query {

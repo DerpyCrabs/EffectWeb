@@ -47,12 +47,12 @@ import { component, ownerOf, submit, view, type Snapshot } from 'effectweb';
 
 declare const api: { rename: (id: string, title: string) => Effect.Effect<void, Error> }; // @hide
 
-export const RenameForm = component(
+type RenameProps = { readonly id: string; readonly title: string };
+type RenameState = { readonly draft: string; readonly saved: AsyncResult.AsyncResult<void, Error> };
+
+export const RenameForm = component<RenameProps, RenameState>(
   {
-    init: (props: Snapshot<{ readonly id: string; readonly title: string }>) => ({
-      draft: props.title,
-      saved: AsyncResult.initial() as AsyncResult.AsyncResult<void, Error>,
-    }),
+    init: (props) => ({ draft: props.title, saved: AsyncResult.initial() }),
     identity: (props) => props.id,
   },
   view((model, patch) => (

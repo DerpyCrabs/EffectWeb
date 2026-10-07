@@ -1,4 +1,13 @@
-import { domMount, component, mount, program, slot, view, type JSX, type Slot } from 'effectweb';
+import {
+  domMount,
+  component,
+  mount,
+  program,
+  view,
+  type JSX,
+  type Slot,
+  type Snapshot,
+} from 'effectweb';
 
 export function mountSlots(parent: HTMLElement) {
   const lifetime = { mounted: 0, disposed: 0 };
@@ -48,11 +57,11 @@ export function mountSlots(parent: HTMLElement) {
   type State = { title: string; selected: string; visible: boolean };
   const View = view<State, Partial<State>>((model, send) => {
     const label = model.title.toUpperCase();
-    const row = slot((value: string) => (
+    const row = (value: string) => (
       <span>
         {label}:{value}
       </span>
-    ));
+    );
     return (
       model.visible && (
         <Frame row={row} footer={<b>{model.title}</b>}>
@@ -85,11 +94,7 @@ export function mountSvgSlots(parent: SVGElement) {
     </g>
   ));
   const View = view<{ x: number }, never>((model, _send) => (
-    <Frame
-      row={slot((y: number) => (
-        <circle data-row="" cx={model.x} cy={y} />
-      ))}
-    >
+    <Frame row={(y: number) => <circle data-row="" cx={model.x} cy={y} />}>
       <circle data-child="" cx={model.x} />
       <foreignObject>
         <div>{model.x}</div>
@@ -119,10 +124,10 @@ export function mountChangingSlots(parent: HTMLElement) {
     value: { title: string; stable: { n: number } };
   };
   const View = view<State, never>((model, _send) => {
-    const first = slot((value: State['value']) => (
+    const first = (value: Snapshot<State['value']>) => (
       <input aria-label={value.title} data-stable={value.stable.n} />
-    ));
-    const second = slot(() => <button>{model.value.title}</button>);
+    );
+    const second = () => <button>{model.value.title}</button>;
     // Derived placement values must retain their opaque brand through structural sharing.
     const placement = first(model.value);
     return (

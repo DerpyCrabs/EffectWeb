@@ -1,0 +1,74 @@
+---
+import Site from '../../../layouts/Site.astro';
+import { repo, site } from '../../../lib/data.mjs';
+
+export async function getStaticPaths() {
+  const { pages } = await site();
+  return pages.map((page) => ({ params: { slug: page.slug }, props: { page } }));
+}
+const { page } = Astro.props;
+const { pages, groups, version } = await site();
+---
+
+<Site
+  title={page.title}
+  description={page.description}
+  section={page.group === 'API reference' ? 'api' : 'docs'}
+>
+  <div class="docs-layout">
+    <aside class="docs-sidebar" aria-label="Documentation navigation">
+      <div class="sidebar-version">Documentation <span>v{version}</span></div>
+      {
+        groups.map((group) => (
+          <details class="nav-group" open={group === page.group || group !== 'API reference'}>
+            <summary>{group}</summary>
+            {pages
+              .filter((p) => p.group === group)
+              .map((p) => (
+                <a href={p.url} aria-current={p.url === page.url ? 'page' : undefined}>
+                  {p.title}
+                </a>
+              ))}
+          </details>
+        ))
+      }
+    </aside>
+    <main id="main" class="doc-main">
+      <div class="doc-breadcrumb">{page.group} <span>/</span> {page.title}</div>
+      <article class="prose">
+        <h1>{page.title}</h1>
+        <p class="doc-description">{page.description}</p>
+        <Fragment set:html={page.html} />
+      </article>
+      <nav class="page-navigation" aria-label="Adjacent pages">
+        {
+          page.previous ? (
+            <a href={page.previous.url}>
+              <span>← Previous</span>
+              {page.previous.title}
+            </a>
+          ) : (
+            <span />
+          )
+        }
+        {
+          page.next && (
+            <a href={page.next.url}>
+              <span>Next →</span>
+              {page.next.title}
+            </a>
+          )
+        }
+      </nav>
+      <div class="doc-meta">
+        <a href={`${repo}/blob/main/${page.source ?? 'website/content'}`}
+          >View source <span aria-hidden="true">↗</span></a
+        >
+      </div>
+    </main>
+    <aside class="on-this-page">
+      <h2>On this page</h2>
+      <nav>{page.headings.map((h) => <a href={`#${h.id}`}>{h.title}</a>)}</nav>
+    </aside>
+  </div>
+</Site>

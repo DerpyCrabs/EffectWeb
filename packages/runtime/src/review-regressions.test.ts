@@ -7,7 +7,6 @@ import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { compile } from '../../compiler/src/compile.js';
 import * as dom from './dom.js';
 import { modelOwner } from './owner.js';
-import { liveSource } from './source.js';
 import { protectSnapshot } from './snapshot.js';
 import { controlledEffect } from './testing.js';
 
@@ -89,41 +88,6 @@ it('publishes scope finalizer defects as task failures', async () => {
   expect(owner.read().saved._tag).toBe('Failure');
   expect(reports).toHaveLength(1);
   owner.dispose();
-});
-
-it('shares a restarted live entry with retained handles in either subscription order', () => {
-  for (const oldFirst of [true, false]) {
-    let starts = 0;
-    let stops = 0;
-    let publish!: (value: number | null) => void;
-    const family = liveSource({
-      initial: (_key: string): number | null => 0,
-      subscribe: (_key, next) => {
-        starts++;
-        publish = next;
-        return () => {
-          stops++;
-        };
-      },
-    });
-    const old = family('a');
-    old.subscribe(() => {})();
-    const fresh = family('a');
-    const seen: (number | null)[] = [];
-    const first = (oldFirst ? old : fresh).subscribe((value) => seen.push(value));
-    const second = (oldFirst ? fresh : old).subscribe((value) => seen.push(value));
-    publish(null);
-    expect(starts).toBe(2);
-    expect(seen).toEqual([null, null]);
-    expect(old.model()).toBeNull();
-    expect(fresh.model()).toBeNull();
-    first();
-    expect(stops).toBe(1);
-    second();
-    expect(stops).toBe(2);
-    expect(old.model()).toBe(0);
-    expect(fresh.model()).toBe(0);
-  }
 });
 
 it('keeps bubbling along the dispatch path when the target removes itself', () => {
@@ -234,23 +198,6 @@ it('uses current indices when an index-free list changes renderers after moving'
   expect(actual).toBe('b0a1');
 });
 
-it('retries live subscription after setup throws', () => {
-  let attempts = 0;
-  const source = liveSource({
-    initial: (_key: string) => 0,
-    subscribe: (_key, publish) => {
-      if (++attempts === 1) throw new Error('offline');
-      publish(1);
-      return () => {};
-    },
-  })('a');
-  expect(() => source.subscribe(() => {})).toThrow('offline');
-  const stop = source.subscribe(() => {});
-  const value = source.model();
-  stop();
-  expect(value).toBe(1);
-});
-
 it('runs capture before nonbubbling target handlers', () => {
   const calls: string[] = [];
   const owner = modelOwner({
@@ -273,42 +220,6 @@ it('runs capture before nonbubbling target handlers', () => {
   stop();
   owner.dispose();
   expect(calls).toEqual(['capture', 'target']);
-});
-
-it('keeps identical live callbacks independently subscribed and ignores failed producers', () => {
-  let attempts = 0;
-  let stops = 0;
-  const publishers: Array<(value: number) => void> = [];
-  const family = liveSource({
-    initial: (_key: string) => 0,
-    subscribe: (_key, publish) => {
-      publishers.push(publish);
-      if (++attempts === 1) {
-        publish(1);
-        throw new Error('offline');
-      }
-      return () => {
-        stops++;
-      };
-    },
-  });
-  const source = family('key');
-  expect(() => source.subscribe(() => {})).toThrow('offline');
-  expect(source.model()).toBe(0);
-  const values: number[] = [];
-  const listener = (value: number) => {
-    values.push(value);
-  };
-  const first = source.subscribe(listener);
-  const second = family('key').subscribe(listener);
-  first();
-  expect(stops).toBe(0);
-  publishers[0]!(99);
-  expect(source.model()).toBe(0);
-  publishers[1]!(2);
-  expect(values).toEqual([2]);
-  second();
-  expect(stops).toBe(1);
 });
 
 it('honors ancestor capture cancellation before a nonbubbling target handler', () => {

@@ -1,3 +1,4 @@
 .api/
+.astro/
 .snippets/
 dist/

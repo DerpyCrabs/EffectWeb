@@ -68,7 +68,7 @@ To test cancellation, start a second request in the same key, check that the fir
 
 - `owner.awaitIdle()` waits for an owner's work to finish.
 - `close()` waits for teardown, including async finalizers.
-- `programDriver(program)` exposes the active keys and `awaitIdle` for message-based programs.
+- `program.awaitIdle(key?)` and `program.isRunning(key)` do the same for message-based programs.
 
 Do not add fixed delays. They make tests slow without proving the work has finished.
 

@@ -6,7 +6,6 @@ import {
   sequence,
   component,
   program,
-  slot,
   ownerOf,
   view,
   ViewBinding,
@@ -26,13 +25,7 @@ export function snapshotComposition(props: Snapshot<Props>) {
     ViewBinding({ view: Child, model, send: () => {} });
     // @ts-expect-error An explicit binding must supply the child model's shape.
     ViewBinding({ view: Child, model: { title: 'wrong model' }, send: () => {} });
-    const content = slot<Props>((value) => {
-      // @ts-expect-error Slot placement data is a snapshot too.
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
-      value.items[0]!.tags.push('bad');
-      return value.items[0]?.name;
-    });
-    return content(model);
+    return model.items[0]?.name;
   });
   component<Props, Props>(
     {

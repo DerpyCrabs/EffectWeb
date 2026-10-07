@@ -68,12 +68,7 @@ export async function createContent(root) {
     'Small forms with controlled inputs, large forms with validation.',
     guides,
   );
-  await file(
-    'dom',
-    'DOM and time',
-    'Focus, measure and attach libraries to elements; show the current time.',
-    guides,
-  );
+  await file('dom', 'DOM', 'Focus, measure and attach libraries to elements.', guides);
   await file('services', 'App setup', 'Mount the app, provide services and handle errors.', guides);
   await file(
     'testing',

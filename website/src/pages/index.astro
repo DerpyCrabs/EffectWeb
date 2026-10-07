@@ -1,0 +1,78 @@
+---
+import Site from '../layouts/Site.astro';
+import { site } from '../lib/data.mjs';
+
+const { code } = await site();
+const counter = `import { component, view } from 'effectweb';
+
+const Counter = component<{}, { count: number }>(
+  { init: () => ({ count: 0 }) },
+  view((model, patch) => (
+    <button onClick={() => patch({ count: model.count + 1 })}>
+      Count: {model.count}
+    </button>
+  )),
+);`;
+---
+
+<Site
+  title="Web interfaces with Effect"
+  description="EffectWeb is a client-side UI framework for immutable Effect models, familiar JSX, and direct DOM rendering."
+  section="home"
+>
+  <main id="main" class="landing">
+    <section class="hero">
+      <div class="hero-copy">
+        <h1>Web interfaces,<br /><em>built with Effect.</em></h1>
+        <p class="hero-description">
+          Build interactive browser apps with TypeScript, JSX and Effect. Give overlapping requests
+          an explicit policy, tie background work to a component’s lifetime, and keep edits with the
+          right list item—all with immutable state.
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="/docs/getting-started/">Get started <span>→</span></a>
+          <a class="button text-button" href="/docs/why-effectweb/">Why EffectWeb →</a>
+        </div>
+      </div>
+      <div class="hero-example">
+        <div class="example-caption"><span class="file-label">counter.tsx</span></div>
+        <Fragment set:html={code(counter)} />
+        <p class="example-footnote">
+          The click handler patches the state. The view runs again with the new value.
+        </p>
+      </div>
+    </section>
+    <section class="principles" aria-label="Main ideas">
+      <article>
+        <h2>See what drives the screen</h2>
+        <p>
+          Views read immutable inputs. Keep unchanged data as the same object so child views can
+          skip work; change state through explicit actions.
+        </p>
+        <a href="/docs/concepts/">Core concepts →</a>
+      </article>
+      <article>
+        <h2>Decide which request wins</h2>
+        <p>
+          Replace an earlier search, ignore duplicate submits, or queue saves. A component’s work
+          stops when it leaves the page; controllers give shared work an explicit lifetime.
+        </p>
+        <a href="/docs/tasks/">Async work →</a>
+      </article>
+      <article>
+        <h2>Rows keep their identity</h2>
+        <p>
+          Reorder a list without moving focus, drafts or running work to another item. Keys follow
+          the data; state that must survive removal belongs in the parent.
+        </p>
+        <a href="/docs/lists/">Lists →</a>
+      </article>
+    </section>
+    <p class="landing-limit">
+      Best suited to interactive apps such as editors, dashboards and chat clients. APIs are still
+      evolving; server rendering and hydration are not provided. <a href="/docs/why-effectweb/"
+        >What it does and does not do →</a
+      >
+    </p>
+  </main>
+</Site>

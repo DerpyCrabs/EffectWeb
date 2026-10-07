@@ -26,5 +26,5 @@
     "allowUnreachableCode": false,
     "allowUnusedLabels": false
   },
-  "include": ["packages/*/src", "vite.config.ts", "tests", "website", "playwright.config.ts"]
+  "include": ["packages/*/src", "vite.config.ts", "tests", "playwright.config.ts"]
 }

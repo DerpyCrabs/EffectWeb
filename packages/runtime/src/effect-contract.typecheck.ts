@@ -2,18 +2,14 @@ import { Effect } from 'effect';
 import { eventEffects } from './event-effects.js';
 import { modelOwner } from './owner.js';
 import { program } from './program.js';
-import { programDriver } from './testing.js';
 
 export function effectContracts() {
   const source = program({ initial: 0, update: (model: number) => ({ model }) });
   const owner = modelOwner({ count: 0 });
-  const driver = programDriver(source);
   const key = 'work';
   const lifetime: Effect.Effect<void> = Effect.gen(function* () {
     yield* source.awaitIdle(key);
     yield* source.awaitStopped();
-    yield* driver.awaitKey(key);
-    yield* driver.run(Effect.void);
     yield* source.close();
     yield* owner.close();
   });

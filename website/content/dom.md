@@ -74,46 +74,6 @@ export const scrollToEnd = () => {
 
 `<Portal mount={element}>…</Portal>` renders its children into another element, such as `document.body` for a dialog. The children still belong to the view that renders the portal and are removed with it.
 
-## Show the current time
-
-A view must not call `Date.now()`, because nothing would re-render it when time passes (EW1003). Create a clock source once and observe it:
-
-```tsx check
-import { clock, observe, view } from 'effectweb';
-
-const minute = clock(60_000);
-const ago = (iso: string, now: number) => `${Math.round((now - Date.parse(iso)) / 60_000)} min ago`;
-
-export const Updated = view<{ readonly at: string }>((props) => (
-  <time>{observe(minute, (now) => ago(props.at, now))}</time>
-));
-```
-
-The clock only ticks while something observes it. Event handlers and Effects may read the time directly. `Intl` formatting is fine in a view.
-
-The same pattern works for any value that changes outside the model: `mapSource(source, project)` derives a source from another one. Declare it once, outside the view (EW3004).
-
-## Show live data from a subscription
-
-Some data arrives through a subscription API rather than a request: who is viewing a card, a live price, a presence list. `liveSource` turns such an API into one source per key. A key is subscribed while something on the page observes it, and unsubscribed when the last observer goes away, so the subscription follows what is shown: closing a card's details, or the card being deleted, stops watching it.
-
-```tsx check
-import { liveSource, observe, view } from 'effectweb';
-
-declare const watchCard: (id: string, listener: (viewers: string[]) => void) => () => void; // @hide
-
-const viewers = liveSource({
-  initial: (_cardId: string): readonly string[] => [],
-  subscribe: (cardId, publish) => watchCard(cardId, publish),
-});
-
-export const CardDetails = view<{ readonly id: string }>((props) => (
-  <p>{observe(viewers(props.id), (names) => `Viewing: ${names.join(', ') || 'nobody'}`)}</p>
-));
-```
-
-Render the `observe` only while the data is wanted, for example inside `{open ? … : null}`: content that is hidden with CSS or the `hidden` attribute is still on the page and keeps its subscription. Declare the `liveSource` once, at module scope; `viewers(id)` returns the same source for the same key, so calling it while rendering is fine. Equal keys share one subscription. Do not keep your own map of unsubscribe functions in a controller; it is easy to miss a path (the details closing, the item being deleted, the controller closing) and leak subscriptions.
-
 ## Native listeners and delegated events
 
 Common bubbling events (click, input, change, keyboard, pointer, mouse, focusin and focusout) are handled by one listener at the mount root. This matters only if you add your own listeners with `addEventListener` inside a `domMount`:

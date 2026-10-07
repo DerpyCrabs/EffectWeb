@@ -1,41 +1,9 @@
 import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
-import type { RunKey, Program, RunningProgram, Send } from './program.js';
-import * as Context from 'effect/Context';
+import type { Send } from './program.js';
 import { mount, type Mounted, type View } from './dom.js';
 import { protectSnapshot, type Snapshot } from './snapshot.js';
 import type { ReportError } from './errors.js';
-
-/** Program inspection and controlled Effect execution with application-owned services. */
-export interface ProgramDriver<M, Msg, R = never> extends Program<M, Msg> {
-  readonly close: RunningProgram<M, Msg>['close'];
-  readonly activeKeys: RunningProgram<M, Msg>['activeKeys'];
-  readonly awaitKey: (key: RunKey) => Effect.Effect<void>;
-  readonly awaitIdle: () => Effect.Effect<void>;
-  readonly run: <A, E>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E>;
-}
-
-export function programDriver<M, Msg>(source: RunningProgram<M, Msg>): ProgramDriver<M, Msg>;
-export function programDriver<M, Msg, R>(
-  source: RunningProgram<M, Msg>,
-  context: Context.Context<R>,
-): ProgramDriver<M, Msg, R>;
-export function programDriver<M, Msg, R>(
-  source: RunningProgram<M, Msg>,
-  context: Context.Context<R> = Context.empty() as Context.Context<R>,
-): ProgramDriver<M, Msg, R> {
-  return {
-    model: source.model,
-    send: source.send,
-    subscribe: source.subscribe,
-    dispose: source.dispose,
-    close: source.close,
-    activeKeys: source.activeKeys,
-    awaitKey: (key: RunKey) => source.awaitIdle(key),
-    awaitIdle: () => source.awaitIdle(),
-    run: (effect) => Effect.provideContext(effect, context),
-  };
-}
 
 /** A reusable controlled request, with cancellation visible to tests. No renderer or private messages. */
 export function controlledEffect<A, E = never>() {
