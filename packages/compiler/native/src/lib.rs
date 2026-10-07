@@ -1,4 +1,5 @@
 mod analysis;
+mod finalizers;
 mod list_captures;
 mod list_identity;
 mod lower;
@@ -99,6 +100,16 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
         index.visit_program(&program);
         index.refs.sort_by_key(|r| r.span.start);
         index.calls.sort_by_key(|c| c.span.start);
+        for span in finalizers::check(&index) {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "This finalizer belongs to work run under 'replace': it runs after the newer run has started and overwrites that run's state. Use owner.task(field, effect, 'replace'), which publishes the status and ignores replaced runs, or reset it with Effect.tap and Effect.tapCause, which do not run for an interrupted run.",
+            );
+            diagnostic.code = "EW1005".into();
+            diagnostics.push(diagnostic);
+        }
         let mut views = HashSet::new();
         let mut queries = HashSet::new();
         for statement in &program.body {
@@ -254,16 +265,6 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                 "makeMount returns an Effect and mounts nothing until it runs. Write `yield* makeMount(…)` inside your app's Effect, or call `mount(…)` outside Effect.",
             );
             diagnostic.code = "EW1006".into();
-            diagnostics.push(diagnostic);
-        }
-        for span in work.finalizers {
-            let mut diagnostic = lower::diagnostic(
-                source,
-                filename,
-                span,
-                "This finalizer belongs to work run under 'replace': it runs after the newer run has started and overwrites that run's state. Use owner.task(field, effect, 'replace'), which publishes the status and ignores replaced runs, or reset it with Effect.tap and Effect.tapCause, which do not run for an interrupted run.",
-            );
-            diagnostic.code = "EW1005".into();
             diagnostics.push(diagnostic);
         }
         let mut bindings = list_identity::InlineBindings::new(&program, import_source);

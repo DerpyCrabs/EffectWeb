@@ -3,8 +3,6 @@
 //! - An `update` function is a pure transition: it returns commands and never runs anything
 //!   itself, so calling a prop callback or `Effect.run*` in its body is reported, as is
 //!   writing to the model it was given (EW1004).
-//! - A finalizer of work run under `replace` runs after the newer run has started, so a
-//!   `patch` in it overwrites the newer run's state (EW1005).
 //! - `makeMount(…)` returns an Effect; called as a statement it mounts nothing (EW1006).
 use oxc::{
     ast::ast::*,
@@ -19,8 +17,6 @@ pub struct OwnedWork {
     pub impure: Vec<Span>,
     /// Writes an `update` makes to the model it was given.
     pub mutations: Vec<Span>,
-    /// `patch`/`edit` calls in a finalizer of replaced work.
-    pub finalizers: Vec<Span>,
     /// `makeMount(…)` calls whose Effect is discarded.
     pub discarded_mounts: Vec<Span>,
     hosts: Vec<String>,
@@ -131,38 +127,6 @@ impl<'a> Visit<'a> for Transition<'_> {
     }
 }
 
-struct Finalizers {
-    inside: bool,
-    found: Vec<Span>,
-}
-impl<'a> Visit<'a> for Finalizers {
-    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
-        let finalizer = member(&call.callee).is_some_and(|callee| {
-            named(&callee.object, "Effect")
-                && matches!(
-                    callee.property.name.as_str(),
-                    "ensuring" | "onExit" | "onInterrupt"
-                )
-        });
-        if self.inside {
-            let writes = match call.callee.without_parentheses() {
-                Expression::Identifier(id) => id.name == "patch",
-                Expression::StaticMemberExpression(callee) => {
-                    matches!(callee.property.name.as_str(), "patch" | "edit")
-                }
-                _ => false,
-            };
-            if writes {
-                self.found.push(call.span);
-            }
-        }
-        let outer = self.inside;
-        self.inside |= finalizer;
-        walk::walk_call_expression(self, call);
-        self.inside = outer;
-    }
-}
-
 impl<'a> Visit<'a> for OwnedWork {
     fn visit_expression_statement(&mut self, statement: &ExpressionStatement<'a>) {
         walk::walk_expression_statement(self, statement);
@@ -223,18 +187,6 @@ impl<'a> Visit<'a> for OwnedWork {
                 self.impure.append(&mut transition.found);
                 self.mutations.append(&mut transition.mutations);
             }
-        }
-        if member(&call.callee).is_some_and(|callee| callee.property.name == "run")
-            && call.arguments.len() == 3
-            && matches!(call.arguments[2].as_expression().map(Expression::without_parentheses),
-                Some(Expression::StringLiteral(policy)) if policy.value == "replace")
-        {
-            let mut finalizers = Finalizers {
-                inside: false,
-                found: vec![],
-            };
-            finalizers.visit_argument(&call.arguments[1]);
-            self.finalizers.append(&mut finalizers.found);
         }
     }
 }

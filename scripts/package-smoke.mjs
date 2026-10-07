@@ -81,6 +81,16 @@ assert.equal(typeof renderLint, 'function', 'Optional render lint is a public ex
 const uncheckedSource = "import {view} from 'effectweb';view(m=><p>{Math.random()}</p>);";
 assert.deepEqual(compile(uncheckedSource, 'unchecked.tsx').diagnostics, []);
 assert.ok(renderLint(uncheckedSource, 'unchecked.tsx').some((issue) => issue.code === 'EW1003'));
+assert.ok(
+  renderLint(
+    `import {modelOwner} from 'effectweb'; import {Effect as Fx} from 'effect';
+const owner=modelOwner({busy:false});
+const run=(work)=>owner.run('load',work,'replace');
+const work=Fx.void.pipe(Fx.ensuring(Fx.sync(()=>owner.patch({busy:false})))); run(work);`,
+    'finalizer.ts',
+  ).some((issue) => issue.code === 'EW1005'),
+  'Packed lint follows local wrappers and Effect aliases',
+);
 const bindingProbe = compile(
   `import {view, ViewBinding} from 'effectweb'; const Child=view(p=><b>{p}</b>); const Parent=view((p,send)=><ViewBinding view={Child} model={p} send={send}/>);`,
   'binding.tsx',

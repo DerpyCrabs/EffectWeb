@@ -41,6 +41,8 @@ In a JavaScript config, spread `effectwebLint` from `@effectweb/compiler/lint-pr
 
 The rules recognize `view`, `list`, `domMount`, the other helpers only when they are imported from `effectweb` directly. If your project re-exports them from its own module, the rules cannot see them, so import from the package.
 
+EW1005 follows immutable local Effect bindings and same-file helper calls, including aliases for Effect imports. It checks finalizers passed to both `run` and `task` under `replace`. It does not inspect imported helper implementations; keep request status in `owner.task` when work crosses module boundaries.
+
 ## Diagnostic codes
 
 | Code   | Problem                                                               | Fix                                                                                       |
