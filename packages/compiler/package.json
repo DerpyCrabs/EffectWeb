@@ -1,6 +1,6 @@
 {
   "name": "@effectweb/compiler",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Native Oxc compiler and Vite plugin for effectweb",
   "homepage": "https://github.com/DerpyCrabs/EffectWeb",
   "bugs": {
@@ -55,11 +55,11 @@
     }
   },
   "optionalDependencies": {
-    "@effectweb/compiler-darwin-arm64": "0.9.0",
-    "@effectweb/compiler-darwin-x64": "0.9.0",
-    "@effectweb/compiler-linux-arm64-gnu": "0.9.0",
-    "@effectweb/compiler-linux-x64-gnu": "0.9.0",
-    "@effectweb/compiler-win32-x64-msvc": "0.9.0"
+    "@effectweb/compiler-darwin-arm64": "0.10.0",
+    "@effectweb/compiler-darwin-x64": "0.10.0",
+    "@effectweb/compiler-linux-arm64-gnu": "0.10.0",
+    "@effectweb/compiler-linux-x64-gnu": "0.10.0",
+    "@effectweb/compiler-win32-x64-msvc": "0.10.0"
   },
   "engines": {
     "node": ">=22.14"

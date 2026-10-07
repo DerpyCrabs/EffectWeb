@@ -1,6 +1,6 @@
 {
   "name": "@effectweb/tanstack-form",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -28,6 +28,6 @@
   },
   "peerDependencies": {
     "effect": "^4.0.0",
-    "effectweb": "0.9.0"
+    "effectweb": "0.10.0"
   }
 }

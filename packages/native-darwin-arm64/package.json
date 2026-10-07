@@ -1,5 +1,5 @@
 {
   "name": "@effectweb/compiler-darwin-arm64",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Development workspace placeholder; scripts/stage-native.mjs creates the release package."
 }
