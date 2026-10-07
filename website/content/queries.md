@@ -84,7 +84,7 @@ export function profileController(cache: QueryCache, id: string) {
   });
   const user = observeQuery(owner, cache, userQuery, 'user');
   user.select({ id });
-  return { source: owner.source, refresh: user.refresh, dispose: owner.dispose };
+  return { source: owner.source, refresh: user.refresh, lifetime: owner };
 }
 ```
 

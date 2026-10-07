@@ -165,7 +165,7 @@ it('keeps pure helper locals and event-only work outside render capture checks',
   ).toContain('.markup(');
   expect(
     checkRender(
-      `import {ownerOf} from 'effectweb';view((model,patch)=>{const owner=ownerOf(patch);return <button onClick={()=>owner.task('saved',save(model.draft),'drop')} disabled={model.saved.waiting}/>;});`,
+      `import {component,view} from 'effectweb';component({init:()=>({})},owner=>view(model=>{return <button onClick={()=>owner.task('saved',save(model.draft),'drop')} disabled={model.saved.waiting}/>;}));`,
     ),
   ).toContain('"onClick":');
   expect(
@@ -186,10 +186,10 @@ it.each([
   expect(() => checkRender(source)).toThrow(/do not dispatch while rendering/u);
 });
 it.each([
-  `import {ownerOf} from 'effectweb';view((model,patch)=>{ownerOf(patch).task('saved',save,'drop');return <p/>;});`,
-  `import {ownerOf} from 'effectweb';view((model,patch)=>{const owner=ownerOf(patch);return <p>{owner.run('x',work,'drop')}</p>;});`,
+  `import {component,view} from 'effectweb';component({init:()=>({})},owner=>view(model=>{owner.task('saved',save,'drop');return <p/>;}));`,
+  `import {component,view} from 'effectweb';component({init:()=>({})},owner=>view(model=><p>{owner.run('x',work,'drop')}</p>));`,
 ])('rejects starting component owner work while rendering: %s', (source) => {
-  expect(() => checkRender(source)).toThrow(/ownerOf\.(task|run) is a render operation/u);
+  expect(() => checkRender(source)).toThrow(/Cannot prove the target of method (task|run)/u);
 });
 it('accepts dispatch from handlers, DOM hosts and passed-down callbacks', () => {
   expect(

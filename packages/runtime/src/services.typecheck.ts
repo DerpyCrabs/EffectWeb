@@ -20,24 +20,24 @@ component(
       saved: AsyncResult.initial() as AsyncResult.AsyncResult<number, 'offline'>,
     }),
   },
-  view((model, patch) => {
-    const owner = ownerOf(patch);
-    // A component owner's work is closed over services: provide them with Effect.
-    owner.task(
-      'saved',
-      Effect.flatMap(Storage, (storage) => storage.save(model.text)).pipe(
-        Effect.provideContext(context),
-      ),
-      'drop',
-    );
-    owner.task(
-      'saved',
-      // @ts-expect-error A component task cannot require a service it was not given
-      Effect.flatMap(Storage, (storage) => storage.save(model.text)),
-      'drop',
-    );
-    return null;
-  }),
+  (owner) =>
+    view((model) => {
+      // A component owner's work is closed over services: provide them with Effect.
+      owner.task(
+        'saved',
+        Effect.flatMap(Storage, (storage) => storage.save(model.text)).pipe(
+          Effect.provideContext(context),
+        ),
+        'drop',
+      );
+      owner.task(
+        'saved',
+        // @ts-expect-error A component task cannot require a service it was not given
+        Effect.flatMap(Storage, (storage) => storage.save(model.text)),
+        'drop',
+      );
+      return null;
+    }),
 );
 const command: Command<number, Storage> = {
   key: commandSave,
@@ -48,7 +48,7 @@ const command: Command<number, Storage> = {
 program({ initial: 0, update: () => ({ model: 0, commands: [command] }) });
 program({ context, initial: 0, update: () => ({ model: 0, commands: [command] }) });
 
-import { component, ownerOf } from './component.js';
+import { component } from './component.js';
 import { compiled } from './dom.js';
 import { domMount, domBinding } from './mount.js';
 component(

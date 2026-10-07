@@ -21,14 +21,14 @@ export function documentController() {
     source: owner.source,
     edit: (text: string) => owner.patch({ text }),
     save: (text: string) => owner.task('saved', documents.save(text), 'drop'),
-    dispose: owner.dispose,
+    lifetime: owner,
   };
 }
 ```
 
 - `owner.patch` publishes new fields. Views reading `owner.source` update.
 - `owner.task('saved', effect, 'drop')` starts the save and publishes its [status](/docs/tasks/#show-the-status-of-work) into `model.saved`: waiting while it runs, then the value or the error. The [policy](/docs/tasks/#policies) `drop` ignores a second save while one is running. Use `owner.run` for work whose progress nothing shows.
-- `dispose` stops the controller's work. Call it when the feature closes.
+- `lifetime: owner` identifies the resource that owns cleanup. A placement calls its `dispose()` on removal and waits for `close()` during awaited teardown. Outside a placement, close the lifetime when the feature ends.
 
 In a view, read `model.saved.waiting` and `resourceError(model.saved)`.
 
@@ -45,7 +45,7 @@ function chatController(props: Snapshot<{ readonly chatId: string }>) {
     source: owner.source,
     edit: (draft: string) => owner.patch({ draft }),
     receive: (next: Snapshot<{ readonly chatId: string }>) => owner.patch({ chatId: next.chatId }),
-    dispose: owner.dispose,
+    lifetime: owner,
   };
 }
 
@@ -57,7 +57,7 @@ export const Chat = controllerView(
 );
 ```
 
-`identity` creates a fresh controller when `chatId` changes. `receive` is optional. `dispose: owner.dispose` also hands over the owner's asynchronous cleanup, so you do not need to list `close`. To declare the view separately, type it with `ControllerModel<typeof chatController>`.
+`identity` creates a fresh controller when `chatId` changes. `receive` is optional. `lifetime: owner` explicitly supplies both immediate disposal and awaited cleanup. Use `beforeDispose` for a controller-specific hook that runs before its lifetime is released. `lifetime` cannot be combined with controller `dispose` or `close` methods; that combination is rejected by the types and at runtime. To declare the view separately, type it with `ControllerModel<typeof chatController>`.
 
 ## The model owner
 

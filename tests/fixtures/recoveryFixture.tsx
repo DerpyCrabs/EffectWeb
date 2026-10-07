@@ -2,7 +2,6 @@ import { controllerView } from 'effectweb';
 import { Cause, Effect } from 'effect';
 import {
   component,
-  ownerOf,
   type Slot,
   program,
   domMount,
@@ -68,15 +67,14 @@ export function mountIdentityFixture(
   });
   const identity = (props: Snapshot<Props>) => props.id;
   const key = 'owned';
-  const OwnerEditor = component<Props, State>(
-    { identity, init },
+  const OwnerEditor = component<Props, State>({ identity, init }, (owner) =>
     view((model, patch) => (
       <ViewBinding
         view={EditorView}
         model={model}
         send={(fields) => {
           patch(fields);
-          ownerOf(patch).run(
+          owner.run(
             'Work',
             Effect.never.pipe(
               Effect.ensuring(

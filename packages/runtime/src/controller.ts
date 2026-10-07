@@ -2,8 +2,21 @@ import { protectSnapshot, type Snapshot } from './snapshot.js';
 import type { Source } from './source.js';
 
 /** Members a controller uses for its own lifecycle; everything else it returns is an action. */
-export type ControllerLifecycle = 'source' | 'receive' | 'dispose' | 'beforeDispose' | 'close';
-const lifecycle = new Set<string>(['source', 'receive', 'dispose', 'beforeDispose', 'close']);
+export type ControllerLifecycle =
+  | 'source'
+  | 'receive'
+  | 'dispose'
+  | 'beforeDispose'
+  | 'close'
+  | 'lifetime';
+const lifecycle = new Set<string>([
+  'source',
+  'receive',
+  'dispose',
+  'beforeDispose',
+  'close',
+  'lifetime',
+]);
 /** What a controller returns besides its lifecycle members. */
 export type ControllerActions<C> = {
   readonly [K in keyof C as K extends ControllerLifecycle ? never : K]: C[K];

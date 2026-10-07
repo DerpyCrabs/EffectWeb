@@ -38,7 +38,6 @@ export { collection, entities, sequence, type Rows, type Collection } from './co
 export {
   component,
   controllerView,
-  ownerOf,
   type ComponentOwner,
   type FieldsPatch,
   type ViewController,

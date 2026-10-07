@@ -4,7 +4,7 @@ import { domMount } from './mount.js';
 import { makeMount } from './render.js';
 import { view } from './dom.js';
 import type { Source } from './source.js';
-import { component, ownerOf } from './component.js';
+import { component } from './component.js';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { lazyView } from './advanced.js';
 
@@ -44,9 +44,7 @@ void [requirements, missingService, missingEventService, provided, missingDispat
 const scopedLoad = () => Effect.acquireRelease(Effect.succeed('value'), () => Effect.void);
 const scopedTasks = component(
   { init: () => ({ read: AsyncResult.initial() as AsyncResult.AsyncResult<string, never> }) },
-  view((_model, patch) => (
-    <button onClick={() => ownerOf(patch).task('read', scopedLoad(), 'replace')} />
-  )),
+  (owner) => view(() => <button onClick={() => owner.task('read', scopedLoad(), 'replace')} />),
 );
 const scopedLazy = lazyView(() =>
   Effect.as(

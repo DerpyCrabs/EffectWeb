@@ -2,7 +2,7 @@
 import { Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { expect, it } from 'vitest';
-import { component, ownerOf } from './component.js';
+import { component } from './component.js';
 import { view } from './dom.js';
 import { jsx } from './jsx-runtime.js';
 import { controlledEffect, renderView } from './testing.js';
@@ -28,7 +28,7 @@ it('component with fields only patches its own state and follows props', () => {
   rendered.dispose();
 });
 
-it('a fields component runs owned work through ownerOf(patch) and publishes its result', async () => {
+it('a fields component runs owned work through its explicit owner and publishes its result', async () => {
   const save = controlledEffect<number, string>();
   const Form = component(
     {
@@ -37,27 +37,28 @@ it('a fields component runs owned work through ownerOf(patch) and publishes its 
         saved: AsyncResult.initial() as AsyncResult.AsyncResult<number, string>,
       }),
     },
-    view((model, patch) =>
-      jsx('form', {
-        children: [
-          jsx('input', {
-            value: model.draft,
-            onInput: (event: Event) =>
-              patch({ draft: (event.currentTarget as HTMLInputElement).value }),
-          }),
-          jsx('button', {
-            disabled: model.saved.waiting,
-            onClick: () =>
-              ownerOf(patch).task(
-                'saved',
-                (model.draft + '!').length > 0 ? save.effect : Effect.succeed(0),
-                'drop',
-              ),
-            children: AsyncResult.isSuccess(model.saved) ? String(model.saved.value) : 'save',
-          }),
-        ],
-      }),
-    ),
+    (owner) =>
+      view((model, patch) =>
+        jsx('form', {
+          children: [
+            jsx('input', {
+              value: model.draft,
+              onInput: (event: Event) =>
+                patch({ draft: (event.currentTarget as HTMLInputElement).value }),
+            }),
+            jsx('button', {
+              disabled: model.saved.waiting,
+              onClick: () =>
+                owner.task(
+                  'saved',
+                  (model.draft + '!').length > 0 ? save.effect : Effect.succeed(0),
+                  'drop',
+                ),
+              children: AsyncResult.isSuccess(model.saved) ? String(model.saved.value) : 'save',
+            }),
+          ],
+        }),
+      ),
   );
   const host = document.createElement('div');
   const rendered = renderView(host, Form, { id: 'x' });
@@ -72,7 +73,7 @@ it('a fields component runs owned work through ownerOf(patch) and publishes its 
   rendered.dispose();
 });
 
-it('a fields component keeps runtime-owned props out of patches and rejects a foreign patch', () => {
+it('a fields component keeps runtime-owned props out of patches', () => {
   let patchRef!: (fields: object) => void;
   const Probe = component(
     { init: (_props: { readonly label: string }) => ({ count: 0 }) },
@@ -85,7 +86,6 @@ it('a fields component keeps runtime-owned props out of patches and rejects a fo
   const rendered = renderView(host, Probe, { label: 'a' });
   patchRef({ count: 2, props: { label: 'forged' } });
   expect(text(host, 'p')).toBe('a:2');
-  expect(() => ownerOf(() => {})).toThrow(/fields component/);
   rendered.dispose();
 });
 
@@ -100,18 +100,19 @@ it('row keys publish one result per row and a busy row does not block another', 
         liked: {} as Partial<Record<string, AsyncResult.AsyncResult<string, never>>>,
       }),
     },
-    view((model, patch) =>
-      jsx('ul', {
-        children: ['a', 'b'].map((id) =>
-          jsx('button', {
-            id,
-            disabled: model.liked[id]?.waiting ?? false,
-            onClick: () => ownerOf(patch).task(['liked', id], requests.get(id)!.effect, 'drop'),
-            children: model.liked[id] && AsyncResult.isSuccess(model.liked[id]) ? 'done' : id,
-          }),
-        ),
-      }),
-    ),
+    (owner) =>
+      view((model) =>
+        jsx('ul', {
+          children: ['a', 'b'].map((id) =>
+            jsx('button', {
+              id,
+              disabled: model.liked[id]?.waiting ?? false,
+              onClick: () => owner.task(['liked', id], requests.get(id)!.effect, 'drop'),
+              children: model.liked[id] && AsyncResult.isSuccess(model.liked[id]) ? 'done' : id,
+            }),
+          ),
+        }),
+      ),
   );
   const host = document.createElement('div');
   const rendered = renderView(host, Rows, {});
@@ -161,23 +162,24 @@ it('an identity change interrupts in-flight work and its late completion never r
       }),
       identity: (props) => props.id,
     },
-    view((model, patch) =>
-      jsx('button', {
-        onClick: () =>
-          ownerOf(patch).task(
-            'load',
-            Effect.promise(() => settled).pipe(
-              Effect.onInterrupt(() =>
-                Effect.sync(() => {
-                  interrupted++;
-                }),
+    (owner) =>
+      view((model) =>
+        jsx('button', {
+          onClick: () =>
+            owner.task(
+              'load',
+              Effect.promise(() => settled).pipe(
+                Effect.onInterrupt(() =>
+                  Effect.sync(() => {
+                    interrupted++;
+                  }),
+                ),
               ),
+              'replace',
             ),
-            'replace',
-          ),
-        children: `${model.id}:${AsyncResult.isSuccess(model.load) ? model.load.value : model.load.waiting ? 'waiting' : 'idle'}`,
-      }),
-    ),
+          children: `${model.id}:${AsyncResult.isSuccess(model.load) ? model.load.value : model.load.waiting ? 'waiting' : 'idle'}`,
+        }),
+      ),
   );
   const host = document.createElement('div');
   const rendered = renderView(host, Editor, { id: 'a' });

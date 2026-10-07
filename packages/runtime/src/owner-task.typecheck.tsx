@@ -1,7 +1,7 @@
 /* oxlint-disable effecttsgo/missing-effect-error -- Negative type contracts pass Effects whose errors do not fit. */
 import { Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { component, ownerOf } from './component.js';
+import { component } from './component.js';
 import { view } from './dom.js';
 import { modelOwner } from './owner.js';
 
@@ -50,21 +50,21 @@ export const Form = component(
       saved: AsyncResult.initial() as AsyncResult.AsyncResult<number, string>,
     }),
   },
-  view((model, patch) => {
-    const owner = ownerOf(patch);
-    const draft: string = owner.read().draft;
-    void draft;
-    owner.patch({ draft: 'x' });
-    // @ts-expect-error A component owner still cannot patch runtime-owned props.
-    owner.patch({ props: { id: 'x' } });
-    // @ts-expect-error Its fields keep their types.
-    owner.patch({ draft: 1 });
-    // @ts-expect-error Its task results keep their types.
-    owner.task('saved', Effect.succeed('x'), 'drop');
-    return (
-      <button onClick={() => owner.task('saved', Effect.succeed(model.draft.length), 'drop')}>
-        {model.props.id}
-      </button>
-    );
-  }),
+  (owner) =>
+    view((model) => {
+      const draft: string = owner.read().draft;
+      void draft;
+      owner.patch({ draft: 'x' });
+      // @ts-expect-error A component owner still cannot patch runtime-owned props.
+      owner.patch({ props: { id: 'x' } });
+      // @ts-expect-error Its fields keep their types.
+      owner.patch({ draft: 1 });
+      // @ts-expect-error Its task results keep their types.
+      owner.task('saved', Effect.succeed('x'), 'drop');
+      return (
+        <button onClick={() => owner.task('saved', Effect.succeed(model.draft.length), 'drop')}>
+          {model.props.id}
+        </button>
+      );
+    }),
 );

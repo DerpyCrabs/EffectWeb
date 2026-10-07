@@ -3,7 +3,6 @@ import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import {
   available,
   component,
-  ownerOf,
   collection,
   list,
   ViewBinding,
@@ -104,11 +103,12 @@ const AmbientTask = component(
       read: AsyncResult.initial() as AsyncResult.AsyncResult<string, never>,
     }),
   },
-  view((model, patch) => (
-    <button id="ambient-task" onClick={() => ownerOf(patch).task('read', ambient, 'replace')}>
-      {available(model.read)}
-    </button>
-  )),
+  (owner) =>
+    view((model) => (
+      <button id="ambient-task" onClick={() => owner.task('read', ambient, 'replace')}>
+        {available(model.read)}
+      </button>
+    )),
 );
 const AmbientLazy = lazyView(() =>
   Effect.map(ambient, (value) => view<{}>(() => <span id="ambient-lazy">{value}</span>)),

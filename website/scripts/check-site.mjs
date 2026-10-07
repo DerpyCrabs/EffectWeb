@@ -63,7 +63,7 @@ const search = JSON.parse(await readFile(path.join(output, 'search.json'), 'utf8
 assert.ok(search.length > 150, 'Expected searchable guides and API symbols');
 for (const item of search) await checkLink(item.url, '/');
 assert.ok(
-  search.some((item) => item.title === 'ownerOf'),
+  search.some((item) => item.title === 'ComponentOwner'),
   'Missing core API in search',
 );
 assert.ok(

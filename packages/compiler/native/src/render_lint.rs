@@ -1054,7 +1054,7 @@ impl<'a> Analyzer<'a, '_> {
             }
             Kind::Import(ref module, ref path)
                 if self.framework(module)
-                    && ["collection", "component", "controllerView", "ownerOf"]
+                    && ["collection", "component", "controllerView"]
                         .contains(&path.first().map(String::as_str).unwrap_or("")) =>
             {
                 Value::new(Kind::Api(module.clone(), path.clone(), arguments.to_vec()))
@@ -1227,7 +1227,7 @@ impl<'a> Analyzer<'a, '_> {
                     if let Some(argument)=arguments.first(){input.reads.extend(&argument.reads);input.source=argument.source.clone().map(|(span,mut path)|{path.push(None);(span,path)});}
                     for callback in callbacks{if matches!(callback.kind,Kind::Function(_)){self.invoke(callback,&[input.clone()],span,phase);}}
                 }
-                if phase==Phase::Render&&self.framework(&module)&&!matches!(path.last().map(String::as_str),Some("collection"|"component"|"controllerView"|"ownerOf"|"from"|"view")) {self.fail(Issue::unknown(span,format!("framework method {} is a render operation",path.join("."))));}
+                if phase==Phase::Render&&self.framework(&module)&&!matches!(path.last().map(String::as_str),Some("collection"|"component"|"controllerView"|"from"|"view")) {self.fail(Issue::unknown(span,format!("framework method {} is a render operation",path.join("."))));}
                 for argument in arguments{if matches!(argument.kind,Kind::Function(_)){self.invoke(argument.clone(),&[Value::data()],span,if matches!(path.last().map(String::as_str),Some("map"|"from")){phase}else{Phase::Host});}}
                 let _=module;
             }

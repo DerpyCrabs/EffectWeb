@@ -6,7 +6,6 @@ import {
   sequence,
   component,
   program,
-  ownerOf,
   view,
   ViewBinding,
   type Snapshot,
@@ -99,12 +98,13 @@ export function componentSnapshotBoundaries(props: Snapshot<Props>) {
         return input.items[0]?.name;
       },
     },
-    view((model, patch) => {
-      ownerOf(patch).patch({ items: model.items });
-      // @ts-expect-error Parent props remain outside the component owner's fields.
-      ownerOf(patch).patch({ props });
-      return null;
-    }),
+    (owner) =>
+      view((model) => {
+        owner.patch({ items: model.items });
+        // @ts-expect-error Parent props remain outside the component owner's fields.
+        owner.patch({ props });
+        return null;
+      }),
   );
 }
 

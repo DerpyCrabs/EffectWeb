@@ -88,7 +88,7 @@ const referencePages = [
     categories: [
       ['Views', ['view', 'ViewBinding', 'View', 'Send', 'Slot', 'JSX', 'CompiledContent']],
       ['Lists', ['list', 'entities', 'sequence', 'collection', 'Rows', 'Collection']],
-      ['Components', ['component', 'ownerOf', 'ComponentOwner', 'FieldsPatch']],
+      ['Components', ['component', 'ComponentOwner', 'FieldsPatch']],
       [
         'Controllers',
         [

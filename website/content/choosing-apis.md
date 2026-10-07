@@ -13,14 +13,15 @@ Find what you want to do, then follow the link for an example. Everything here i
 
 ## Holding state
 
-| I want to…                                    | Use                                    | Guide                                                             |
-| --------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------- |
-| Keep a toggle, draft or tab for one placement | `component({ init }, view)`            | [Components](/docs/components/#local-fields)                      |
-| Save or load from a component, with status    | `ownerOf(patch).task(…)` in a handler  | [Components](/docs/components/#running-effects)                   |
-| Write logic as named messages                 | `component({ init, update }, view)`    | [Components](/docs/components/#named-messages)                    |
-| Share state between several views             | `modelOwner` with `run` and `task`     | [Controllers](/docs/controllers/)                                 |
-| Create a controller from a view's props       | `controllerView({ controller }, view)` | [Controllers](/docs/controllers/#create-a-controller-from-a-view) |
-| Run an app as a reducer with commands         | `program({ initial, update })`         | [Components](/docs/components/#named-messages)                    |
+| I want to…                                    | Use                                     | Guide                                                             |
+| --------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
+| Keep a toggle, draft or tab for one placement | `component({ init }, view)`             | [Components](/docs/components/#local-fields)                      |
+| Save or load from a component, with status    | `component({ init }, owner => view(…))` | [Components](/docs/components/#running-effects)                   |
+| Write logic as named messages                 | `component({ init, update }, view)`     | [Components](/docs/components/#named-messages)                    |
+| Share state between several views             | `modelOwner` with `run` and `task`      | [Controllers](/docs/controllers/)                                 |
+| Create a controller from a view's props       | `controllerView({ controller }, view)`  | [Controllers](/docs/controllers/#create-a-controller-from-a-view) |
+| Own an existing program in a view             | `component({ program, receive }, view)` | [Components](/docs/components/#place-an-existing-program)         |
+| Run an app as a reducer with commands         | `program({ initial, update })`          | [Components](/docs/components/#named-messages)                    |
 
 ## Running async work
 

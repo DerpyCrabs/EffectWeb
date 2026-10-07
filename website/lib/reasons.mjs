@@ -13,7 +13,7 @@ export const reasons = {
     'The cache contract for prefetching, reading, writing, invalidating, canceling, and removing queries. Methods below expose argument-based identity; close waits for teardown.',
   RunPolicy:
     'Choose what a new request does to work already running in its key: replace, drop, queue, latest-queued, or parallel. See the task guide for policy tradeoffs.',
-  View: 'A reusable presentation definition with model and message types. A view that emits messages must be placed through ViewBinding with a dispatcher.',
+  View: 'A reusable presentation definition with model and message types. Connect a message-emitting view to its owning program through component, or to an explicit dispatcher through ViewBinding.',
   JSX: 'The TypeScript namespace describing renderable elements, intrinsic attributes, native events, and component placement. Use JSX.Element when accepting children.',
   view: 'Define presentation as a pure function of an immutable model and an optional message dispatcher. Use it for reusable UI without allocating state or work during rendering.',
   list: 'Give rows a stable identity so focus, local component state, DOM resources, and running tasks follow the right entity through edits and reordering. Use entities for id fields, an explicit identity function for other keys, or sequence for positional content.',
@@ -46,11 +46,9 @@ export const reasons = {
   sequence:
     'Declare that row identity is positional. Use for static or append-only presentation; editable and filtered entity rows need a domain key.',
   component:
-    'Own state per UI placement. Choose local fields, with ownerOf(patch) for Effect work, or update for named messages and pure transitions.',
-  ownerOf:
-    'The owner behind a fields component’s patch, with run and task. Use it in event handlers to start Effect work that stops when the component goes away.',
+    'Own state per UI placement. Pass an owner factory for local fields and Effects, define pure message transitions, or own an existing program with its view.',
   ComponentOwner:
-    'What ownerOf(patch) returns: read, patch, run, task, cancel, isRunning and awaitIdle, typed by the component’s fields.',
+    'The explicit authority passed to a fields component’s view factory: read, patch, run, task, cancel, isRunning and awaitIdle, typed by its local fields.',
   controllerView:
     'Create a controller from props, expose its methods as model.actions, and dispose it with the placement. Use when one feature needs named actions, services, and state beyond a local component.',
   modelOwner:

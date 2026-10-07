@@ -2,12 +2,12 @@ For a form with a few fields, use controlled inputs in a [component](/docs/compo
 
 ## Small forms
 
-Bind each input's `value` to the model and update it in `onInput`. Wrap the submit handler in `submit`, which calls `preventDefault()` so the page does not reload. Save with `ownerOf(patch).task` and the `drop` policy, so a second click while saving does nothing.
+Bind each input's `value` to the model and update it in `onInput`. Wrap the submit handler in `submit`, which calls `preventDefault()` so the page does not reload. Receive the owner with `owner => view(…)` and save with `owner.task` and the `drop` policy, so a second click while saving does nothing.
 
 ```tsx check
 import { Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { component, ownerOf, resourceError, submit, view, type Snapshot } from 'effectweb';
+import { component, resourceError, submit, view, type Snapshot } from 'effectweb';
 
 type Props = {
   readonly id: string;
@@ -17,32 +17,33 @@ type Props = {
 
 type State = { readonly draft: string; readonly saved: AsyncResult.AsyncResult<void, Error> };
 
-export const RenameForm = component<Props, State>(
+export const RenameForm = component(
   {
-    init: (props) => ({ draft: props.title, saved: AsyncResult.initial() }),
+    init: (props: Snapshot<Props>): State => ({ draft: props.title, saved: AsyncResult.initial() }),
     identity: (props) => props.id,
   },
-  view((model, patch) => {
-    const saving = model.saved.waiting;
-    const save = () =>
-      ownerOf(patch).task('saved', model.props.save(model.props.id, model.draft.trim()), 'drop');
-    return (
-      <form onSubmit={submit(save)}>
-        <label>
-          Title
-          <input
-            required
-            value={model.draft}
-            onInput={(event) => patch({ draft: event.currentTarget.value })}
-          />
-        </label>
-        <button disabled={saving || !model.draft.trim()}>{saving ? 'Saving…' : 'Save'}</button>
-        {AsyncResult.isFailure(model.saved) ? (
-          <p role="alert">{resourceError(model.saved)}</p>
-        ) : null}
-      </form>
-    );
-  }),
+  (owner) =>
+    view((model) => {
+      const saving = model.saved.waiting;
+      const save = () =>
+        owner.task('saved', model.props.save(model.props.id, model.draft.trim()), 'drop');
+      return (
+        <form onSubmit={submit(save)}>
+          <label>
+            Title
+            <input
+              required
+              value={model.draft}
+              onInput={(event) => owner.patch({ draft: event.currentTarget.value })}
+            />
+          </label>
+          <button disabled={saving || !model.draft.trim()}>{saving ? 'Saving…' : 'Save'}</button>
+          {AsyncResult.isFailure(model.saved) ? (
+            <p role="alert">{resourceError(model.saved)}</p>
+          ) : null}
+        </form>
+      );
+    }),
 );
 ```
 
@@ -74,7 +75,7 @@ export function profileForm(save: (values: { name: string }) => Effect.Effect<vo
     setName: (name: string) => form.setField('name', name),
     submit: () => owner.run(submitKey, form.submit(), 'drop'),
     reset: () => form.reset(),
-    dispose: owner.dispose,
+    lifetime: owner,
   };
 }
 ```

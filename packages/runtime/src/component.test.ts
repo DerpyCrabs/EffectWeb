@@ -1,6 +1,6 @@
 import { Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
-import { component, controllerView, ownerOf, programView } from './component.js';
+import { component, controllerView, programView } from './component.js';
 import { attach, compiled, Scope, type View } from './dom.js';
 import { domMount } from './mount.js';
 import { program, type Send } from './program.js';
@@ -119,11 +119,10 @@ it('joins work started through a component owner', async () => {
     release = resolve;
   });
   let start!: () => void;
-  const definition: View<Props, never> = component(
-    { init: (_props: Props) => ({}) },
-    compiled((scope) => {
+  const definition: View<Props, never> = component({ init: (_props: Props) => ({}) }, (owner) =>
+    compiled((_scope) => {
       start = () =>
-        void ownerOf(scope.send).run(
+        void owner.run(
           'Work',
           Effect.never.pipe(Effect.ensuring(Effect.promise(() => gate))),
           'replace',

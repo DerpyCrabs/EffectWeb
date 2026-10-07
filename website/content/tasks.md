@@ -12,7 +12,7 @@ A key runs one piece of work at a time, unless its policy says otherwise. The **
 | `latest-queued` | Run it after the current one; keep only the newest        | Autosave                    |
 | `parallel`      | Run it alongside                                          | Independent jobs            |
 
-`owner.run`, in a controller or a component (`ownerOf(patch)`), accepts all five. [`owner.task`](#show-the-status-of-work) publishes one result, so it accepts all except `parallel`.
+`owner.run`, in a controller or a component owner factory, accepts all five. [`owner.task`](#show-the-status-of-work) publishes one result, so it accepts all except `parallel`.
 
 ## Run an Effect from an event
 
@@ -29,11 +29,11 @@ export const CopyButton = view<{ readonly text: string }>((props) => (
 ));
 ```
 
-Event handlers have no policy. To ignore double clicks, replace earlier work or run clicks in order, run the Effect through an owner: `ownerOf(patch).run(key, effect, 'drop')` in a component, or a controller method.
+Event handlers have no policy. To ignore double clicks, replace earlier work or run clicks in order, run the Effect through an owner: `owner.run(key, effect, 'drop')` in a component, or a controller method.
 
 ## Run work in a key
 
-`owner.run(key, effect, policy)` starts work in a key. A [controller](/docs/controllers/) calls it on its `modelOwner`; a [component](/docs/components/#running-effects) calls it on `ownerOf(patch)`. When the view shows the work's progress, use [`owner.task`](#show-the-status-of-work) instead.
+`owner.run(key, effect, policy)` starts work in a key. A [controller](/docs/controllers/) calls it on its `modelOwner`; a [component](/docs/components/#running-effects) receives its owner through `owner => view(…)`. When the view shows the work's progress, use [`owner.task`](#show-the-status-of-work) instead.
 
 Keys are strings, numbers or readonly arrays of them, compared structurally within one owner or program: two separately created arrays `['quote', 42]` address the same work, while `42`, `'42'` and `[42]` are different keys.
 
@@ -70,7 +70,7 @@ export function searchController() {
     );
   };
 
-  return { source: owner.source, change, dispose: owner.dispose };
+  return { source: owner.source, change, lifetime: owner };
 }
 ```
 

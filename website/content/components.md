@@ -2,11 +2,12 @@ A component is a view with its own state. Each place you render it gets a separa
 
 `component(definition, view)` takes the definition first and the view second. Start with local fields and move on only when you need to.
 
-| Definition                       | Use it for                                                          |
-| -------------------------------- | ------------------------------------------------------------------- |
-| `{ init }`                       | Local fields: open/closed, a draft, the selected tab                |
-| `{ init }` with `ownerOf(patch)` | Local fields plus Effects such as save or search, with their status |
-| `{ init, update }`               | Logic written as named messages that you want to test as data       |
+| Definition                     | Use it for                                                          |
+| ------------------------------ | ------------------------------------------------------------------- |
+| `{ init }`                     | Local fields: open/closed, a draft, the selected tab                |
+| `{ init }`, `owner => view(…)` | Local fields plus Effects such as save or search, with their status |
+| `{ init, update }`             | Logic written as named messages that you want to test as data       |
+| `{ program, receive? }`        | An existing program and its message-emitting view                   |
 
 State shared by several views belongs in a [controller](/docs/controllers/) instead.
 
@@ -38,38 +39,45 @@ To reset the state when the component starts showing a different entity, add `id
 
 ## Running Effects
 
-When the component needs to save, load or search, start the Effect from a handler through the component's owner: `ownerOf(patch)`. It has the same `run` and `task` methods as a [controller's owner](/docs/tasks/#run-work-in-a-key), and its work stops when the component goes away. `task` publishes the status (waiting, done, failed) in a field.
+When the component needs to save, load or search, pass `owner => view(…)` as the second argument to receive the component's owner once per placement. Start work through that owner in an event handler. It has the same `run` and `task` methods as a [controller's owner](/docs/tasks/#run-work-in-a-key), and its work stops when the component goes away. `task` publishes the status (waiting, done, failed) in a field.
 
 ```tsx check
 import { Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { component, ownerOf, submit, view, type Snapshot } from 'effectweb';
+import { component, submit, view, type Snapshot } from 'effectweb';
 
 declare const api: { rename: (id: string, title: string) => Effect.Effect<void, Error> }; // @hide
 
 type RenameProps = { readonly id: string; readonly title: string };
 type RenameState = { readonly draft: string; readonly saved: AsyncResult.AsyncResult<void, Error> };
 
-export const RenameForm = component<RenameProps, RenameState>(
+export const RenameForm = component(
   {
-    init: (props) => ({ draft: props.title, saved: AsyncResult.initial() }),
+    init: (props: Snapshot<RenameProps>): RenameState => ({
+      draft: props.title,
+      saved: AsyncResult.initial(),
+    }),
     identity: (props) => props.id,
   },
-  view((model, patch) => (
-    <form
-      onSubmit={submit(() =>
-        ownerOf(patch).task('saved', api.rename(model.props.id, model.draft), 'drop'),
-      )}
-    >
-      <input value={model.draft} onInput={(event) => patch({ draft: event.currentTarget.value })} />
-      <button disabled={model.saved.waiting}>Save</button>
-      {AsyncResult.isFailure(model.saved) ? <p role="alert">Rename failed</p> : null}
-    </form>
-  )),
+  (owner) =>
+    view((model) => (
+      <form
+        onSubmit={submit(() =>
+          owner.task('saved', api.rename(model.props.id, model.draft), 'drop'),
+        )}
+      >
+        <input
+          value={model.draft}
+          onInput={(event) => owner.patch({ draft: event.currentTarget.value })}
+        />
+        <button disabled={model.saved.waiting}>Save</button>
+        {AsyncResult.isFailure(model.saved) ? <p role="alert">Rename failed</p> : null}
+      </form>
+    )),
 );
 ```
 
-The handler builds the Effect from the current model, including `model.props`, so it can call a callback from the parent when the save finishes, for example with `Effect.tap(() => Effect.sync(() => model.props.onSaved()))`. Call `ownerOf(patch)` only in handlers; starting work while the view renders is a lint error.
+The handler builds the Effect from the current model, including `model.props`, so it can call a callback from the parent when the save finishes, for example with `Effect.tap(() => Effect.sync(() => model.props.onSaved()))`. The factory captures the owner, while the view reads current props from the model. Start work in handlers; starting work while the view renders is a lint error.
 
 ## Named messages
 
@@ -144,3 +152,43 @@ A command is `{ key, policy, effect }`, and the Effect's success is the next mes
 `update` must not run Effects, call prop callbacks or write to the model itself (EW1004); return a copied model and return the work as commands. To notify the parent, return `{ key, policy: 'queue', effect: Effect.sync(() => model.props.onChange(value)) }`. To react when props change, add `receive(model, previous)` to the definition: it runs with the new props already in `model.props` and the old ones in `previous`, and returns a transition like `update`.
 
 The same `update` also works outside a component: `program({ initial, update })` runs it for a whole app, and returns a source to `makeMount` and a `send` for messages that come from outside, such as server events.
+
+## Place an existing program
+
+A program can keep its own model and messages without a controller adapter. `component` creates it for the placement, connects its dispatcher to the view, and closes it when removed. `receive` sends changed parent input; the factory initializes the first input.
+
+```tsx check
+import { component, program, view, type Snapshot } from 'effectweb';
+
+type Props = { title: string };
+type Model = { title: string; count: number };
+type Message = { type: 'Increment' } | { type: 'Title'; title: string };
+
+function createCounter(props: Snapshot<Props>) {
+  return program<Model, Message>({
+    initial: { title: props.title, count: 0 },
+    update: (model, message) => ({
+      model:
+        message.type === 'Increment'
+          ? { ...model, count: model.count + 1 }
+          : { ...model, title: message.title },
+    }),
+  });
+}
+
+const CounterView = view<Model, Message>((model, send) => (
+  <button onClick={() => send({ type: 'Increment' })}>
+    {model.title}: {model.count}
+  </button>
+));
+
+export const Counter = component(
+  {
+    program: createCounter,
+    receive: (source, props) => source.send({ type: 'Title', title: props.title }),
+  },
+  CounterView,
+);
+```
+
+The program factory supplies any service context its commands require. It does not inherit the mount's services. Use `identity` to replace the program when the entity behind the props changes. For a message-emitting child that shares a parent's dispatcher instead of owning a program, use [`ViewBinding`](/docs/views/).

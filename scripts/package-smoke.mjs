@@ -238,7 +238,7 @@ writeFileSync(
   join(temp, 'app.tsx'),
   `import { Context, Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { available, component, ownerOf, mount, program, view, type JSX } from 'effectweb';
+import { available, component, mount, program, view, type JSX } from 'effectweb';
 import Camera from '@effectweb/lucide/icons/camera';
 import type { LucideProps } from '@effectweb/lucide/types';
 import AlarmCheck from '@effectweb/lucide/icons/alarm-check';
@@ -259,9 +259,9 @@ const badName: IconName = 'not-a-lucide-icon';
 class CounterService extends Context.Service<CounterService, { increment: (value: number) => Effect.Effect<number> }>()('Counter') {}
 const services = Context.make(CounterService, { increment: value => Effect.succeed(value + 1) });
 const Frame = view<{ children?: JSX.Element }, never>((props, _send) => <section>{props.children}</section>);
-const Counter = component({ init: (_props: {}) => ({ count: AsyncResult.initial() as AsyncResult.AsyncResult<number, never> }) }, view((model, patch) => {
+const Counter = component({ init: (_props: {}) => ({ count: AsyncResult.initial() as AsyncResult.AsyncResult<number, never> }) }, owner => view((model) => {
   const count = available(model.count) ?? 0;
-  const increment = () => ownerOf(patch).task('count', Effect.flatMap(CounterService, service => service.increment(count)).pipe(Effect.provideContext(services)), 'drop');
+  const increment = () => owner.task('count', Effect.flatMap(CounterService, service => service.increment(count)).pipe(Effect.provideContext(services)), 'drop');
   return <Frame><button onClick={increment}><Camera size={24 + count} title="Take a photo" data-count={count} /><AlarmCheck aria-label="Alarm" />Count: {count}</button></Frame>;
 }));
 const source = program<{}, never>({ initial: {}, update: model => ({ model }) });
