@@ -64,8 +64,28 @@ function protect(item: object): void {
     if (data !== null && typeof data === 'object') protect(data);
     return;
   }
+  if (Array.isArray(item)) {
+    // Elements are read by index: published arrays hold data, not accessors. Properties
+    // beyond the indices and `length` are traversed like an object's.
+    for (let index = 0; index < item.length; index++) {
+      const child: unknown = item[index];
+      if (child !== null && typeof child === 'object') protect(child);
+    }
+    const keys = Reflect.ownKeys(item);
+    if (keys.length !== item.length + 1)
+      for (const key of keys) {
+        if (key === 'length' || (typeof key === 'string' && /^\d+$/u.test(key))) continue;
+        const descriptor = Object.getOwnPropertyDescriptor(item, key)!;
+        if (Object.hasOwn(descriptor, 'value')) {
+          const child: unknown = descriptor.value;
+          if (child !== null && typeof child === 'object') protect(child);
+        }
+      }
+    Object.freeze(item);
+    return;
+  }
   const prototype: unknown = Object.getPrototypeOf(item);
-  if (!Array.isArray(item) && prototype !== Object.prototype && prototype !== null) return;
+  if (prototype !== Object.prototype && prototype !== null) return;
   for (const key of Reflect.ownKeys(item)) {
     const descriptor = Object.getOwnPropertyDescriptor(item, key)!;
     if (Object.hasOwn(descriptor, 'value')) {

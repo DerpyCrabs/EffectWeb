@@ -6,6 +6,8 @@ export interface Rows<A> {
   readonly items: readonly A[];
   readonly identity: (item: A, index: number) => Identity;
   readonly length: number;
+  /** Set by collection helpers whose rows were checked for duplicate identities. */
+  readonly validated?: true;
   filter(predicate: (item: A, index: number) => boolean): Rows<A>;
   slice(start?: number, end?: number): Rows<A>;
 }
@@ -45,6 +47,7 @@ function keyedRows<A>(identity: (item: A, index: number) => Identity) {
       items,
       identity,
       length: items.length,
+      validated: true,
       filter: (predicate) => from(items.filter(predicate)),
       slice: (start, end) => from(items.slice(start, end)),
     };

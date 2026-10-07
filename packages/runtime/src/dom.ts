@@ -734,7 +734,7 @@ class ElementMount implements MountedContent {
   private attrs: MarkupAttributes;
   private applied: Readonly<Record<string, unknown>> = noAttributes;
   private attrsFailed = false;
-  private bindings: Map<string, Binding> | undefined;
+  private bindings: Record<string, Binding | undefined> | undefined;
   private kind: Children = Children.None;
   private children: unknown;
   private childrenFailed = false;
@@ -860,7 +860,7 @@ class ElementMount implements MountedContent {
   }
   /** The selected value may stay equal while its options change on this publication. */
   private reselect() {
-    const binding = this.bindings?.get('value');
+    const binding = this.bindings?.['value'];
     if (binding) binding.set(binding.value);
   }
   /** Bind the dynamic positions of a cloned site, in source order. */
@@ -1107,11 +1107,11 @@ class ElementMount implements MountedContent {
     const bindings = this.bindings;
     if (bindings) {
       // Bindings are released in reverse order of their creation.
-      const owned = [...bindings.values()];
-      bindings.clear();
-      for (let index = owned.length - 1; index >= 0; index--) {
+      const names = Object.keys(bindings);
+      this.bindings = undefined;
+      for (let index = names.length - 1; index >= 0; index--) {
         try {
-          owned[index]!.dispose();
+          bindings[names[index]!]?.dispose();
         } catch (error) {
           (errors ??= []).push(error);
         }
@@ -1129,10 +1129,10 @@ class ElementMount implements MountedContent {
     if (previous !== noAttributes)
       for (const name in previous) {
         if (name === 'children' || Object.hasOwn(next, name)) continue;
-        const binding = this.bindings?.get(name);
+        const binding = this.bindings?.[name];
         if (binding) {
           binding.dispose();
-          this.bindings!.delete(name);
+          delete this.bindings![name];
         }
         if (name !== 'use' && !isEvent(name)) attribute(element, name, undefined);
       }
@@ -1165,19 +1165,19 @@ class ElementMount implements MountedContent {
     this.applied = next;
   }
   private bind(name: string, value: unknown, constrained: boolean) {
-    const binding = this.bindings?.get(name);
+    const binding = this.bindings?.[name];
     if (binding) {
       // The browser may have clamped an unchanged value under the previous constraints.
       if (!Object.is(binding.value, value) || constrained) binding.set(value);
       return;
     }
-    const bindings = (this.bindings ??= new Map<string, Binding>());
+    const bindings = (this.bindings ??= Object.create(null) as Record<string, Binding | undefined>);
     if (isEvent(name)) {
-      bindings.set(name, new EventBinding(this.node, name, value, this.report, this.settlement));
+      bindings[name] = new EventBinding(this.node, name, value, this.report, this.settlement);
       return;
     }
     const owned = new Scope<unknown, never>(value, unboundSend, this.report, this.settlement);
-    bindings.set(name, owned);
+    bindings[name] = owned;
     if (name === 'use')
       attach(
         owned,
@@ -1277,27 +1277,6 @@ type ListValue<A> = {
   readonly captured: readonly unknown[] | undefined;
   readonly indexUsed: boolean;
 };
-/** One row of `list`: a content slot rendered by the list's current callback. */
-class ListRow<A> implements Row<A> {
-  constructor(
-    private readonly owner: Scope<ListValue<A>, never>,
-    public item: A,
-    public index: number,
-    readonly range: ContentSlot,
-  ) {}
-  update(item: A, index: number) {
-    this.item = item;
-    this.index = index;
-    try {
-      this.range.set(this.owner.value.render(item, index));
-    } catch (error) {
-      reportSafely(this.owner.report, error);
-    }
-  }
-  dispose() {
-    this.range.dispose();
-  }
-}
 const listDefinition = contentDefinition<ListValue<unknown>>((scope, parent, before) =>
   keyedRows(
     scope,
@@ -1310,9 +1289,9 @@ const listDefinition = contentDefinition<ListValue<unknown>>((scope, parent, bef
     () => scope.value.indexUsed,
     (item, index, fragment) => {
       // The explicit list operation owns callback evaluation and keyed row lifetimes.
-      const slot = new ContentSlot(fragment, null, scope.report, scope.settlement);
-      slot.set(scope.value.render(item, index));
-      return new ListRow(scope, item, index, slot);
+      const row = new ListRow(scope, item, index, fragment);
+      row.set(scope.value.render(item, index));
+      return row;
     },
   ),
 );
@@ -2108,6 +2087,27 @@ class ContentSlot implements ContentRange {
     if (!this.container) this.parent = undefined;
   }
 }
+/** One row of `list`: the content slot rendered by the list's current callback. */
+class ListRow<A> extends ContentSlot implements Row<A> {
+  readonly range: ContentRange = this;
+  constructor(
+    private readonly owner: Scope<ListValue<A>, never>,
+    public item: A,
+    public index: number,
+    fragment: DocumentFragment,
+  ) {
+    super(fragment, null, owner.report, owner.settlement);
+  }
+  update(item: A, index: number) {
+    this.item = item;
+    this.index = index;
+    try {
+      this.set(this.owner.value.render(item, index));
+    } catch (error) {
+      reportSafely(this.owner.report, error);
+    }
+  }
+}
 
 /** Render a JSX value at one position and keep it current; returns the position's range. */
 export function text<M, E>(
@@ -2281,7 +2281,12 @@ const disabledEvents = new Set(['click', 'dblclick', 'mousedown', 'mouseup']);
 type Delegating = Node & { disabled?: boolean };
 const delegatedHandlers = (node: Node) =>
   node as unknown as Record<string, EventBinding | undefined>;
-const delegateKey = (type: string) => `$ew:${type}`;
+const delegateKeys = new Map<string, string>();
+const delegateKey = (type: string) => {
+  let key = delegateKeys.get(type);
+  if (key === undefined) delegateKeys.set(type, (key = `$ew:${type}`));
+  return key;
+};
 const delegatedTypes = new Set<string>();
 const delegationHosts = new Map<Node, number>();
 // A root nested inside another root has already run the handlers below it.
@@ -2498,6 +2503,8 @@ export function keyedRows<M, E, A>(
   let previousList: Rows<A> | readonly A[] | undefined;
   let previousOuter: readonly unknown[] = [];
   let previousIdentities: readonly (A | Identity)[] = [];
+  /** The rows in document order, parallel to `previousIdentities`. */
+  let ordered: Row<A>[] = [];
   // Plain arrays are keyed by value. Repeated values (tags, lines) are told apart by
   // their occurrence, so the second "a" stays the second "a".
   const repeats = new Map<A, A[]>();
@@ -2534,7 +2541,7 @@ export function keyedRows<M, E, A>(
       !items.length &&
       rows.size &&
       target instanceof Element &&
-      target.firstChild === rows.get(previousIdentities[0]!)?.range!.start &&
+      target.firstChild === ordered[0]?.range!.start &&
       target.lastChild === end
     ) {
       detached(() => {
@@ -2549,26 +2556,79 @@ export function keyedRows<M, E, A>(
       previousList = next;
       previousOuter = nextOuter;
       previousIdentities = [];
+      ordered = [];
       return;
     }
+    // Rows of a collection were validated when the collection produced them.
     const identities: readonly (A | Identity)[] = collection
-      ? validateIdentities(items, (item, index) => collection.identity(item, index))
+      ? collection.validated
+        ? Array.from(items, (item, index) => collection.identity(item, index))
+        : validateIdentities(items, (item, index) => collection.identity(item, index))
       : valueIdentities(items);
-    if (rows.size) {
-      const keep = new Set(identities);
-      for (const [key, row] of rows) {
-        if (keep.has(key)) continue;
-        const first = row.range!.start;
-        const last = row.range!.end;
-        detached(() => row.dispose());
-        if (scope.disposed) return;
-        remove(first, last);
-        rows.delete(key);
+    const tracksIndex = typeof indexUsed === 'function' ? indexUsed() : indexUsed;
+    // The same rows in the same order: an edit, with nothing to add, remove or move.
+    if (identities.length === previousIdentities.length) {
+      let same = true;
+      for (let index = 0; index < identities.length; index++)
+        if (identities[index] !== previousIdentities[index]) {
+          same = false;
+          break;
+        }
+      if (same) {
+        for (let index = 0; index < items.length; index++) {
+          const row = ordered[index]!;
+          const item = items[index]!;
+          if (outerChanged || row.item !== item) {
+            row.update(item, index);
+            if (scope.disposed) return;
+          }
+        }
+        previousList = next;
+        previousOuter = nextOuter;
+        previousIdentities = identities;
+        return;
       }
     }
-    const tracksIndex = typeof indexUsed === 'function' ? indexUsed() : indexUsed;
+    if (rows.size) {
+      const keep = new Set(identities);
+      let survivor = false;
+      for (const key of rows.keys())
+        if (keep.has(key)) {
+          survivor = true;
+          break;
+        }
+      if (
+        !survivor &&
+        target instanceof Element &&
+        target.firstChild === ordered[0]!.range!.start &&
+        target.lastChild === end
+      ) {
+        // Every row is replaced and the list fills its container: clear it in one operation.
+        detached(() => {
+          for (const row of rows.values()) {
+            row.dispose();
+            if (scope.disposed) break;
+          }
+        });
+        if (scope.disposed) return;
+        target.replaceChildren(end);
+        rows.clear();
+        previousIdentities = [];
+        ordered = [];
+      } else
+        for (const [key, row] of rows) {
+          if (keep.has(key)) continue;
+          const first = row.range!.start;
+          const last = row.range!.end;
+          detached(() => row.dispose());
+          if (scope.disposed) return;
+          remove(first, last);
+          rows.delete(key);
+        }
+    }
     // New rows are built into one detached fragment and enter the document together.
     let fragment: DocumentFragment | undefined;
+    const nextOrdered: Row<A>[] = [];
     try {
       for (let index = 0; index < items.length; index++) {
         const key = identities[index]!;
@@ -2591,12 +2651,15 @@ export function keyedRows<M, E, A>(
           }
           created.range ??= boundRange(fragment, mark);
           rows.set(key, created);
+          nextOrdered[index] = created;
         } else if (outerChanged || row.item !== item || (tracksIndex && row.index !== index)) {
+          nextOrdered[index] = row;
           row.update(item, index);
           if (scope.disposed) return;
         } else {
           // Positions still change when the current renderer does not read them.
           row.index = index;
+          nextOrdered[index] = row;
         }
       }
     } finally {
@@ -2641,6 +2704,7 @@ export function keyedRows<M, E, A>(
     previousList = next;
     previousOuter = nextOuter;
     previousIdentities = identities;
+    ordered = nextOrdered;
   };
   scope.jobs.push(update);
   scope.cleanups.push(() => {
@@ -2648,11 +2712,12 @@ export function keyedRows<M, E, A>(
       for (const row of rows.values()) row.dispose();
     });
     rows.clear();
+    ordered = [];
   });
   update();
   return {
     get start() {
-      const first = previousIdentities.length ? rows.get(previousIdentities[0]!) : undefined;
+      const first = ordered[0];
       return first ? first.range!.start : end;
     },
     end,

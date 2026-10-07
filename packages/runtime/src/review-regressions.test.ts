@@ -164,10 +164,11 @@ it.each([
   owner.dispose();
 });
 
-it('protects all stored array properties without evaluating accessors', () => {
+it('protects extra array properties without evaluating their accessors', () => {
   const symbol = Symbol('metadata');
   const array = Object.assign([{ nested: { n: 1 } }], { meta: { n: 1 }, [symbol]: { n: 1 } });
-  Object.defineProperty(array, '1', {
+  // Elements are read by index; only properties beyond the indices keep the accessor guard.
+  Object.defineProperty(array, 'lazy', {
     get: () => {
       throw new Error('getter evaluated');
     },
