@@ -1,7 +1,7 @@
 import { Effect } from 'effect';
 /* oxlint-disable effecttsgo/missing-effect-context -- Negative service-requirement type contracts. */
 import { Context } from 'effect';
-import { component, errorBoundary, program, view, ViewBinding } from './index.js';
+import { component, errorBoundary, program, view } from './index.js';
 import type { Command, Transition } from './program.js';
 
 class Store extends Context.Service<Store, { readonly count: number }>()('Composition/Store') {}
@@ -33,9 +33,7 @@ const Safe = errorBoundary(Child, {
     return model.count;
   },
 });
-export const Parent = view<{ count: number }, 'Increment'>((model, send) => (
-  <ViewBinding view={Safe} model={model} send={send} />
-));
+export const Parent = Safe;
 const WrongModel = view<{ model: { text: string }; error: unknown }, 'Increment'>(
   (model) => model.model.text,
 );

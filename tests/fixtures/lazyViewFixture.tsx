@@ -1,5 +1,5 @@
 import { Cause, Effect } from 'effect';
-import { domMount, mount, program, view, ViewBinding, type Program } from 'effectweb';
+import { domMount, mount, program, view, type Program } from 'effectweb';
 import { lazyView } from 'effectweb/advanced';
 import type { LazyMessage, LazyModel } from './lazyViewModule';
 
@@ -73,12 +73,9 @@ export function createLazyViewFixture(parent: HTMLElement, withFailure = true) {
     },
     { pending: Pending, ...(withFailure ? { failure: Failure } : {}) },
   );
-  const Placement = view<LazyModel, LazyMessage>((model, send) => (
-    <ViewBinding view={Lazy} model={model} send={send} />
-  ));
   const placements = new Map<
     string,
-    { source: Program<LazyModel, LazyMessage>; host: HTMLElement; unmount: () => void }
+    { source: Program<LazyModel, LazyMessage>; host: HTMLElement; unmount: { dispose: () => void } }
   >();
   const loaded = domMount((_element: HTMLButtonElement) => {
     counts.loadedMounts++;
@@ -104,7 +101,7 @@ export function createLazyViewFixture(parent: HTMLElement, withFailure = true) {
   const unmount = (id: string) => {
     const placement = placements.get(id);
     if (!placement) return;
-    placement.unmount();
+    placement.unmount.dispose();
     placement.source.dispose();
     placement.host.remove();
     placements.delete(id);
@@ -125,7 +122,7 @@ export function createLazyViewFixture(parent: HTMLElement, withFailure = true) {
       placements.set(id, {
         source,
         host,
-        unmount: mount(host, Placement, source, { onError: (error) => errors.push(String(error)) }),
+        unmount: mount(host, Lazy, source, { onError: (error) => errors.push(String(error)) }),
       });
     },
     update: (id: string, title: string) =>

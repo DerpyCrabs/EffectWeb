@@ -8,9 +8,6 @@ const owner = modelOwner({ count: 0, label: '' });
 owner.edit('count', (n) => n + 1);
 // @ts-expect-error Field updates preserve their value type.
 owner.edit('count', () => 'bad');
-// @ts-expect-error Transactions are synchronous.
-const invalidTransaction = owner.transaction(async () => {});
-invalidTransaction.catch(() => {});
 // @ts-expect-error Unknown model fields are rejected.
 owner.patch({ missing: true });
 

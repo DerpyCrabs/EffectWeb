@@ -112,7 +112,6 @@ export interface InfiniteResource<Args, A, Param, E = never> extends QueryResour
 > {
   /** Load the next page of the selected arguments, as `fetchNextPage(cache, query, args)` does. */
   fetchNextPage(): Effect.Effect<Snapshot<InfiniteData<A, Param>>, E>;
-  retryPage(param: Param | Snapshot<Param>): Effect.Effect<Snapshot<InfiniteData<A, Param>>, E>;
   seed(
     args: Args | Snapshot<Args>,
     data: InfiniteData<A, Param> | Snapshot<InfiniteData<A, Param>>,
@@ -136,25 +135,22 @@ function operationBook(cache: object, definition: object): Map<string, PageOpera
 }
 
 /**
- * Load the page after the last retained page (or retry a retained one) for these arguments.
- * Works from event handlers and commands; the aggregate query must already be loaded or loadable.
+ * Load the page after the last retained page for these arguments. Works from event handlers
+ * and commands; the aggregate query must already be loaded or loadable.
  */
 function loadPage<Args, A, Param, E, R>(
   cache: QueryCache<R>,
   definition: InfiniteQuery<Args, A, Param, E, NoInfer<R> | Scope.Scope>,
   args: Args | Snapshot<Args>,
-  retry?: { param: Param | Snapshot<Param> },
 ): Effect.Effect<Snapshot<InfiniteData<A, Param>>, E> {
   const internal = cacheInternals(cache);
   const book = operationBook(cache, definition.query);
   return Effect.gen(function* () {
     const current = yield* cache.prefetch(definition.query, args);
-    const param = retry ? retry.param : current.next;
+    const param = current.next;
     if (param === undefined) return current;
     const pageKey = definition.paramKey(param);
     const retained = current.pages.some((page) => definition.paramKey(page.param) === pageKey);
-    if (retry && !retained && definition.paramKey(current.next) !== pageKey)
-      return yield* Effect.die(new RangeError('Retry a retained page or the next page parameter.'));
     const key = encodeQueryArguments(definition.query, args);
     const revision = internal.revision(definition.query, args);
     let operation = book.get(key);
@@ -212,15 +208,6 @@ export const fetchNextPage = <Args, A, Param, E, R>(
   args: Args | Snapshot<Args>,
 ): Effect.Effect<Snapshot<InfiniteData<A, Param>>, E> => loadPage(cache, definition, args);
 
-/** Reload one retained page (or the next page) of an infinite query. */
-export const retryPage = <Args, A, Param, E, R>(
-  cache: QueryCache<R>,
-  definition: InfiniteQuery<Args, A, Param, E, NoInfer<R> | Scope.Scope>,
-  args: Args | Snapshot<Args>,
-  param: Param | Snapshot<Param>,
-): Effect.Effect<Snapshot<InfiniteData<A, Param>>, E> =>
-  loadPage(cache, definition, args, { param });
-
 /** Cache-owned results, observer-owned subscriptions. Operations return typed Effects for task composition. */
 export function infiniteResource<Args, A, Param, E, R>(
   cache: QueryCache<R>,
@@ -229,15 +216,9 @@ export function infiniteResource<Args, A, Param, E, R>(
   const resource = queryResource({ cache }, definition.query);
   let selected: Args | Snapshot<Args> | undefined;
   let disposed = false;
-  const stopReset = cache.onReset(() => {
+  const stopReset = cacheInternals(cache).onGeneration(() => {
     selected = undefined;
   });
-  const updatePage = (retry?: { param: Param | Snapshot<Param> }) =>
-    Effect.suspend(() =>
-      disposed || selected === undefined
-        ? Effect.interrupt
-        : loadPage(cache, definition, selected, retry),
-    );
   return {
     read: resource.read,
     subscribe: resource.subscribe,
@@ -246,8 +227,12 @@ export function infiniteResource<Args, A, Param, E, R>(
       resource.select(args);
     },
     refresh: resource.refresh,
-    fetchNextPage: () => updatePage(),
-    retryPage: (param: Param | Snapshot<Param>) => updatePage({ param }),
+    fetchNextPage: () =>
+      Effect.suspend(() =>
+        disposed || selected === undefined
+          ? Effect.interrupt
+          : loadPage(cache, definition, selected),
+      ),
     seed(
       args: Args | Snapshot<Args>,
       data: InfiniteData<A, Param> | Snapshot<InfiniteData<A, Param>>,

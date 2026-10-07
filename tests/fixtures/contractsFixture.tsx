@@ -1,14 +1,5 @@
 import { list } from 'effectweb';
-import {
-  domMount,
-  mount,
-  program,
-  ViewBinding,
-  Portal as Overlay,
-  type DomMount,
-  type JSX,
-  type Slot,
-} from 'effectweb';
+import { domMount, mount, program, Portal as Overlay, type DomMount, type JSX } from 'effectweb';
 // oxlint-disable-next-line no-restricted-imports -- Regression fixture exercises explicit foreign compiled content boundaries.
 import { view as importedView } from 'effectweb/dom';
 import { ScalarContract } from './scalarContract';
@@ -26,13 +17,13 @@ type Model = {
   host: DomMount;
 };
 const Portal = view<{ label: string }>((model) => <b data-own-portal>{model.label}</b>);
-const Button = view<{ label: string }, 'Clicked'>((model, send) => (
-  <button data-bound onClick={() => send('Clicked')}>
+const Button = view<{ label: string; clicked: () => void }>((model) => (
+  <button data-bound onClick={() => model.clicked()}>
     {model.label}
   </button>
 ));
 const Contract = view<Model, Partial<Model>>((model, send) => {
-  const cell: Slot<{ text: string }> = (value) => (
+  const cell = (value: { text: string }) => (
     <b data-cell use={model.host}>
       {model.label}:{value.text}
     </b>
@@ -78,11 +69,7 @@ const Contract = view<Model, Partial<Model>>((model, send) => {
         <i data-overlay>{model.label}</i>
       </Overlay>
       <Overlay children={model.label} />
-      <ViewBinding
-        view={Button}
-        model={{ label: model.label }}
-        send={() => send({ clicked: model.clicked + 1 })}
-      />
+      <Button label={model.label} clicked={() => send({ clicked: model.clicked + 1 })} />
       <span data-scalar>
         <ScalarContract label={model.label} />
       </span>
@@ -121,7 +108,7 @@ export function mountContracts(parent: HTMLElement) {
     errors,
     lifetime: () => ({ starts, stops }),
     dispose: () => {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };

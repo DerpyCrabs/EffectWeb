@@ -54,7 +54,7 @@ export function mountControls(parent: HTMLElement) {
     model: source.model,
     set: source.send,
     dispose: () => {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };

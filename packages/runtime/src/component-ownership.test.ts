@@ -69,53 +69,6 @@ it('a throwing owner factory releases work and joins asynchronous finalizers', a
   expect(finalized).toHaveBeenCalledOnce();
 });
 
-it('direct program components preserve props messages and reset identity with awaited cleanup', async () => {
-  const request = controlledEffect<void>();
-  const create = vi.fn((props: Props) =>
-    program({
-      initial: { id: props.id, count: 0 },
-      update: (model, message: { id: string } | number) => ({
-        model:
-          typeof message === 'number' ? { ...model, count: message } : { ...model, id: message.id },
-        commands:
-          typeof message === 'number'
-            ? [
-                {
-                  key: 'work',
-                  policy: 'replace' as const,
-                  effect: request.effect.pipe(Effect.as({ id: model.id })),
-                },
-              ]
-            : [],
-      }),
-    }),
-  );
-  const Counter = component(
-    {
-      program: create,
-      identity: (props) => props.id,
-      receive: (source, props) => source.send(props),
-    },
-    view((model, send) =>
-      jsx('button', {
-        children: `${model.id}:${model.count}`,
-        onClick: () => send(model.count + 1),
-      }),
-    ),
-  );
-  const host = document.createElement('div');
-  const mounted = renderView(host, Counter, { id: 'a' });
-  host.querySelector('button')!.click();
-  expect(host.textContent).toBe('a:1');
-  mounted.update({ id: 'a' });
-  expect(create).toHaveBeenCalledTimes(1);
-  mounted.update({ id: 'b' });
-  expect(host.textContent).toBe('b:0');
-  expect(create).toHaveBeenCalledTimes(2);
-  await Effect.runPromise(mounted.close());
-  expect(request.pending()).toBe(0);
-});
-
 it('explicit controller lifetime awaits finalizers and is absent from rendered actions', async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -201,23 +154,6 @@ it('props changed during factory setup reach the first child render', () => {
   });
   OwnedView.build(scope, document.createElement('div'), null);
   expect(seen).toBe('new');
-  scope.dispose();
-});
-
-it('direct programs receive changed setup props without an unconditional initial receive', () => {
-  const scope = new Scope<Props, never>({ id: 'old' }, () => {});
-  const receive = vi.fn();
-  const stable = component(
-    {
-      program: (props: Props) => program({ initial: props, update: (model) => ({ model }) }),
-      receive,
-    },
-    compiled(() => {}),
-  );
-  stable.build(scope, document.createElement('div'), null);
-  expect(receive).not.toHaveBeenCalled();
-  scope.set({ id: 'new' });
-  expect(receive).toHaveBeenCalledOnce();
   scope.dispose();
 });
 

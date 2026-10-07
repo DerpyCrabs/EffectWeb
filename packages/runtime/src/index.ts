@@ -6,28 +6,10 @@
 export type { Snapshot, SnapshotOpaque, snapshotOpaque } from './snapshot.js';
 
 // Views and rendering
-export {
-  view,
-  list,
-  observe,
-  ViewBinding,
-  mount,
-  type View,
-  type Mounted,
-  type Slot,
-  type CompiledContent,
-} from './dom.js';
+export { view, list, observe, mount, type View, type Mounted } from './dom.js';
 export { makeMount } from './render.js';
 export type { JSX } from './jsx.js';
-export {
-  Portal,
-  domBinding,
-  domMount,
-  domHandle,
-  type DomMount,
-  type DomHandle,
-  type PortalProps,
-} from './mount.js';
+export { Portal, domBinding, domMount, type DomMount, type PortalProps } from './mount.js';
 export { available, resourceError } from './result.js';
 export { errorBoundary } from './boundary.js';
 
@@ -41,6 +23,7 @@ export {
   type ComponentOwner,
   type FieldsPatch,
   type ViewController,
+  type ControllerLifetime,
   type ControllerModel,
 } from './component.js';
 
@@ -65,6 +48,3 @@ export {
 
 // Sources
 export { mapSource, clock, type Source } from './source.js';
-
-// Form events
-export { submit } from './form.js';

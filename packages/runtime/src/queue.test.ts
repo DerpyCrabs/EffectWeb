@@ -34,7 +34,6 @@ it.each(['queue', 'latest-queued'] as const)(
       expect(calls).toEqual(policy === 'queue' ? ['first', 'second'] : ['first', 'third']),
     );
     expect(idle).toBe(false);
-    expect(app.isRunning(commandSave)).toBe(true);
     pending.succeed(undefined);
     if (policy === 'queue') {
       await vi.waitFor(() => expect(calls).toEqual(['first', 'second', 'third']));
@@ -42,7 +41,6 @@ it.each(['queue', 'latest-queued'] as const)(
       pending.succeed(undefined);
     }
     await wait;
-    expect(app.isRunning(commandSave)).toBe(false);
     app.dispose();
   },
 );
@@ -173,32 +171,41 @@ it('retains the preceding successful write when a queued write fails', async () 
   owner.dispose();
 });
 
-it('admits batch queue policies before starting work and drains large synchronous queues', async () => {
+it('drains large synchronous queues', async () => {
   const app = modelOwner({});
   let count = 0;
-  app.transaction(() => {
-    for (let i = 0; i < 2000; i++)
-      app.run(
-        commandSave,
-        Effect.sync(() => {
-          count++;
-        }),
-        'queue',
-      );
-  });
+  for (let i = 0; i < 2000; i++)
+    app.run(
+      commandSave,
+      Effect.sync(() => {
+        count++;
+      }),
+      'queue',
+    );
   await Effect.runPromise(app.awaitIdle());
   expect(count).toBe(2000);
   const calls: number[] = [];
-  app.transaction(() => {
-    for (let i = 0; i < 10; i++)
-      app.run(
-        commandSave,
+  const gate = controlledEffect<void>();
+  app.run(
+    commandSave,
+    gate.effect.pipe(
+      Effect.andThen(
         Effect.sync(() => {
-          calls.push(i);
+          calls.push(0);
         }),
-        'latest-queued',
-      );
-  });
+      ),
+    ),
+    'latest-queued',
+  );
+  for (let i = 1; i < 10; i++)
+    app.run(
+      commandSave,
+      Effect.sync(() => {
+        calls.push(i);
+      }),
+      'latest-queued',
+    );
+  gate.succeed(undefined);
   await Effect.runPromise(app.awaitIdle());
   expect(calls).toEqual([0, 9]);
   app.dispose();
@@ -389,7 +396,6 @@ it('releases deferred queued work when its completion reducer throws', async () 
   expect(() => source.send('run')).toThrow('completion reducer');
   await Effect.runPromise(source.awaitIdle());
   expect(queued).not.toHaveBeenCalled();
-  expect(source.activeKeys()).toEqual([]);
   source.dispose();
 });
 

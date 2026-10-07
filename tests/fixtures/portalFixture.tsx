@@ -40,7 +40,7 @@ export function mountPortal(
     update: (next: Element | undefined, label: string) =>
       source.send({ type: 'Input', target: next, label }),
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -63,7 +63,7 @@ export function mountSvgPortal(parent: HTMLElement, target: Element) {
   return {
     update: source.send,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };

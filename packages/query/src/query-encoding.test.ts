@@ -53,8 +53,6 @@ it('uses the same explicit cursor encoding for pagination and retries', async ()
   resource.select(new Request({ id: 'one', filter: Option.none() }));
   const loaded = await Effect.runPromise(resource.fetchNextPage());
   expect(loaded.pages.map((page) => page.value)).toEqual(['one:1', 'one:2']);
-  const retried = await Effect.runPromise(resource.retryPage(new Cursor({ page: 1 })));
-  expect(retried.pages.map((page) => page.value)).toEqual(['one:1', 'one:2']);
   resource.dispose();
   await Effect.runPromise(cache.close());
 });

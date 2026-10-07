@@ -116,29 +116,6 @@ it('writes row keys into a record and keeps rows independent', async () => {
   owner.dispose();
 });
 
-it('starts a task staged in a transaction on commit and settles it on rollback', async () => {
-  const owner = modelOwner<{ saved: AsyncResult.AsyncResult<number, never>; text: string }>({
-    saved: AsyncResult.initial(),
-    text: '',
-  });
-  expect(() =>
-    owner.transaction(() => {
-      owner.task('saved', Effect.succeed(1), 'drop');
-      throw new Error('rollback');
-    }),
-  ).toThrow('rollback');
-  await Effect.runPromise(owner.awaitIdle());
-  expect(AsyncResult.isInitial(owner.read().saved)).toBe(true);
-  expect(owner.read().saved.waiting).toBe(false);
-  owner.transaction(() => {
-    owner.patch({ text: 'a' });
-    owner.task('saved', Effect.succeed(2), 'drop');
-  });
-  await Effect.runPromise(owner.awaitIdle());
-  expect(value(owner.read().saved)).toBe(2);
-  owner.dispose();
-});
-
 it('stops publishing after disposal', async () => {
   const owner = modelOwner<{ saved: AsyncResult.AsyncResult<number, never> }>({
     saved: AsyncResult.initial(),

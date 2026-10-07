@@ -316,12 +316,6 @@ function createQueryCache<R>(
     entry.canceled = true;
     write(entry, entry.value ? AsyncResult.success(entry.value.value) : AsyncResult.initial());
   };
-  const remove = (entry: ResourceEntry) => {
-    entry.canceled = true;
-    delete entry.loadedAt;
-    entry.value = undefined;
-    write(entry, AsyncResult.initial());
-  };
   const set = (entry: ResourceEntry, value: unknown) => {
     entry.canceled = false;
     mount(entry);
@@ -460,17 +454,6 @@ function createQueryCache<R>(
     ): Snapshot<A> | undefined {
       return resources.get(queryKey(definition, args))?.value?.value as Snapshot<A> | undefined;
     },
-    invalidateWhere<Args, A, E>(
-      definition: Query<Args, A, E, R | Scope.Scope>,
-      predicate: (args: Snapshot<Args>) => boolean,
-    ) {
-      const selected = [...resources.values()].filter(
-        (entry) => entry.query === definition && predicate(entry.args as Snapshot<Args>),
-      );
-      batch(() => {
-        for (const entry of selected) refresh(entry);
-      });
-    },
     invalidateGroup(group) {
       batch(() => {
         for (const entry of resources.values()) if (entry.groups?.includes(group)) refresh(entry);
@@ -482,15 +465,6 @@ function createQueryCache<R>(
           if (loading(entry)) {
             abortPrefetches(entry);
             cancel(entry);
-          }
-      });
-    },
-    removeQuery(definition, ...selected) {
-      batch(() => {
-        for (const [, entry] of matching(definition, selected))
-          if (entry.alive) {
-            abortPrefetches(entry);
-            remove(entry);
           }
       });
     },
@@ -561,14 +535,11 @@ function createQueryCache<R>(
         const entry = resources.get(queryKey(definition, selected[0]));
         if (entry) refresh(entry);
       } else {
-        cache.invalidateWhere(definition, () => true);
+        const selected = [...resources.values()].filter((entry) => entry.query === definition);
+        batch(() => {
+          for (const entry of selected) refresh(entry);
+        });
       }
-    },
-    onReset(listener) {
-      generationListeners.add(listener);
-      return () => {
-        generationListeners.delete(listener);
-      };
     },
     resetResources() {
       batch(() => {
@@ -633,18 +604,9 @@ export interface QueryCache<R = never> {
     definition: Query<Args, A, E, R | Scope.Scope>,
     args: NoInfer<Args> | Snapshot<NoInfer<Args>>,
   ): Snapshot<A> | undefined;
-  invalidateWhere<Args, A, E>(
-    definition: Query<Args, A, E, R | Scope.Scope>,
-    predicate: (args: Snapshot<Args>) => boolean,
-  ): void;
   invalidateGroup(group: QueryGroup): void;
   /** Cancel requests while retaining the last success. Explicit refresh restarts them. */
   cancelQuery<Args, A, E>(
-    definition: Query<Args, A, E, R | Scope.Scope>,
-    ...selected: [] | [NoInfer<Args> | Snapshot<NoInfer<Args>>]
-  ): void;
-  /** Clear cached data and cancel requests; a subsequent selection or refresh reloads. */
-  removeQuery<Args, A, E>(
     definition: Query<Args, A, E, R | Scope.Scope>,
     ...selected: [] | [NoInfer<Args> | Snapshot<NoInfer<Args>>]
   ): void;
@@ -673,8 +635,10 @@ export interface QueryCache<R = never> {
     definition: Query<Args, A, E, R | Scope.Scope>,
     ...selected: [] | [NoInfer<Args> | Snapshot<NoInfer<Args>>]
   ): void;
-  /** Observe account resets without exposing registry mutation. */
-  onReset(listener: () => void): () => void;
+  /**
+   * Interrupt every request and drop all cached data, for a sign-out or account switch.
+   * Observers read Initial until they select again; nothing from the old account is reused.
+   */
   resetResources(): void;
   /** Release retained acquisitions and join all load/resource finalizers, including canceled or evicted entries. */
   close(): Effect.Effect<void>;

@@ -1,5 +1,5 @@
 import { Effect } from 'effect';
-import { list, Scope, text, view, type Slot } from './dom.js';
+import { list, Scope, text, view } from './dom.js';
 import { eventEffects } from './event-effects.js';
 import { entities } from './collection.js';
 import type { JSX } from './jsx.js';
@@ -12,7 +12,7 @@ const methods = {
 export const ordinaryHelpers = view<{
   labels: string[];
   rows: { id: string }[];
-  render: Slot<string>;
+  render: (value: string) => JSX.Element;
 }>((model) => (
   <>
     <p>{methods.slice(methods.sort(model.labels))}</p>

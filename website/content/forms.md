@@ -2,12 +2,12 @@ For a form with a few fields, use controlled inputs in a [component](/docs/compo
 
 ## Small forms
 
-Bind each input's `value` to the model and update it in `onInput`. Wrap the submit handler in `submit`, which calls `preventDefault()` so the page does not reload. Receive the owner with `owner => view(…)` and save with `owner.task` and the `drop` policy, so a second click while saving does nothing.
+Bind each input's `value` to the model and update it in `onInput`. In the submit handler, call `preventDefault()` so the page does not reload, then return the save. Receive the owner with `owner => view(…)` and save with `owner.task` and the `drop` policy, so a second click while saving does nothing.
 
 ```tsx check
 import { Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { component, resourceError, submit, view, type Snapshot } from 'effectweb';
+import { component, resourceError, view, type Snapshot } from 'effectweb';
 
 type Props = {
   readonly id: string;
@@ -28,7 +28,12 @@ export const RenameForm = component(
       const save = () =>
         owner.task('saved', model.props.save(model.props.id, model.draft.trim()), 'drop');
       return (
-        <form onSubmit={submit(save)}>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            return save();
+          }}
+        >
           <label>
             Title
             <input

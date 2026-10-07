@@ -7,7 +7,6 @@ A component is a view with its own state. Each place you render it gets a separa
 | `{ init }`                     | Local fields: open/closed, a draft, the selected tab                |
 | `{ init }`, `owner => view(…)` | Local fields plus Effects such as save or search, with their status |
 | `{ init, update }`             | Logic written as named messages that you want to test as data       |
-| `{ program, receive? }`        | An existing program and its message-emitting view                   |
 
 State shared by several views belongs in a [controller](/docs/controllers/) instead.
 
@@ -44,7 +43,7 @@ When the component needs to save, load or search, pass `owner => view(…)` as t
 ```tsx check
 import { Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { component, submit, view, type Snapshot } from 'effectweb';
+import { component, view, type Snapshot } from 'effectweb';
 
 declare const api: { rename: (id: string, title: string) => Effect.Effect<void, Error> }; // @hide
 
@@ -62,9 +61,10 @@ export const RenameForm = component(
   (owner) =>
     view((model) => (
       <form
-        onSubmit={submit(() =>
-          owner.task('saved', api.rename(model.props.id, model.draft), 'drop'),
-        )}
+        onSubmit={(event) => {
+          event.preventDefault();
+          return owner.task('saved', api.rename(model.props.id, model.draft), 'drop');
+        }}
       >
         <input
           value={model.draft}
@@ -151,44 +151,4 @@ A command is `{ key, policy, effect }`, and the Effect's success is the next mes
 
 `update` must not run Effects, call prop callbacks or write to the model itself (EW1004); return a copied model and return the work as commands. To notify the parent, return `{ key, policy: 'queue', effect: Effect.sync(() => model.props.onChange(value)) }`. To react when props change, add `receive(model, previous)` to the definition: it runs with the new props already in `model.props` and the old ones in `previous`, and returns a transition like `update`.
 
-The same `update` also works outside a component: `program({ initial, update })` runs it for a whole app, and returns a source to `makeMount` and a `send` for messages that come from outside, such as server events.
-
-## Place an existing program
-
-A program can keep its own model and messages without a controller adapter. `component` creates it for the placement, connects its dispatcher to the view, and closes it when removed. `receive` sends changed parent input; the factory initializes the first input.
-
-```tsx check
-import { component, program, view, type Snapshot } from 'effectweb';
-
-type Props = { title: string };
-type Model = { title: string; count: number };
-type Message = { type: 'Increment' } | { type: 'Title'; title: string };
-
-function createCounter(props: Snapshot<Props>) {
-  return program<Model, Message>({
-    initial: { title: props.title, count: 0 },
-    update: (model, message) => ({
-      model:
-        message.type === 'Increment'
-          ? { ...model, count: model.count + 1 }
-          : { ...model, title: message.title },
-    }),
-  });
-}
-
-const CounterView = view<Model, Message>((model, send) => (
-  <button onClick={() => send({ type: 'Increment' })}>
-    {model.title}: {model.count}
-  </button>
-));
-
-export const Counter = component(
-  {
-    program: createCounter,
-    receive: (source, props) => source.send({ type: 'Title', title: props.title }),
-  },
-  CounterView,
-);
-```
-
-The program factory supplies any service context its commands require. It does not inherit the mount's services. Use `identity` to replace the program when the entity behind the props changes. For a message-emitting child that shares a parent's dispatcher instead of owning a program, use [`ViewBinding`](/docs/views/).
+The same `update` also works outside a component: `program({ initial, update })` runs it for a whole app, and returns a source to `makeMount` and a `send` for messages that come from outside, such as server events. A child view that reports to the component takes `send` as a prop; see [Telling the parent something happened](/docs/views/#telling-the-parent-something-happened).

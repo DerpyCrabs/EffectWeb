@@ -12,7 +12,6 @@ import {
   view,
   type SiteNode,
 } from './dom.js';
-import { domHandle } from './mount.js';
 import { jsx } from './jsx-runtime.js';
 import { modelOwner } from './owner.js';
 
@@ -51,7 +50,7 @@ it('memoView renders only when its equality says the model changed', () => {
   owner.patch({ text: 'b' });
   expect(renders).toBe(2);
   expect(host.querySelector('p')!.textContent).toBe('b');
-  stop();
+  stop.dispose();
   expect(host.childNodes.length).toBe(0);
 });
 
@@ -87,7 +86,7 @@ it('a component keeps its state and skips rendering and receive while its props 
   owner.patch({ label: 'b' });
   expect(received).toBe(before.received + 1);
   expect(button.textContent).toBe('b:1');
-  stop();
+  stop.dispose();
 });
 
 it('a controller receives props only when one of them changes', () => {
@@ -102,7 +101,7 @@ it('a controller receives props only when one of them changes', () => {
             received.push(next.id);
             owner.patch({ id: next.id });
           },
-          dispose: owner.dispose,
+          lifetime: owner,
         };
       },
     },
@@ -118,7 +117,7 @@ it('a controller receives props only when one of them changes', () => {
   owner.patch({ id: 'two' });
   expect(received.slice(initial)).toEqual(['two']);
   expect(host.querySelector('p')!.textContent).toBe('two');
-  stop();
+  stop.dispose();
 });
 
 it('compares props field by field: new JSX children and class instances render again', () => {
@@ -155,7 +154,7 @@ it('compares props field by field: new JSX children and class instances render a
   owner.patch({ other: 1 });
   expect(renders).toEqual({ wrapper: 2, hoisted: 1, instance: 2 });
   expect(host.querySelector('section b')!.textContent).toBe('a');
-  stop();
+  stop.dispose();
 });
 
 it('reconciles a block with literal text and a hoisted child against another call site', () => {
@@ -182,7 +181,7 @@ it('reconciles a block with literal text and a hoisted child against another cal
   owner.patch({ wide: false, tail: 'end' });
   expect(root.textContent).toBe('newName: yend');
   expect(errors).toEqual([]);
-  stop();
+  stop.dispose();
 });
 
 it('runs delegated handlers for content in a portal and inside a shadow root', () => {
@@ -207,7 +206,7 @@ it('runs delegated handlers for content in a portal and inside a shadow root', (
   // The portal's content is outside the mount root in the document, so only its own
   // handler runs.
   expect(seen).toEqual(['portal:portalled']);
-  stop();
+  stop.dispose();
   expect(target.querySelector('button')).toBeNull();
   host.remove();
   target.remove();
@@ -232,50 +231,8 @@ it('runs delegated handlers for content in a portal and inside a shadow root', (
     .querySelector('button')!
     .dispatchEvent(new Event('click', { bubbles: true, composed: true }));
   expect(seen).toEqual(['portal:portalled', 'shadow:shadowed']);
-  inShadow();
+  inShadow.dispose();
   shadowHost.remove();
-});
-
-it('domHandle exposes its element while mounted and runs the attached cleanup', async () => {
-  const events: string[] = [];
-  const handle = domHandle<HTMLElement>((element) => {
-    events.push(`attached:${element.tagName}`);
-    return () => events.push('cleanup');
-  });
-  const { host, owner, stop } = mounted({ shown: true }, (model) =>
-    jsx('div', { children: model.shown ? jsx('section', { use: handle.mount }) : null }),
-  );
-  expect(handle.element()).toBeUndefined();
-  await Promise.resolve();
-  expect(handle.element()).toBe(host.querySelector('section'));
-  expect(events).toEqual(['attached:SECTION']);
-  owner.patch({ shown: false });
-  expect(handle.element()).toBeUndefined();
-  expect(events).toEqual(['attached:SECTION', 'cleanup']);
-  stop();
-});
-
-it('domHandle warns when it is mounted on two connected elements at once', async () => {
-  const warnings: unknown[] = [];
-  const warn = console.warn;
-  console.warn = (...input: unknown[]) => warnings.push(input[0]);
-  try {
-    const handle = domHandle<HTMLElement>();
-    const { host, stop } = mounted({}, () =>
-      jsx('div', {
-        children: [jsx('p', { use: handle.mount }), jsx('span', { use: handle.mount })],
-      }),
-    );
-    document.body.append(host);
-    await Promise.resolve();
-    expect(warnings).toHaveLength(1);
-    expect(String(warnings[0])).toContain('two elements');
-    expect(handle.element()).toBe(host.querySelector('span'));
-    stop();
-    host.remove();
-  } finally {
-    console.warn = warn;
-  }
 });
 
 it('a function prop marked with its captured values does not render the view again', () => {
@@ -309,7 +266,7 @@ it('a function prop marked with its captured values does not render the view aga
   // The same values from another site are a different function.
   owner.patch({ alternate: true });
   expect(renders).toBe(3);
-  stop();
+  stop.dispose();
 });
 
 it('an unmarked function prop renders the view on every parent render', () => {
@@ -323,5 +280,5 @@ it('an unmarked function prop renders the view on every parent render', () => {
   );
   owner.patch({ unrelated: 1 });
   expect(renders).toBe(2);
-  stop();
+  stop.dispose();
 });

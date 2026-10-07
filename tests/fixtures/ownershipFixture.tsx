@@ -142,7 +142,7 @@ export async function ownershipContracts() {
       host,
       errors,
       dispose: () => {
-        stop();
+        stop.dispose();
         source.dispose();
         host.remove();
       },
@@ -157,7 +157,7 @@ export async function ownershipContracts() {
   const stop = mountView(root, MountPublication, source);
   await Promise.resolve();
   const initialPublication = { model: source.model(), dom: root.textContent };
-  stop();
+  stop.dispose();
   source.dispose();
   root.remove();
 
@@ -247,7 +247,7 @@ export async function ownershipContracts() {
     dom: selfRoot.textContent,
     cleanups: [...released],
   };
-  selfStop();
+  selfStop.dispose();
   selfSource.dispose();
   selfRoot.remove();
   return {

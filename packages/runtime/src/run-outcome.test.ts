@@ -64,18 +64,6 @@ describe('run completion', () => {
     expect(await completion).toSatisfy(interrupted);
     owner.dispose();
   });
-  it('settles work discarded by a transaction rollback', async () => {
-    const owner = modelOwner({});
-    let result!: ReturnType<typeof owner.run>;
-    expect(() =>
-      owner.transaction(() => {
-        result = owner.run('a', Effect.never, 'queue');
-        throw Error('rollback');
-      }),
-    ).toThrow('rollback');
-    expect(await observe(result)).toSatisfy(interrupted);
-    owner.dispose();
-  });
   it('observes tasks; a task shares its key with run', async () => {
     const owner = modelOwner<{ save: AsyncResult.AsyncResult<number, never> }>({
       save: AsyncResult.initial(),
@@ -85,34 +73,38 @@ describe('run completion', () => {
       Exit.succeed(7),
     );
     expect(await observe(manual)).toSatisfy(interrupted);
-    expect(owner.isRunning('save')).toBe(false);
     owner.dispose();
   });
   it('uses structural keys without scalar, type or delimiter collisions', async () => {
     const owner = modelOwner({});
     const keys = ['', 0, '0', ['0'], [0], ['a:b', 'c'], ['a', 'b:c']] as const;
-    for (const key of keys) owner.run(key, Effect.never, 'drop');
-    for (const key of keys) expect(owner.isRunning(key)).toBe(true);
+    const settled = keys.map(() => false);
+    keys.forEach((key, index) => {
+      void observe(owner.run(key, Effect.never, 'drop')).then(
+        () => {
+          settled[index] = true;
+        },
+        () => {},
+      );
+    });
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
     owner.cancel(['a:b', 'c']);
-    expect(owner.isRunning(['a:b', 'c'])).toBe(false);
-    expect(owner.isRunning(['a', 'b:c'])).toBe(true);
+    await Effect.runPromise(owner.awaitIdle(['a:b', 'c']));
+    await flush();
+    expect(settled).toEqual([false, false, false, false, false, true, false]);
     owner.cancel(0);
     await Effect.runPromise(owner.awaitIdle(0));
-    expect(owner.isRunning('0')).toBe(true);
+    await flush();
+    expect(settled).toEqual([false, true, false, false, false, true, false]);
     await Effect.runPromise(owner.close());
+    await flush();
+    expect(settled.every(Boolean)).toBe(true);
   });
 });
 
-it('settles staged and reentrant unstarted work when disposed', async () => {
-  const owner = modelOwner({ count: 0 });
-  let staged!: ReturnType<typeof owner.run>;
-  owner.transaction(() => {
-    staged = owner.run('staged', Effect.never, 'queue');
-    owner.dispose();
-  });
-  expect(await observe(staged)).toSatisfy(interrupted);
+it('settles reentrant unstarted work when disposed', async () => {
   const reentrant = modelOwner({ count: 0 });
-  let queued!: ReturnType<typeof owner.run>;
+  let queued!: ReturnType<typeof reentrant.run>;
   reentrant.source.subscribe(() => {
     queued = reentrant.run('queued', Effect.never, 'queue');
     reentrant.dispose();
@@ -147,10 +139,8 @@ it('copies composite keys at admission and scopes them to one owner', async () =
   const a = owner.run(key, Effect.never, 'replace');
   const b = other.run(['row', 1], Effect.never, 'replace');
   key[1] = 2;
-  expect(owner.isRunning(['row', 1])).toBe(true);
   owner.cancel(['row', 1]);
   expect(await observe(a)).toSatisfy(interrupted);
-  expect(other.isRunning(['row', 1])).toBe(true);
   owner.dispose();
   other.dispose();
   expect(await observe(b)).toSatisfy(interrupted);
@@ -162,7 +152,6 @@ it('interrupting the completion observer leaves the owned work running', async (
   const completion = owner.run('save', request.effect, 'replace');
   const observer = Effect.runFork(completion.await);
   await Effect.runPromise(Fiber.interrupt(observer));
-  expect(owner.isRunning('save')).toBe(true);
   request.succeed(9);
   expect(await observe(completion)).toEqual(Exit.succeed(9));
   owner.dispose();

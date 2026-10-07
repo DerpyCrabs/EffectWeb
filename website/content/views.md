@@ -31,7 +31,7 @@ export const Profile = view<{ readonly name: string }>((props) => (
 ));
 ```
 
-JSX is a normal value. You can store it in a variable, pass it as any prop (`footer={<button>Save</button>}`), or accept a render function typed as `Slot<A>` and call it: `{props.renderRow(item)}`.
+JSX is a normal value. You can store it in a variable, pass it as any prop (`footer={<button>Save</button>}`), or accept a render function prop such as `renderRow: (item: Item) => JSX.Element` and call it: `{props.renderRow(item)}`.
 
 ## Attributes
 
@@ -72,38 +72,40 @@ There are two ways for a child view to report an action.
 
 The compiler can compare the captured values of analyzable inline callbacks, so they do not force a child to render on every parent update. See [When a view runs again](#when-a-view-runs-again).
 
-**Messages** suit a child with many actions, or a parent written with [`update`](/docs/components/#named-messages). The view declares a message type as its second type argument and receives `send`:
+**Messages** suit a child with many actions, or a parent written with [`update`](/docs/components/#named-messages). The parent view declares a message type as its second type argument and receives `send`; a child that needs it takes `send` as a prop:
 
 ```tsx check
-import { view, ViewBinding, list, entities } from 'effectweb';
+import { view, list, entities, type Send } from 'effectweb';
 
 type Todo = { readonly id: string; readonly title: string; readonly done: boolean };
 type TodoMessage = { type: 'Toggle'; id: string } | { type: 'Rename'; id: string; title: string };
 
-export const TodoRow = view<Todo, TodoMessage>((todo, send) => (
-  <li>
-    <input
-      type="checkbox"
-      checked={todo.done}
-      onChange={() => send({ type: 'Toggle', id: todo.id })}
-    />
-    <input
-      value={todo.title}
-      onInput={(event) => send({ type: 'Rename', id: todo.id, title: event.currentTarget.value })}
-    />
-  </li>
-));
+export const TodoRow = view<{ readonly todo: Todo; readonly send: Send<TodoMessage> }>(
+  ({ todo, send }) => (
+    <li>
+      <input
+        type="checkbox"
+        checked={todo.done}
+        onChange={() => send({ type: 'Toggle', id: todo.id })}
+      />
+      <input
+        value={todo.title}
+        onInput={(event) => send({ type: 'Rename', id: todo.id, title: event.currentTarget.value })}
+      />
+    </li>
+  ),
+);
 
 export const TodoList = view<{ readonly todos: readonly Todo[] }, TodoMessage>((model, send) => (
   <ul>
     {list(entities(model.todos), (todo) => (
-      <ViewBinding view={TodoRow} model={todo} send={send} />
+      <TodoRow todo={todo} send={send} />
     ))}
   </ul>
 ));
 ```
 
-A view that sends messages is placed with `<ViewBinding view={…} model={…} send={…} />`, so the dispatcher is visible. Writing `<TodoRow … />` directly is a type error.
+A view with a message type is the root of a [component](/docs/components/#named-messages), a program or a mount, which supply its dispatcher. Placing it inside another view as `<TodoList … />` is a type error; give the child the dispatcher as a prop instead.
 
 ## Rendering from inputs
 

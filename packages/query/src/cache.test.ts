@@ -148,17 +148,3 @@ it('shares query results by domain identity for both observers and prefetch', as
   expect(await Effect.runPromise(cache.prefetch(definition, true))).toBe(refreshed);
   resource.dispose();
 });
-
-it('exposes reset observation without registry mutation and releases listeners', () => {
-  const cache = model();
-  let resets = 0;
-  const stop = cache.onReset(() => {
-    resets++;
-  });
-  expect(resets).toBe(0);
-  cache.resetResources();
-  expect(resets).toBe(1);
-  stop();
-  cache.resetResources();
-  expect(resets).toBe(1);
-});

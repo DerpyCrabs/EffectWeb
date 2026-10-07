@@ -67,8 +67,6 @@ it('prefetch retains a request after its observer leaves; cancellation retains a
   another.select('a');
   another.dispose();
   expect(cache.getQueryData(definition, 'a')).toBe('saved');
-  cache.removeQuery(definition, 'a');
-  expect(cache.getQueryData(definition, 'a')).toBeUndefined();
   cache.dispose();
 });
 
@@ -101,7 +99,7 @@ it('invalidates typed subsets and shared groups without conflating query identit
   const other = queryResource({ cache }, b);
   other.select('x');
   loads.length = 0;
-  cache.invalidateWhere(a, (args) => args.path === 'x');
+  cache.invalidateQuery(a, { path: 'x' });
   expect(loads).toEqual(['a:x']);
   loads.length = 0;
   cache.invalidateGroup(sameName);
@@ -204,14 +202,13 @@ it('retains successes across observers until the configured retention expires', 
   }
 });
 
-it.each(['cancel', 'remove', 'reset', 'close'] as const)(
+it.each(['cancel', 'reset', 'close'] as const)(
   'settles active prefetch Effects on %s instead of leaving initial-state waiters suspended',
   async (action) => {
     const cache = queryCache();
     const definition = query({ name: 'cancel-prefetch', load: () => Effect.never });
     const result = Effect.runPromiseExit(cache.prefetch(definition, true));
     if (action === 'cancel') cache.cancelQuery(definition, true);
-    else if (action === 'remove') cache.removeQuery(definition, true);
     else if (action === 'reset') cache.resetResources();
     else await Effect.runPromise(cache.close());
     expect((await result)._tag).toBe('Failure');

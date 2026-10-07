@@ -11,7 +11,7 @@ export function mountCounter(host) {
     send: (count) => owner.patch({ count }),
   });
   return () => {
-    unmount();
+    unmount.dispose();
     owner.dispose();
   };
 }

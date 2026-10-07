@@ -20,9 +20,6 @@ const listing = infiniteQuery({
 });
 const observer = infiniteResource(cache, listing);
 observer.select({ path: '/' });
-// @ts-expect-error A cursor must retain its declared type.
-const invalidRetry = observer.retryPage('invalid');
-void invalidRetry;
 // @ts-expect-error The cache must supply the query service environment.
 infiniteResource(queryCache(), listing);
 // @ts-expect-error Query arguments must retain their declared type.
@@ -32,12 +29,7 @@ const typed = query({
   groups: [group],
   load: (args: { path: string }) => Effect.succeed(args.path),
 });
-cache.invalidateWhere(typed, (args) => args.path.startsWith('/'));
+cache.invalidateQuery(typed, { path: '/' });
 cache.invalidateGroup(group);
 // @ts-expect-error Invalidation groups must be declared with queryGroup.
 cache.invalidateGroup(Symbol('files'));
-cache.invalidateWhere(typed, (args) => {
-  // @ts-expect-error Predicates borrow immutable arguments.
-  args.path = 'changed';
-  return true;
-});

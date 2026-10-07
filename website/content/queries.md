@@ -121,7 +121,7 @@ export const messagesQuery = infiniteQuery({
 });
 ```
 
-Read it with `querySource` like any query. The result has `pages` and `next`; `next === undefined` means there are no more pages. Call `fetchNextPage(cache, messagesQuery, args)` from an event handler to load the next one, and `retryPage` to retry a failed page. `maxPages` limits how many pages are kept in memory.
+Read it with `querySource` like any query. The result has `pages` and `next`; `next === undefined` means there are no more pages. Call `fetchNextPage(cache, messagesQuery, args)` from an event handler to load the next one; after a failed page it loads that page again. `maxPages` limits how many pages are kept in memory.
 
 Refreshing reloads the pages already loaded. Set `refresh: 'first'` to start again from the first page.
 

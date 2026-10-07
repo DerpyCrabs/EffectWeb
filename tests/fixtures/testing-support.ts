@@ -6,7 +6,6 @@ import type { Program, RunKey, RunningProgram } from 'effectweb';
 /** Program inspection and controlled Effect execution with application-owned services. */
 export interface ProgramDriver<M, Msg, R = never> extends Program<M, Msg> {
   readonly close: RunningProgram<M, Msg>['close'];
-  readonly activeKeys: RunningProgram<M, Msg>['activeKeys'];
   readonly awaitKey: (key: RunKey) => Effect.Effect<void>;
   readonly awaitIdle: () => Effect.Effect<void>;
   readonly run: <A, E>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E>;
@@ -27,7 +26,6 @@ export function programDriver<M, Msg, R>(
     subscribe: source.subscribe,
     dispose: source.dispose,
     close: source.close,
-    activeKeys: source.activeKeys,
     awaitKey: (key: RunKey) => source.awaitIdle(key),
     awaitIdle: () => source.awaitIdle(),
     run: (effect) => Effect.provideContext(effect, context),

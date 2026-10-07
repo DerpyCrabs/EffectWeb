@@ -108,13 +108,17 @@ export interface Program<Model, Message> {
   readonly close?: () => Effect.Effect<void, unknown>;
 }
 export interface RunningProgram<Model, Message> extends Program<Model, Message> {
+  readonly close: () => Effect.Effect<void>;
+  /** Resolves when the key (or every key) has no running or pending work. */
+  readonly awaitIdle: (key?: RunKey) => Effect.Effect<void>;
+}
+/** A program with scheduler inspection, for owners and tests. Internal. */
+export interface ProgramHandle<Model, Message> extends RunningProgram<Model, Message> {
   /** Wait for interrupted work and its finalizers as well as admitted work. */
   readonly awaitStopped: () => Effect.Effect<void>;
-  readonly close: () => Effect.Effect<void>;
   readonly activeKeys: () => readonly RunKey[];
   /** Whether the key has running or pending work. */
   readonly isRunning: (key: RunKey) => boolean;
-  readonly awaitIdle: (key?: RunKey) => Effect.Effect<void>;
 }
 
 /**
@@ -176,7 +180,7 @@ export function createProgram<Model, Message>(options: {
   update: (model: Snapshot<Model>, message: Message) => OwnedTransition<Model, Message>;
   onDefect?: (cause: unknown) => void;
   runtime?: Pick<UiRuntime<never>, 'runFork'>;
-}): RunningProgram<Model, Message> {
+}): ProgramHandle<Model, Message> {
   const waiters = new Set<{ key: RunKey | undefined; done: () => void }>();
   const notify = () => {
     notifyStopped();

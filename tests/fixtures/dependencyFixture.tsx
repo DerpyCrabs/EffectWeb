@@ -21,7 +21,7 @@ export function mountCopiedArrays(parent: HTMLElement) {
     initial,
     set: source.send,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -66,7 +66,7 @@ export function mountDependencies(parent: HTMLElement) {
   return {
     set: source.send,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };

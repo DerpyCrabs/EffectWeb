@@ -1,13 +1,4 @@
-import {
-  domMount,
-  component,
-  mount,
-  program,
-  view,
-  type JSX,
-  type Slot,
-  type Snapshot,
-} from 'effectweb';
+import { domMount, component, mount, program, view, type JSX, type Snapshot } from 'effectweb';
 
 export function mountSlots(parent: HTMLElement) {
   const lifetime = { mounted: 0, disposed: 0 };
@@ -35,7 +26,7 @@ export function mountSlots(parent: HTMLElement) {
     <section>{model.children}</section>
   ));
   const Frame = component<
-    { children?: JSX.Element; footer?: JSX.Element; row: Slot<string> },
+    { children?: JSX.Element; footer?: JSX.Element; row: (value: string) => JSX.Element },
     { second: boolean; value: string }
   >(
     { init: () => ({ second: true, value: 'argument' }) },
@@ -80,19 +71,21 @@ export function mountSlots(parent: HTMLElement) {
     model: source.model,
     lifetime,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
 }
 
 export function mountSvgSlots(parent: SVGElement) {
-  const Frame = view<{ children?: JSX.Element; row: Slot<number> }, never>((model, _send) => (
-    <g>
-      {model.children}
-      {model.row(10)}
-    </g>
-  ));
+  const Frame = view<{ children?: JSX.Element; row: (value: number) => JSX.Element }, never>(
+    (model, _send) => (
+      <g>
+        {model.children}
+        {model.row(10)}
+      </g>
+    ),
+  );
   const View = view<{ x: number }, never>((model, _send) => (
     <Frame row={(y: number) => <circle data-row="" cx={model.x} cy={y} />}>
       <circle data-child="" cx={model.x} />
@@ -109,7 +102,7 @@ export function mountSvgSlots(parent: SVGElement) {
   return {
     set: source.send,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -144,7 +137,7 @@ export function mountChangingSlots(parent: HTMLElement) {
   return {
     set: source.send,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };

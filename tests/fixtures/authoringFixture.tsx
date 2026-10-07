@@ -1,4 +1,4 @@
-import { domMount, mount, program, view, ViewBinding, type DomMount } from 'effectweb';
+import { domMount, mount, program, view, type DomMount } from 'effectweb';
 
 type State = {
   label: string;
@@ -19,16 +19,16 @@ const Ordinary = view<State['child']>((p) => (
     {p.model}:{p.extra}
   </button>
 ));
-const Dispatched = view<string, string>((label, send) => (
-  <button data-dispatched onClick={() => send(label)}>
-    {label}
+const Dispatched = view<{ label: string; select: (label: string) => void }>((p) => (
+  <button data-dispatched onClick={() => p.select(p.label)}>
+    {p.label}
   </button>
 ));
 const View = view<State, Partial<State>>((p, send) => (
   <section>
     <Ordinary model={p.label} send={p.child.send} />
     <Ordinary {...p.child} extra="explicit" />
-    <ViewBinding view={Dispatched} model={p.label} send={(selected) => send({ selected })} />
+    <Dispatched label={p.label} select={(selected) => send({ selected })} />
     <button data-spread title="before" {...p.attrs}>
       Spread
     </button>
@@ -104,7 +104,7 @@ export function mountAuthoring(parent: HTMLElement) {
       }),
     remove: () => source.send({ attrs: {}, control: {} }),
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };

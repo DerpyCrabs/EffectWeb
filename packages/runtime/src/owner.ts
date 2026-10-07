@@ -47,10 +47,6 @@ export interface ModelOwner<Model extends object, R = never> extends DisposableO
     key: K,
     change: (value: Snapshot<Model[K]>) => Model[K] | Snapshot<Model[K]>,
   ) => void;
-  /** Synchronous transaction. Reads see staged changes; a throw discards changes and work. */
-  readonly transaction: <A>(
-    work: () => A & (A extends PromiseLike<unknown> ? never : unknown),
-  ) => A;
   /**
    * Starts the work now and returns a handle to this run. `yield* run.await` gives its `Exit`
    * once the work and its finalizers are done, as `Fiber.await` does: a cancelled, replaced,
@@ -75,7 +71,6 @@ export interface ModelOwner<Model extends object, R = never> extends DisposableO
   ) => OwnedRun<TaskValue<Model, Key>, TaskError<Model, Key>>;
   /** Interrupt the key's running work and discard its pending work. */
   readonly cancel: (key: RunKey) => void;
-  readonly isRunning: (key: RunKey) => boolean;
   /** Resolves when the key (or every key) has no running or pending work. */
   readonly awaitIdle: (key?: RunKey) => Effect.Effect<void>;
   /**
@@ -196,7 +191,6 @@ export function createModelOwner<Model extends object, R>(
   const discardUnstarted = () => {
     for (const discard of notStarted) discard();
   };
-  let staged: { model: Model; operations: Operation[] } | undefined;
   const cleanups: OwnedResource[] = [];
   let resourcesDisposed = false;
   const source = createProgram<Model, Batch>({
@@ -249,17 +243,13 @@ export function createModelOwner<Model extends object, R>(
     },
   });
   let accepted = source.model() as Model;
-  const read = (): Snapshot<Model> => protectSnapshot(staged?.model ?? accepted) as Snapshot<Model>;
+  const read = (): Snapshot<Model> => protectSnapshot(accepted) as Snapshot<Model>;
   const submit = (operation: Operation) => {
     if (disposed) {
       if (operation.type === 'Run') operation.onDiscard('Disposed');
       return;
     }
-    if (staged) {
-      staged.operations.push(operation);
-      if (operation.type === 'Patch')
-        staged.model = patchModel(staged.model, operation.changes as Partial<Model>);
-    } else submitBatch([operation]);
+    submitBatch([operation]);
   };
   const patch = (changes: Partial<Model> | Partial<Snapshot<Model>>) =>
     submit({ type: 'Patch', changes });
@@ -374,29 +364,6 @@ export function createModelOwner<Model extends object, R>(
         patch(changes);
       }
     },
-    transaction(work) {
-      if (disposed) throw new Error('Cannot start a transaction on a disposed model owner.');
-      const parent = staged;
-      const batch = { model: read() as Model, operations: [] as Operation[] };
-      staged = batch;
-      try {
-        const result = work();
-        staged = parent;
-        if (!disposed) {
-          if (parent) {
-            parent.model = batch.model;
-            parent.operations.push(...batch.operations);
-          } else if (batch.operations.length) submitBatch(batch.operations);
-        }
-        return result;
-      } catch (error) {
-        for (const operation of batch.operations)
-          if (operation.type === 'Run') operation.onDiscard('Cancelled');
-        throw error;
-      } finally {
-        staged = parent;
-      }
-    },
     run,
     task: ((key: RunKey, effect: Effect.Effect<unknown, unknown, never>, policy: RunPolicy) =>
       (task ??= ownedTask(run as RunWithDiscard, read, patch as never, () => disposed))(
@@ -405,7 +372,6 @@ export function createModelOwner<Model extends object, R>(
         policy,
       )) as unknown as ModelOwner<Model, R>['task'],
     cancel: (key) => submit({ type: 'Cancel', key }),
-    isRunning: source.isRunning,
     awaitIdle: source.awaitIdle,
     get disposed() {
       return disposed;

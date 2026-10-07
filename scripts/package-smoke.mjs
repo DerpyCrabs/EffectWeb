@@ -92,12 +92,12 @@ const work=Fx.void.pipe(Fx.ensuring(Fx.sync(()=>owner.patch({busy:false})))); ru
   'Packed lint follows local wrappers and Effect aliases',
 );
 const bindingProbe = compile(
-  `import {view, ViewBinding} from 'effectweb'; const Child=view(p=><b>{p}</b>); const Parent=view((p,send)=><ViewBinding view={Child} model={p} send={send}/>);`,
+  `import {view, Portal} from 'effectweb'; const Child=view(p=><b>{p}</b>); const Parent=view((p)=><Portal><Child {...p}/></Portal>);`,
   'binding.tsx',
 ).code;
 assert.ok(
-  bindingProbe.includes('ViewBinding({'),
-  'The packaged compiler must preserve the ViewBinding component call',
+  bindingProbe.includes('Portal') && bindingProbe.includes('Child'),
+  'The packaged compiler must preserve component calls',
 );
 assert.ok(
   compile(
@@ -298,7 +298,7 @@ export function mountJsonRenderer(host: HTMLElement) {
   const App = view<{ state: Record<string, unknown> }, ActionEvent>((model, send) =>
     <Renderer spec={spec} registry={registry} state={model.state} dispatch={send} />);
   const unmount = mount(host, App, source);
-  return { dispose: () => { unmount(); source.dispose(); } };
+  return { dispose: () => { unmount.dispose(); source.dispose(); } };
 }
 `,
 );

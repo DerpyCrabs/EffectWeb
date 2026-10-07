@@ -59,7 +59,7 @@ export function mountControlFlow(parent: HTMLElement) {
     set: source.send,
     lifetime,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -84,7 +84,7 @@ export function mountDefaultGroup(parent: HTMLElement) {
   return {
     set: source.send,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };

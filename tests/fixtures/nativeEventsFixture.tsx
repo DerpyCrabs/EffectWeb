@@ -129,7 +129,7 @@ export function mountNativeEvents(
   return {
     set: source.send,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -201,7 +201,7 @@ export function mountNativeAttributes(parent: HTMLElement) {
   return {
     set: source.send,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -223,7 +223,7 @@ export function mountNonBubblingOrder(parent: HTMLElement, record: (label: strin
   return {
     block: () => source.patch({ blocked: true }),
     dispose: () => {
-      mounted();
+      mounted.dispose();
       source.dispose();
     },
   };

@@ -1,6 +1,6 @@
 import { Cause, Effect, Queue, Stream } from 'effect';
 import { describe, expect, it } from 'vitest';
-import { mapCommand, program, type Command } from './program.js';
+import { createProgram, mapCommand, program, type Command } from './program.js';
 
 const commandTransfer = 'transfer';
 const commandWork = 'work';
@@ -333,7 +333,6 @@ it('keeps snapshot publication synchronous, deduplicated and safe when subscript
   app.send(4);
   await Promise.all(idle);
   expect(seen).toEqual([1, 1, 2, 2, 3]);
-  expect(app.activeKeys()).toEqual([]);
 });
 
 it('reports canceled command finalizer defects before close settles', async () => {
@@ -370,7 +369,7 @@ it('isolates distinct structural operation keys', async () => {
   const first = ['mutation', 1] as const;
   const second = ['mutation', 2] as const;
   const stopped: string[] = [];
-  const source = program({
+  const source = createProgram({
     initial: 0,
     update: (model, message: 'first' | 'second' | 'cancel') =>
       message === 'cancel'

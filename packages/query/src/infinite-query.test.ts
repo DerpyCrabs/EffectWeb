@@ -43,7 +43,7 @@ it('shares initial and next loads, seeds, bounds pages and refreshes retained pa
   cache.dispose();
 });
 
-it('retains typed errors and services, retries one page and rejects a stale append after reset', async () => {
+it('retains typed errors and services, loads the failed page again and rejects a stale append after reset', async () => {
   class Api extends Context.Service<
     Api,
     { load(page: number): Effect.Effect<number[], 'offline'> }
@@ -74,7 +74,7 @@ it('retains typed errors and services, retries one page and rejects a stale appe
   resource.select('a');
   expect((await Effect.runPromiseExit(resource.fetchNextPage()))._tag).toBe('Failure');
   fail = false;
-  await Effect.runPromise(resource.retryPage(1));
+  await Effect.runPromise(resource.fetchNextPage());
   expect(cache.getQueryData(definition.query, 'a')?.pages.length).toBe(2);
   const pending = Effect.runPromiseExit(resource.fetchNextPage());
   cache.resetResources();
@@ -83,48 +83,6 @@ it('retains typed errors and services, retries one page and rejects a stale appe
   expect(cache.getQueryData(definition.query, 'a')).toBeUndefined();
   resource.dispose();
   cache.dispose();
-});
-
-it('merges concurrent retries of different pages and coalesces retries of the same page', async () => {
-  const pending = new Map<number, (value: number[]) => void>();
-  const loads: number[] = [];
-  const definition = infiniteQuery({
-    name: 'retry-ranges',
-    initial: 0,
-    load: (_path: string, page: number) =>
-      Effect.promise(() => {
-        loads.push(page);
-        return new Promise<number[]>((resolve) => pending.set(page, resolve));
-      }),
-    next: (_value, page) => page + 1,
-  });
-  const cache = queryCache();
-  const first = infiniteResource(cache, definition),
-    second = infiniteResource(cache, definition);
-  first.seed('/', {
-    pages: [
-      { param: 0, value: [0] },
-      { param: 1, value: [1] },
-    ],
-    next: 2,
-  });
-  first.select('/');
-  second.select('/');
-  const a = Effect.runPromise(first.retryPage(0));
-  const duplicate = Effect.runPromise(second.retryPage(0));
-  const b = Effect.runPromise(second.retryPage(1));
-  expect(loads).toEqual([0, 1]);
-  pending.get(1)!([11]);
-  await b;
-  pending.get(0)!([10]);
-  await Promise.all([a, duplicate]);
-  expect(cache.getQueryData(definition.query, '/')?.pages.map((page) => page.value)).toEqual([
-    [10],
-    [11],
-  ]);
-  first.dispose();
-  second.dispose();
-  await Effect.runPromise(cache.close());
 });
 
 it('does not append an older page after an external refresh or after reset and reseeding the same key', async () => {
@@ -197,7 +155,6 @@ it('supports first-page refresh explicitly and validates seed ranges and cursors
       next: 1,
     }),
   ).toThrow('unique');
-  expect((await Effect.runPromiseExit(observer.retryPage(9)))._tag).toBe('Failure');
   observer.dispose();
   await Effect.runPromise(cache.close());
 });

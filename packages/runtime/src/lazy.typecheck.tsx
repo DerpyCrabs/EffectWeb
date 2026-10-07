@@ -1,6 +1,6 @@
 /* oxlint-disable effecttsgo/missing-effect-context -- Negative lazy loader service contracts. */
 import { Cause, Context, Effect } from 'effect';
-import { view, ViewBinding, type View } from './index.js';
+import { view, type View } from './index.js';
 import { lazyView } from './advanced.js';
 
 type Model = { title: string };
@@ -15,13 +15,6 @@ const Failure = view<{ model: Model; cause: Cause.Cause<'offline'> }, Message>((
 const load = (): Effect.Effect<View<Model, Message>, 'offline'> => Effect.succeed(Loaded);
 const Lazy = lazyView(load, { pending: Pending, failure: Failure });
 const typed: View<Model, Message> = Lazy;
-const bound = <ViewBinding view={Lazy} model={{ title: 'loaded' }} send={() => {}} />;
-// @ts-expect-error Lazy definitions retain the loaded model's property types.
-const wrongModel = <ViewBinding view={Lazy} model={{ title: 1 }} send={() => {}} />;
-const wrongMessage = (
-  // @ts-expect-error Lazy definitions retain the loaded message contract.
-  <ViewBinding view={Lazy} model={{ title: 'loaded' }} send={(_message: number) => {}} />
-);
 // @ts-expect-error A lazy view with messages still requires an explicit dispatcher.
 const unbound = <Lazy title="loaded" />;
 const ReadOnly = lazyView(() => Effect.succeed(view<Model>((model) => <span>{model.title}</span>)));
@@ -56,4 +49,4 @@ lazyView(serviceLoad);
 lazyView(serviceLoad, { pending: Pending });
 // @ts-expect-error An unrelated context cannot provide the loader service.
 lazyView(() => serviceLoad().pipe(Effect.provideContext(Context.make(Other, { value: 'other' }))));
-void [typed, bound, wrongModel, wrongMessage, unbound, readOnly];
+void [typed, unbound, readOnly];

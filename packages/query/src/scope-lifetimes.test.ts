@@ -31,7 +31,7 @@ it('releases scoped query acquisition when the cache closes before its parent sc
   );
 });
 
-it.each(['close', 'remove', 'reset', 'refresh', 'cancel', 'unused', 'evict'] as const)(
+it.each(['close', 'reset', 'refresh', 'cancel', 'unused', 'evict'] as const)(
   'joins asynchronous query resources after %s, including resources of replaced or evicted entries',
   async (action) => {
     if (action === 'evict') vi.useFakeTimers();
@@ -61,8 +61,7 @@ it.each(['close', 'remove', 'reset', 'refresh', 'cancel', 'unused', 'evict'] as 
     try {
       observer.select(true);
       expect(releasing).toEqual([]);
-      if (action === 'remove') cache.removeQuery(definition, true);
-      else if (action === 'reset') cache.resetResources();
+      if (action === 'reset') cache.resetResources();
       else if (action === 'refresh') cache.invalidateQuery(definition, true);
       else if (action === 'cancel') cache.cancelQuery(definition, true);
       else if (action === 'unused' || action === 'evict') {

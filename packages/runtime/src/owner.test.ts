@@ -2,61 +2,10 @@ import { Context, Effect } from 'effect';
 import { expect, it, vi } from 'vitest';
 import { modelOwner } from './owner.js';
 
-const commandTask = 'task';
 const commandLoad = 'load';
-const commandSame = 'same';
-const commandCanceled = 'canceled';
 const commandWork = 'work';
 const commandRead = 'read';
 const commandFail = 'fail';
-
-it('publishes one snapshot per transaction and handles reentrant edits against current state', () => {
-  const owner = modelOwner({ count: 0, label: 'old' });
-  const seen: number[] = [];
-  owner.source.subscribe((model) => {
-    seen.push(model.count);
-    if (model.count === 2) owner.edit('count', (n) => n + 1);
-  });
-  owner.transaction(() => {
-    owner.patch({ count: 1 });
-    owner.transaction(() => owner.edit('count', (n) => n + 1));
-    expect(owner.read().count).toBe(2);
-    expect(owner.source.model().count).toBe(0);
-  });
-  expect(seen).toEqual([2, 3]);
-  owner.patch({ count: 3 });
-  expect(seen).toEqual([2, 3]);
-  owner.dispose();
-});
-
-it('rolls back nested transactions and does not launch work from an aborted transaction', async () => {
-  const owner = modelOwner({ count: 0 });
-  const work = vi.fn();
-  const seen = vi.fn();
-  owner.source.subscribe(seen);
-  expect(() =>
-    owner.transaction(() => {
-      owner.patch({ count: 1 });
-      owner.run(commandTask, Effect.sync(work), 'replace');
-      throw new Error('abort');
-    }),
-  ).toThrow('abort');
-  expect(owner.read().count).toBe(0);
-  expect(seen).not.toHaveBeenCalled();
-  expect(work).not.toHaveBeenCalled();
-  owner.transaction(() => {
-    owner.patch({ count: 2 });
-    try {
-      owner.transaction(() => {
-        owner.patch({ count: 99 });
-        throw new Error('inner');
-      });
-    } catch {}
-    expect(owner.read().count).toBe(2);
-  });
-  expect(seen).toHaveBeenCalledTimes(1);
-  owner.dispose();
-});
 
 it('owns replace, drop and parallel work and cancels the whole named group', async () => {
   const owner = modelOwner({ count: 0 });
@@ -73,38 +22,9 @@ it('owns replace, drop and parallel work and cancels the whole named group', asy
   expect(start).toHaveBeenCalledTimes(2);
   owner.run(commandLoad, work, 'replace');
   await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(2));
-  expect(owner.isRunning(commandLoad)).toBe(true);
   owner.cancel(commandLoad);
   await Effect.runPromise(owner.awaitIdle());
   await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(3));
-  expect(owner.isRunning(commandLoad)).toBe(false);
-  owner.dispose();
-});
-
-it('resolves task policies within a batch before executing commands and publishes before work', async () => {
-  const owner = modelOwner({ count: 0 });
-  const ran: number[] = [];
-  owner.transaction(() => {
-    owner.run(
-      commandSame,
-      Effect.sync(() => ran.push(-1)),
-      'replace',
-    );
-    owner.run(
-      commandSame,
-      Effect.sync(() => ran.push(owner.read().count)),
-      'replace',
-    );
-    owner.run(
-      commandCanceled,
-      Effect.sync(() => ran.push(-2)),
-      'replace',
-    );
-    owner.cancel(commandCanceled);
-    owner.patch({ count: 5 });
-  });
-  await Effect.runPromise(owner.awaitIdle());
-  expect(ran).toEqual([5]);
   owner.dispose();
 });
 
@@ -114,10 +34,8 @@ it('disposes resources, suppresses later writes and prevents work after listener
     work = vi.fn();
   owner.own({ dispose });
   owner.source.subscribe(() => owner.dispose());
-  owner.transaction(() => {
-    owner.patch({ count: 1 });
-    owner.run(commandWork, Effect.sync(work), 'replace');
-  });
+  owner.patch({ count: 1 });
+  owner.run(commandWork, Effect.sync(work), 'replace');
   owner.source.dispose();
   owner.patch({ count: 10 });
   owner.edit('count', (n) => n + 1);
@@ -143,15 +61,6 @@ it('provides application services and reports failures without retaining a busy 
   owner.run(commandFail, Effect.fail('offline'), 'replace');
   await Effect.runPromise(owner.awaitIdle());
   expect(onDefect).toHaveBeenCalledOnce();
-  expect(owner.isRunning(commandFail)).toBe(false);
-  owner.dispose();
-});
-
-it('returns synchronous transaction values without treating plain data as a Promise', () => {
-  const owner = modelOwner({ count: 0 });
-  // A non-callable then field is ordinary synchronous data.
-  // oxlint-disable-next-line unicorn/no-thenable -- Adversarial thenable verifies transaction rejection without executing it.
-  expect(owner.transaction(() => ({ then: 42 }))).toEqual({ then: 42 });
   owner.dispose();
 });
 
@@ -249,26 +158,6 @@ it('respects reentrant cancellation before admitting a new command', async () =>
   owner.dispose();
 });
 
-it('rolls back cancellation and preserves the active command', async () => {
-  const owner = modelOwner({});
-  const stopped = vi.fn();
-  const dropped = vi.fn();
-  owner.run(commandLoad, Effect.never.pipe(Effect.ensuring(Effect.sync(stopped))), 'drop');
-  expect(() =>
-    owner.transaction(() => {
-      owner.cancel(commandLoad);
-      throw new Error('rollback');
-    }),
-  ).toThrow('rollback');
-  owner.run(commandLoad, Effect.sync(dropped), 'drop');
-  expect(stopped).not.toHaveBeenCalled();
-  expect(dropped).not.toHaveBeenCalled();
-  owner.transaction(() => owner.cancel(commandLoad));
-  await Effect.runPromise(owner.awaitIdle());
-  expect(stopped).toHaveBeenCalledOnce();
-  owner.dispose();
-});
-
 it('reads accepted writes synchronously during command startup', async () => {
   const owner = modelOwner({ first: 0, second: 0 });
   let read: unknown;
@@ -288,7 +177,7 @@ it('reads accepted writes synchronously during command startup', async () => {
   owner.dispose();
 });
 
-it('accumulates reentrant edits and keeps nested transaction rollback isolated', () => {
+it('accumulates reentrant edits against the accepted state and publishes each in order', () => {
   const owner = modelOwner({ count: 0, label: '' });
   const published: number[] = [];
   owner.source.subscribe((snapshot) => {
@@ -297,21 +186,13 @@ it('accumulates reentrant edits and keeps nested transaction rollback isolated',
     owner.edit('count', (count) => count + 1);
     owner.edit('count', (count) => count + 1);
     expect(owner.read().count).toBe(3);
-    expect(() =>
-      owner.transaction(() => {
-        owner.patch({ count: 99 });
-        throw new Error('rollback');
-      }),
-    ).toThrow('rollback');
-    expect(owner.read().count).toBe(3);
-    owner.transaction(() => {
-      owner.patch({ label: String(owner.read().count) });
-      owner.edit('count', (count) => count + 1);
-    });
+    expect(owner.source.model().count).toBe(1);
+    owner.patch({ label: String(owner.read().count) });
+    owner.edit('count', (count) => count + 1);
     expect(owner.read()).toEqual({ count: 4, label: '3' });
   });
   owner.patch({ count: 1 });
-  expect(published).toEqual([1, 2, 3, 4]);
+  expect(published).toEqual([1, 2, 3, 3, 4]);
   expect(owner.source.model()).toEqual({ count: 4, label: '3' });
   owner.dispose();
 });

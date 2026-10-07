@@ -5,7 +5,7 @@ Find what you want to do, then follow the link for an example. Everything here i
 | I want to…                                | Use                                      | Guide                                          |
 | ----------------------------------------- | ---------------------------------------- | ---------------------------------------------- |
 | Show some props                           | `view((props) => …)`                     | [Views](/docs/views/)                          |
-| Accept children or a render callback      | a `children` prop, `Slot<A>`             | [Views](/docs/views/#props-and-children)       |
+| Accept children or a render callback      | a `children` prop, a function prop       | [Views](/docs/views/#props-and-children)       |
 | Render rows that can change or hold state | `list(entities(rows), render)`           | [Lists](/docs/lists/)                          |
 | Render strings or numbers                 | `list(values, render)`                   | [Lists](/docs/lists/#choosing-a-key)           |
 | Show loading and error states             | `available`, `resourceError`, `.waiting` | [Server data](/docs/queries/#show-the-result)  |
@@ -20,7 +20,6 @@ Find what you want to do, then follow the link for an example. Everything here i
 | Write logic as named messages                 | `component({ init, update }, view)`     | [Components](/docs/components/#named-messages)                    |
 | Share state between several views             | `modelOwner` with `run` and `task`      | [Controllers](/docs/controllers/)                                 |
 | Create a controller from a view's props       | `controllerView({ controller }, view)`  | [Controllers](/docs/controllers/#create-a-controller-from-a-view) |
-| Own an existing program in a view             | `component({ program, receive }, view)` | [Components](/docs/components/#place-an-existing-program)         |
 | Run an app as a reducer with commands         | `program({ initial, update })`          | [Components](/docs/components/#named-messages)                    |
 
 ## Running async work
@@ -41,7 +40,7 @@ Find what you want to do, then follow the link for an example. Everything here i
 | Load and cache server data         | `query` and `querySource` from `@effectweb/query` | [Server data](/docs/queries/)                       |
 | Refresh data after saving          | `cache.invalidateQuery`, `queryGroup`             | [Server data](/docs/queries/#refresh-after-a-write) |
 | Load more pages                    | `infiniteQuery`, `fetchNextPage`                  | [Server data](/docs/queries/#load-more-pages)       |
-| Build a small form                 | controlled inputs and `submit`                    | [Forms](/docs/forms/)                               |
+| Build a small form                 | controlled inputs and `owner.task`                | [Forms](/docs/forms/)                               |
 | Build a large form with validation | `@effectweb/tanstack-form`                        | [Forms](/docs/forms/#large-forms)                   |
 
 ## The DOM, the app and tests
@@ -49,7 +48,7 @@ Find what you want to do, then follow the link for an example. Everything here i
 | I want to…                                    | Use                                                       | Guide                                               |
 | --------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------- |
 | Focus an input or attach a chart library      | `use={domMount(setup)}`, `domBinding`                     | [DOM](/docs/dom/)                                   |
-| Let a controller scroll or measure an element | `domHandle()`                                             | [DOM](/docs/dom/#give-a-controller-an-element)      |
+| Let a controller scroll or measure an element | a `domMount` that stores the element                      | [DOM](/docs/dom/#give-a-controller-an-element)      |
 | Start the app and provide services            | `makeMount`, a `context` option                           | [App setup](/docs/services/)                        |
 | Catch a rendering error                       | `errorBoundary(view, { fallback })`                       | [App setup](/docs/services/#catch-rendering-errors) |
 | Add routing                                   | `@effectweb/tanstack-router`                              | [Integrations](/docs/integrations/#routing)         |

@@ -24,14 +24,16 @@ export async function failedRenderCleanup(parent: HTMLElement) {
       {
         controller: (_props: number) => ({
           source: { model: () => ({ value: 0 }), subscribe: () => () => {} },
-          dispose: () => {},
-          close: () =>
-            Effect.gen(function* () {
-              order.push('child release started');
-              yield* Deferred.succeed(releaseStarted, undefined);
-              yield* Deferred.await(release);
-              order.push('child released');
-            }),
+          lifetime: {
+            dispose: () => {},
+            close: () =>
+              Effect.gen(function* () {
+                order.push('child release started');
+                yield* Deferred.succeed(releaseStarted, undefined);
+                yield* Deferred.await(release);
+                order.push('child released');
+              }),
+          },
         }),
       },
       view<{ value: number }>(() => {

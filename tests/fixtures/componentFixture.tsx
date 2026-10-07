@@ -122,7 +122,7 @@ export function mountComponentFixture(parent: HTMLElement) {
     show: () => source.send({ type: 'Visible', visible: true }),
     counts: () => ({ ...counts }),
     dispose: () => {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };

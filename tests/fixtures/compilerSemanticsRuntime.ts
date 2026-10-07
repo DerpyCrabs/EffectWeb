@@ -8,7 +8,6 @@ export {
   captured,
   view,
   list,
-  ViewBinding,
   text,
   attribute,
   child,

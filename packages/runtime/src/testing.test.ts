@@ -77,7 +77,6 @@ describe('public program test driver', () => {
     controlled.succeed(9);
     await idle;
     expect(driver.model()).toBe(9);
-    expect(driver.activeKeys()).toEqual([]);
     driver.dispose();
   });
 

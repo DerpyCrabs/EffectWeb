@@ -40,7 +40,7 @@ export function mountListOptimization(parent: HTMLElement) {
     ...source,
     counters,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };

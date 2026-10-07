@@ -1,6 +1,6 @@
 import { list } from 'effectweb';
 import { Effect } from 'effect';
-import { collection, mount, program, view, ViewBinding } from 'effectweb';
+import { collection, mount, program, view, type Send } from 'effectweb';
 
 export interface Item {
   readonly id: number;
@@ -24,11 +24,11 @@ const items = collection<Item>((item) => item.id);
 import { counters, label } from './fixtureInstrumentation';
 const commandSend = 'send';
 // The counter is instrumentation only. Production view helpers must be pure.
-const ItemView = view<Item, Message>((model, send) => {
-  const { id, text } = model;
+const ItemView = view<{ item: Item; send: Send<Message> }>(({ item, send }) => {
+  const { id, text } = item;
   const title = label(text);
   return (
-    <article data-id={id} data-server-id={model.serverId}>
+    <article data-id={id} data-server-id={item.serverId}>
       <button onClick={() => send({ type: 'Select', id, text })}>{title}</button>
       <input value={text} aria-label={`Edit ${id}`} />
     </article>
@@ -45,7 +45,7 @@ const FixtureView = view<Model, Message>((model, send) => {
       {visible ? (
         <section>
           {list(rows, (item) => (
-            <ViewBinding view={ItemView} model={item} send={send} />
+            <ItemView item={item} send={send} />
           ))}
         </section>
       ) : (
@@ -136,7 +136,7 @@ export function mountFixture(parent: HTMLElement, count = 1000) {
       set({ items: [...source.model().items].reverse() });
     },
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -156,7 +156,7 @@ export function mountPrimitiveList(parent: HTMLElement, values: readonly string[
   });
   const unmount = mount(parent, View, source);
   return () => {
-    unmount();
+    unmount.dispose();
     source.dispose();
   };
 }
@@ -190,7 +190,7 @@ export function mountEventSnapshot(parent: HTMLElement) {
   return {
     model: source.model,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -215,7 +215,7 @@ export function mountRootList(parent: HTMLElement) {
   return {
     set: source.send,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -247,7 +247,7 @@ export function mountAttributes(parent: HTMLElement) {
   return {
     set: (patch: Partial<State>) => source.send({ ...source.model(), ...patch }),
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };

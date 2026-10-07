@@ -1,6 +1,6 @@
 import { Cause, Option } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { domMount, submit, mount, program, resourceError, view } from 'effectweb';
+import { domMount, mount, program, resourceError, view } from 'effectweb';
 
 export function mountAsyncResult(parent: HTMLElement) {
   type Model = { result: AsyncResult.AsyncResult<number | undefined, string> };
@@ -48,7 +48,7 @@ export function mountAsyncResult(parent: HTMLElement) {
       }),
     clear: () => source.send({ result: AsyncResult.initial() }),
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -57,7 +57,12 @@ export function mountAsyncResult(parent: HTMLElement) {
 export function mountForm(parent: HTMLElement) {
   type Model = { text: string; checked: boolean; number: number | undefined; submitted: number };
   const View = view<Model, Partial<Model>>((model, send) => (
-    <form onSubmit={submit(() => send({ submitted: model.submitted + 1 }))}>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        send({ submitted: model.submitted + 1 });
+      }}
+    >
       <input
         aria-label="Text"
         value={model.text}
@@ -98,7 +103,7 @@ export function mountForm(parent: HTMLElement) {
     model: source.model,
     set: source.send,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -123,7 +128,7 @@ export function mountSelect(parent: HTMLElement) {
   return {
     model: () => source.model(),
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };

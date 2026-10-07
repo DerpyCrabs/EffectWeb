@@ -1245,7 +1245,6 @@ impl<'a> Analyzer<'a, '_> {
                             (Some("domMount"), 0) | (Some("domBinding"), 1) => {
                                 Some(Phase::Host)
                             }
-                            (Some("submit"), 0) => Some(Phase::Event),
                             // Render callbacks run while rendering, with the same purity rules.
                             (Some("observe" | "list"), 1) => Some(phase),
                             _ => None,

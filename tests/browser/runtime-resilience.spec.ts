@@ -75,8 +75,8 @@ test('failed bindings, branches and cleanups leave siblings usable and release a
     ];
     source.send(2);
     const recovered = host.querySelector('aside')?.textContent;
-    stop();
-    stop();
+    stop.dispose();
+    stop.dispose();
     source.dispose();
     return {
       partial,
@@ -117,7 +117,7 @@ test('mount observes model publications made during synchronous child setup', as
     });
     const stop = mount(host, View, source);
     const result = { text: host.textContent, model: source.model() };
-    stop();
+    stop.dispose();
     source.dispose();
     return result;
   });
@@ -194,7 +194,7 @@ test('a DOM acquisition keeps its identity and fresh input when setup publishes 
       },
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    stop();
+    stop.dispose();
     source.dispose();
     return { starts, stops, observed, errors: errors.map(String) };
   });
@@ -215,12 +215,12 @@ for (const keyed of [true, false]) {
       document.body.append(host);
       const releases: number[] = [];
       const errors: string[] = [];
-      let stop = () => {};
+      let stop = { dispose: () => {} };
       const Child = compiled<{ id: number }, never>((scope, parent, before) => {
         scope.cleanups.push(() => {
           releases.push(scope.value.id);
         });
-        if (scope.value.id === 2) stop();
+        if (scope.value.id === 2) stop.dispose();
         element(parent, before, 'span').textContent = String(scope.value.id);
       });
       const source = program({
@@ -260,7 +260,7 @@ for (const keyed of [true, false]) {
           const releases: number[] = [];
           const builds: number[] = [];
           const errors: string[] = [];
-          let stop = () => {};
+          let stop = { dispose: () => {} };
           let stopOnCleanup = false;
           const Child = compiled<{ id: number; stopOnUpdate: boolean }, never>(
             (scope, parent, before) => {
@@ -268,10 +268,10 @@ for (const keyed of [true, false]) {
               builds.push(id);
               scope.cleanups.push(() => {
                 releases.push(id);
-                if (stopOnCleanup) stop();
+                if (stopOnCleanup) stop.dispose();
               });
               scope.jobs.push(() => {
-                if (scope.value.stopOnUpdate) stop();
+                if (scope.value.stopOnUpdate) stop.dispose();
               });
               element(parent, before, 'span').textContent = String(id);
             },
@@ -332,7 +332,7 @@ test('positional lists render each sparse-array placeholder with its own identit
     );
     const stop = mount(host, Root, source);
     const result = { text: host.textContent, count: host.querySelectorAll('b').length };
-    stop();
+    stop.dispose();
     source.dispose();
     return result;
   });

@@ -8,21 +8,19 @@ export const reasons = {
   Source:
     'The observation contract: read the current immutable model and subscribe to publications. Adapters implement this so views do not need to understand their mutable stores.',
   ModelOwner:
-    'The controller contract for immutable reads, field updates, transactions, task keys, and teardown. Its methods keep work and publication at the same ownership boundary.',
+    'The controller contract for immutable reads, field updates, task keys, owned resources, and teardown. Its methods keep work and publication at the same ownership boundary.',
   QueryCache:
-    'The cache contract for prefetching, reading, writing, invalidating, canceling, and removing queries. Methods below expose argument-based identity; close waits for teardown.',
+    'The cache contract for prefetching, reading, writing, invalidating, canceling and resetting queries. Methods below expose argument-based identity; close waits for teardown.',
   RunPolicy:
     'Choose what a new request does to work already running in its key: replace, drop, queue, latest-queued, or parallel. See the task guide for policy tradeoffs.',
-  View: 'A reusable presentation definition with model and message types. Connect a message-emitting view to its owning program through component, or to an explicit dispatcher through ViewBinding.',
+  View: 'A reusable presentation definition with model and message types. A view with a message type is the root of a component, program or mount; a child that needs the dispatcher takes send as a prop.',
   JSX: 'The TypeScript namespace describing renderable elements, intrinsic attributes, native events, and component placement. Use JSX.Element when accepting children.',
   view: 'Define presentation as a pure function of an immutable model and an optional message dispatcher. Use it for reusable UI without allocating state or work during rendering.',
   list: 'Give rows a stable identity so focus, local component state, DOM resources, and running tasks follow the right entity through edits and reordering. Use entities for id fields, an explicit identity function for other keys, or sequence for positional content.',
   observe:
     'Place a Source inside a view and let the renderer own the subscription. Use it for clocks, query results, and projected external state; observations are released when their placement disappears.',
-  ViewBinding:
-    'Place a message-emitting view with an explicit model and send function. It keeps the dispatcher visible in the type contract instead of relying on implicit context.',
   mount:
-    'Attach a view to a DOM parent with its input: a Source, a controller (whose methods reach the view as model.actions), or fixed props. Dispose the returned mount; choose makeMount inside an Effect scope.',
+    'Attach a view to a DOM parent with its input: a program or other Source (its send receives the view’s messages), a controller (whose methods reach the view as model.actions), or fixed props. Dispose the returned mount; choose makeMount inside an Effect scope.',
   makeMount:
     'Attach a view and register its teardown with the surrounding Effect scope. Use it in an application entry point so interruption also unmounts the UI.',
   Portal:
@@ -31,8 +29,6 @@ export const reasons = {
     'Own imperative element setup and cleanup with the element. Declare the setup once outside a view; replacing its identity replaces its lifetime.',
   domBinding:
     'Keep a stable DOM resource while its immutable input changes. The setup receives an input getter; return an update method when a widget needs explicit updates.',
-  domHandle:
-    'Give a controller access to one mounted element for focus, scrolling, or measurement. Read element() in events or controller work, and attach mount with the use attribute.',
   available:
     'Read the latest successful value, including data retained during a refresh or after a failed refresh. Render it next to resourceError and result.waiting, so old data stays visible.',
   resourceError:
@@ -46,9 +42,9 @@ export const reasons = {
   sequence:
     'Declare that row identity is positional. Use for static or append-only presentation; editable and filtered entity rows need a domain key.',
   component:
-    'Own state per UI placement. Pass an owner factory for local fields and Effects, define pure message transitions, or own an existing program with its view.',
+    'Own state per UI placement. Pass an owner factory for local fields and Effects, or define pure message transitions.',
   ComponentOwner:
-    'The explicit authority passed to a fields component’s view factory: read, patch, run, task, cancel, isRunning and awaitIdle, typed by its local fields.',
+    'The owner passed to a fields component’s view factory: read, patch, run, task, cancel, awaitIdle and own, typed by its local fields. It is a DisposableOwner, so observeQuery and other owned resources work inside a component.',
   controllerView:
     'Create a controller from props, expose its methods as model.actions, and dispose it with the placement. Use when one feature needs named actions, services, and state beyond a local component.',
   modelOwner:
@@ -59,8 +55,6 @@ export const reasons = {
     'Derive an observable snapshot from an existing Source. Construct it once outside rendering to preserve subscription identity.',
   clock:
     'Publish time as observable model data. Observe it instead of reading Date.now() while rendering, because a view has no hidden clock dependency.',
-  submit:
-    'Adapt a form submit handler and always prevent the browser’s default navigation. Keep controlled values in state and choose an owned task for submission work.',
   projectionSource:
     'Bridge a mutable external store into immutable snapshots. Project cloneable data, reconcile it if needed, notify changes, and dispose subscriptions with the adapter.',
   protectSnapshot:
@@ -91,8 +85,6 @@ export const reasons = {
     'Give a controller an owned handle to a paginated query. Use its resource operations when loading and retrying pages belongs to named controller actions.',
   fetchNextPage:
     'Extend an infinite query through the cache, keeping page identity and in-flight work coordinated with other observers.',
-  retryPage:
-    'Retry a failed page within an infinite query rather than discarding all successfully loaded pages.',
   compile:
     'Lower JSX to EffectWeb runtime calls and return code, source maps, and diagnostics. Use for build-tool integration; application projects normally use the Vite plugin.',
   diagnose:
@@ -142,21 +134,18 @@ export const reasons = {
 
 Object.assign(reasons, {
   Mounted:
-    'The handle returned by a mount. Its disposal methods let an imperative host remove the view and wait for owned cleanup when required.',
-  Slot: 'A render callback with a readonly input and JSX output. Use it to type customizable content such as a row or a footer.',
-  CompiledContent:
-    'The opaque content value produced by compiled JSX. It carries rendering behavior rather than a live DOM node; use JSX.Element for ordinary children props.',
+    'The handle returned by a mount. dispose removes the view now; close removes it and waits for owned cleanup, including async finalizers.',
   DomMount:
     'An element-owned acquisition contract with stable identity and current input. Construct it through domMount or domBinding instead of implementing internal acquisition behavior in views.',
-  DomHandle:
-    'A controller-side handle with a mount binding and an optional current element. The element is available only while attached; one handle should serve one element at a time.',
   PortalProps:
     'The destination and children contract for Portal. The destination controls physical placement while the originating view retains lifecycle ownership.',
   Rows: 'A row sequence carrying explicit identity. list consumes this contract to preserve resources when entity positions change.',
   Collection:
     'A reusable identity strategy and its row and structural-sharing operations. Use when several transformations must agree on what counts as the same entity.',
+  ControllerLifetime:
+    'What a placement releases with its controller: the owner it created, or any object with dispose and an optional awaited close. A placement calls dispose on removal and waits for close during awaited teardown.',
   ViewController:
-    'The shape of a controller: a source, teardown, optional prop reception, and methods. controllerView passes its methods to the view as model.actions, so mutable methods stay out of snapshots.',
+    'The shape of a controller: a source, a lifetime, optional prop reception, and methods. controllerView passes its methods to the view as model.actions, so mutable methods stay out of snapshots.',
   ControllerModel:
     'Infer the model controllerView renders for a controller or factory: its snapshot plus its methods as actions. Use it to type a separately declared presentation view.',
   FieldsPatch:
@@ -172,7 +161,7 @@ Object.assign(reasons, {
   Program:
     'An observable model with a typed message dispatcher and disposal. Views read the source while events submit messages to its pure update function.',
   RunningProgram:
-    'A program with execution and settlement controls. Use its key inspection, awaiting, and close operations at controller and test boundaries.',
+    'A program with awaited teardown and settlement. Use awaitIdle and close at controller and test boundaries.',
   Send: 'The typed message dispatcher accepted by a view. A message union makes permitted interactions explicit and allows exhaustive update handling.',
   Transition:
     'The output of a pure update: the next model plus optional commands and cancellation requests. This makes state transitions independently testable.',
@@ -203,7 +192,7 @@ Object.assign(reasons, {
   InfiniteQuery:
     'A paginated definition tying an aggregate request to page requests and cursor encoding. The shared contract keeps page loads and refreshes consistent.',
   InfiniteResource:
-    'A controller query resource extended with loading, retrying, and seeding pages. It keeps pagination operations under the same owner as selection.',
+    'A controller query resource extended with loading and seeding pages. It keeps pagination operations under the same owner as selection.',
   LintOptions:
     'Module naming options for authoring checks. Lint is separate from compilation and does not change emitted JavaScript.',
   CompilerOptions:

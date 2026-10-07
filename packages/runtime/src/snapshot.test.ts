@@ -47,17 +47,15 @@ describe('published snapshot protection', () => {
     }
   });
 
-  it('protects staged transaction reads and rolls back a mutation failure', () => {
+  it('protects accepted reads from mutation', () => {
     const app = modelOwner({ record: { count: 0 } });
     try {
-      expect(() =>
-        app.transaction(() => {
-          app.patch({ record: { count: 1 } });
-          // @ts-expect-error Runtime guard also catches untyped mutations.
-          app.read().record.count++;
-        }),
-      ).toThrow(TypeError);
-      expect(app.read().record.count).toBe(0);
+      app.patch({ record: { count: 1 } });
+      expect(() => {
+        // @ts-expect-error Runtime guard also catches untyped mutations.
+        app.read().record.count++;
+      }).toThrow(TypeError);
+      expect(app.read().record.count).toBe(1);
       app.patch({ record: { count: 2 } });
       expect(app.read().record.count).toBe(2);
     } finally {

@@ -68,7 +68,7 @@ export function renderView<M, E = never>(
     },
     options.onError ? { onError: options.onError } : {},
   );
-  return Object.assign(() => mounted.dispose(), {
+  return {
     dispose: mounted.dispose,
     close: mounted.close,
     sent,
@@ -76,5 +76,5 @@ export function renderView<M, E = never>(
       current = protectSnapshot(next) as Snapshot<M>;
       for (const listener of listeners) listener(current);
     },
-  });
+  };
 }

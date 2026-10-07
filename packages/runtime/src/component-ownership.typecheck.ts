@@ -1,9 +1,7 @@
-import { Effect } from 'effect';
 import { component, controllerView } from './component.js';
 import { compiled, view } from './dom.js';
 import type { ControllerModel } from './controller.js';
 import { modelOwner } from './owner.js';
-import { program } from './program.js';
 
 export function componentOwnershipTypeChecks() {
   component({ init: (_props: { title: string }) => ({ count: 0 }) }, (owner) =>
@@ -15,27 +13,6 @@ export function componentOwnershipTypeChecks() {
       // @ts-expect-error Placement authority excludes disposal.
       const unavailable: unknown = owner.dispose;
       void unavailable;
-    }),
-  );
-  component(
-    {
-      program: (props: { title: string }) =>
-        program({
-          initial: { title: props.title, count: 0 },
-          update: (model, message: number) => ({ model: { ...model, count: message } }),
-        }),
-      receive: (source, props) => {
-        source.send(props.title.length);
-        const idle: Effect.Effect<void> = source.awaitIdle();
-        void idle;
-        // @ts-expect-error Concrete program dispatch still rejects invalid messages.
-        source.send('wrong');
-      },
-    },
-    compiled((scope) => {
-      scope.send(scope.value.count);
-      // @ts-expect-error View dispatch preserves the program message type.
-      scope.send('wrong');
     }),
   );
   const create = () => {
@@ -62,17 +39,15 @@ export function componentOwnershipTypeChecks() {
     void unavailable;
   };
   void assertModel;
+  // A lifetime without awaited cleanup is accepted: disposal alone is immediate.
   controllerView(
-    {
-      // @ts-expect-error Explicit lifetime must include awaited cleanup.
-      controller: () => ({ source: create().source, lifetime: { dispose: () => {} } }),
-    },
+    { controller: () => ({ source: create().source, lifetime: { dispose: () => {} } }) },
     compiled(() => {}),
   );
   controllerView(
     {
-      // @ts-expect-error Mixing lifecycle representations would silently lose cleanup.
-      controller: () => ({ ...create(), dispose: () => {} }),
+      // @ts-expect-error A controller must hand its cleanup over as lifetime.
+      controller: () => ({ source: create().source, dispose: () => {} }),
     },
     compiled(() => {}),
   );
@@ -87,19 +62,6 @@ export function componentOwnershipTypeChecks() {
     >(() => {});
   // @ts-expect-error Named message definitions cannot select the field factory overload.
   component(messages, factory);
-  const mixed = {
-    ...messages,
-    program: (_props: { title: string }) =>
-      program({ initial: { count: 0 }, update: (model, _message: number) => ({ model }) }),
-  };
-  component(
-    // @ts-expect-error Named definitions cannot combine program and message discriminators.
-    mixed,
-    compiled<{ count: number; props: { title: string } }, number>(() => {}),
-  );
-  const mixedFields = { init: messages.init, program: mixed.program };
-  // @ts-expect-error Named definitions cannot combine program and field discriminators.
-  component(mixedFields, factory);
   component<{ title: string }, { count: number }>({ init: () => ({ count: 0 }) }, (owner) =>
     compiled((scope) => {
       owner.patch({ count: scope.value.props.title.length });

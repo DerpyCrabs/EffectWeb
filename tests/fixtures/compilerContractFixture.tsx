@@ -39,7 +39,7 @@ export function mountLexicalCapture(parent: HTMLElement) {
     set: source.send,
     model: source.model,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -77,7 +77,7 @@ export function mountSvgContexts(parent: Element) {
   return {
     set: source.send,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -117,8 +117,8 @@ export function mountDestructured(parent: HTMLElement) {
     model: source.model,
     set: source.send,
     dispose() {
-      simple();
-      complex();
+      simple.dispose();
+      complex.dispose();
       source.dispose();
     },
   };

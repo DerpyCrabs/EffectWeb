@@ -5,11 +5,11 @@ import {
   component,
   collection,
   list,
-  ViewBinding,
   program,
   makeMount,
   observe,
   view,
+  type Send,
 } from 'effectweb';
 import { lazyView } from 'effectweb/advanced';
 
@@ -18,15 +18,15 @@ export async function mountScopedRendering(parent: HTMLElement) {
   let evaluations = 0;
   const rows = collection<{ readonly id: number; readonly label: string }>((row) => row.id);
   type Row = { readonly id: number; readonly label: string };
-  type Props = { readonly row: Row; readonly selected: boolean };
   type Message = { readonly type: 'select'; readonly id: number };
-  const RowView = view<Props, Message>((props, send) => {
+  type Props = { readonly row: Row; readonly selected: boolean; readonly send: Send<Message> };
+  const RowView = view<Props>((props) => {
     evaluations++;
     return (
       <button
         class={props.selected ? 'selected' : ''}
         data-id={props.row.id}
-        onClick={() => send({ type: 'select', id: props.row.id })}
+        onClick={() => props.send({ type: 'select', id: props.row.id })}
       >
         {props.row.label}
       </button>
@@ -49,11 +49,7 @@ export async function mountScopedRendering(parent: HTMLElement) {
       const App = view<{ rows: readonly Row[]; selected: number }, Message>((model, send) => (
         <section>
           {list(rows.from(model.rows), (row) => (
-            <ViewBinding
-              view={RowView}
-              model={{ row, selected: row.id === model.selected }}
-              send={send}
-            />
+            <RowView row={row} selected={row.id === model.selected} send={send} />
           ))}
         </section>
       ));

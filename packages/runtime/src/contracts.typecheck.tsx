@@ -1,4 +1,4 @@
-import { view, ViewBinding, type View } from './dom.js';
+import { view, type View } from './dom.js';
 import { domMount, domBinding, Portal, type DomMount } from './mount.js';
 import { shareValue, type ShareFields } from './share.js';
 import { collection } from './collection.js';
@@ -35,7 +35,6 @@ const Label = view<{ title: string }>((m) => <b>{m.title}</b>);
 export const valid = view<{}>(() => (
   <>
     <Label title="ordinary" />
-    <ViewBinding view={Child} model={{ title: 'bound' }} send={(_message: 'Clicked') => {}} />
     <Portal>
       <b>owned portal</b>
     </Portal>
@@ -46,12 +45,6 @@ const unbound = <Child title="lost message" />;
 const Ordinary = (p: { title: string }) => <b>{p.title}</b>;
 // @ts-expect-error JSX components must be compiled definitions, not arbitrary functions.
 const notCompiled = <Ordinary title="missing .build" />;
-const wrongSend = (
-  // @ts-expect-error The view determines the message type; the dispatcher cannot widen it.
-  <ViewBinding view={Child} model={{ title: 'bound' }} send={(_message: number) => {}} />
-);
-// @ts-expect-error The view determines the model type.
-const wrongModel = <ViewBinding view={Child} model={{ title: 1 }} send={() => {}} />;
 
 const input = domMount((element: HTMLInputElement) => {
   element.select();
@@ -81,7 +74,7 @@ const wrongHost = <div use={input} />;
 const wrongSpread = <div {...inputAttributes} />;
 // @ts-expect-error Generic annotations cannot erase a host's required element API.
 const erasedHost: DomMount = input;
-void [unbound, notCompiled, wrongSend, wrongModel, goodHosts, wrongHost, wrongSpread, erasedHost];
+void [unbound, notCompiled, goodHosts, wrongHost, wrongSpread, erasedHost];
 
 const content: JSX.Element = ['first', ['second', null, false]];
 // @ts-expect-error Native DOM ownership belongs to use={domMount(...)}.
@@ -98,8 +91,6 @@ domBinding({ count: 1 }, (_element: Element, read) => {
 
 // @ts-expect-error Calling a compiled component outside JSX would invoke its runtime guard.
 Label({ title: 'wrong invocation' });
-// @ts-expect-error ViewBinding is only valid as JSX syntax.
-ViewBinding({ view: Child, model: { title: 'wrong invocation' }, send: () => {} });
 
 const DomainProps = view<{ model: string; send: () => void }>((props) => props.model);
 const ordinaryDomainProps = <DomainProps model="ordinary" send={() => {}} />;

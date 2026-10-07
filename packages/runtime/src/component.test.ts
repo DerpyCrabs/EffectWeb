@@ -297,7 +297,7 @@ it('renders controller actions as model.actions without storing them in the mode
         return {
           source: owner.source,
           increment: () => owner.patch({ count: owner.read().count + 1 }),
-          dispose: owner.dispose,
+          lifetime: owner,
           receive: (next) => seen.push({ count: owner.read().count, props: next }),
           ...(props.id ? {} : {}),
         };
@@ -329,7 +329,7 @@ it('renders controller actions as model.actions without storing them in the mode
 it('does not require receive from a controller view', () => {
   const owner = modelOwner({ count: 0 });
   const definition = controllerView(
-    { controller: () => ({ source: owner.source, dispose: owner.dispose }) },
+    { controller: () => ({ source: owner.source, lifetime: owner }) },
     compiled<{ count: number }, never>(() => {}),
   );
   const scope = new Scope<Props, never>({ id: 'a' }, () => {});
@@ -339,7 +339,7 @@ it('does not require receive from a controller view', () => {
   expect(owner.disposed).toBe(true);
 });
 
-it("joins a model owner's async cleanup when the controller hands over owner.dispose", async () => {
+it("joins a model owner's async cleanup when the controller hands the owner over as lifetime", async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -358,8 +358,7 @@ it("joins a model owner's async cleanup when the controller hands over owner.dis
           ),
           'replace',
         );
-        // No `close` listed: `dispose: owner.dispose` hands over the owner's whole teardown.
-        return { source: owner.source, dispose: owner.dispose };
+        return { source: owner.source, lifetime: owner };
       },
     },
     compiled<{ count: number }, never>(() => {}),
@@ -389,7 +388,7 @@ it('passes everything a controller returns except its lifecycle members as actio
         label: 'not a function',
         receive: () => {},
         beforeDispose: () => {},
-        dispose: owner.dispose,
+        lifetime: owner,
       }),
     },
     compiled((scope) => {

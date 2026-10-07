@@ -47,15 +47,21 @@ export const Chart = view<{ readonly points: readonly number[] }>((props) => (
 
 ## Give a controller an element
 
-When a controller needs an element, for example to scroll a transcript to the bottom, create a handle with `domHandle` and attach `handle.mount` in the view.
+When a controller needs an element, for example to scroll a transcript to the bottom, declare a `domMount` next to the controller that stores the element and forgets it on cleanup, and attach it in the view.
 
 ```tsx check
-import { domHandle, list, sequence, view } from 'effectweb';
+import { domMount, list, sequence, view } from 'effectweb';
 
-const transcript = domHandle<HTMLDivElement>();
+let transcript: HTMLDivElement | undefined;
+const trackTranscript = domMount((element: HTMLDivElement) => {
+  transcript = element;
+  return () => {
+    transcript = undefined;
+  };
+});
 
 export const Transcript = view<{ readonly lines: readonly string[] }>((props) => (
-  <div use={transcript.mount}>
+  <div use={trackTranscript}>
     {list(sequence(props.lines), (line) => (
       <p>{line}</p>
     ))}
@@ -63,12 +69,11 @@ export const Transcript = view<{ readonly lines: readonly string[] }>((props) =>
 ));
 
 export const scrollToEnd = () => {
-  const element = transcript.element();
-  if (element) element.scrollTop = element.scrollHeight;
+  if (transcript) transcript.scrollTop = transcript.scrollHeight;
 };
 ```
 
-`transcript.element()` is `undefined` until the element is on the page and after it is removed. A handle serves one element at a time.
+`transcript` is `undefined` until the element is on the page and after it is removed. Keep one variable per element; a controller that owns several elements declares one mount for each.
 
 ## Render elsewhere with Portal
 

@@ -260,4 +260,4 @@ export const afterSave = Effect.gen(function* () {
 | Work or a finalizer fails                                                 | failure with its `cause` |
 | `cancel(key)`, `replace`, `latest-queued`, `drop`, or the owner is closed | interruption             |
 
-Like `FiberMap.run` with `onlyIfMissing`, a dropped or discarded request is an interruption. A failure during finalization is a failure even when interruption triggered it. Within a transaction, work starts at commit; a rollback interrupts the staged runs.
+Like `FiberMap.run` with `onlyIfMissing`, a dropped or discarded request is an interruption. A failure during finalization is a failure even when interruption triggered it.

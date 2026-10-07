@@ -36,7 +36,7 @@ it('renders repeated values of a plain array and keeps each occurrence mounted',
   expect(host.querySelectorAll('li')[1]).toBe(first);
   expect(host.querySelectorAll('li')[2]).toBe(repeated);
   expect(errors).toEqual([]);
-  stop();
+  stop.dispose();
   expect(host.childNodes.length).toBe(0);
 });
 
@@ -55,7 +55,7 @@ it('applies a control value after the attributes that constrain it', () => {
   expect(checkbox!.checked).toBe(true);
   owner.patch({ value: 'c' });
   expect(text!.value).toBe('c');
-  stop();
+  stop.dispose();
 });
 
 it('names the failing binding when development metadata is present', () => {
@@ -75,7 +75,7 @@ it('names the failing binding when development metadata is present', () => {
   owner.patch({ fail: true });
   expect(errors).toHaveLength(1);
   expect(String(errors[0])).toContain('in {model.rows} (App.tsx:7:12)');
-  stop();
+  stop.dispose();
 });
 
 it('appends px to numeric lengths and leaves unitless properties and custom properties alone', () => {
@@ -100,7 +100,7 @@ it('appends px to numeric lengths and leaves unitless properties and custom prop
   expect(style.getPropertyValue('z-index')).toBe('2');
   expect(['0', '0px']).toContain(style.getPropertyValue('margin-top'));
   expect(style.getPropertyValue('flex-grow')).toBe('1');
-  stop();
+  stop.dispose();
 });
 
 it('listens for custom events by their exact name through on: attributes', () => {
@@ -121,7 +121,7 @@ it('listens for custom events by their exact name through on: attributes', () =>
   // A non-bubbling synthetic click still reaches the handler of the element it targets.
   element.dispatchEvent(new Event('click'));
   expect(seen).toEqual(['valueChanged', 'click']);
-  stop();
+  stop.dispose();
   element.dispatchEvent(new Event('valueChanged'));
   expect(seen).toEqual(['valueChanged', 'click']);
 });
@@ -134,7 +134,7 @@ it('names a second runtime copy when its JSX reaches this renderer', () => {
   owner.patch({ show: true });
   expect(errors).toHaveLength(1);
   expect(String(errors[0])).toContain('second copy of effectweb');
-  stop();
+  stop.dispose();
 });
 
 it('conservatively reruns shifted rows for callbacks without compiler metadata', () => {
@@ -162,8 +162,8 @@ it('conservatively reruns shifted rows for callbacks without compiler metadata',
   byRow.owner.patch({ rows: rows.slice(1) });
   expect(renders).toEqual(['b', 'c']);
   expect(texts(byRow.host, 'li')).toEqual(['b', 'c']);
-  byIndex.stop();
-  byRow.stop();
+  byIndex.stop.dispose();
+  byRow.stop.dispose();
 });
 
 it('shares one hoisted static element between roots and survives disposing one of them', () => {
@@ -172,12 +172,12 @@ it('shares one hoisted static element between roots and survives disposing one o
   const second = mounted({ n: 1 }, (model) => jsx('ul', { children: [item, model.n] }));
   expect(texts(first.host, 'li')).toEqual(['static']);
   expect(texts(second.host, 'li')).toEqual(['static']);
-  first.stop();
+  first.stop.dispose();
   second.owner.patch({ n: 2 });
   expect(texts(second.host, 'li')).toEqual(['static']);
   expect(second.host.textContent).toContain('2');
   expect(second.errors).toEqual([]);
-  second.stop();
+  second.stop.dispose();
 });
 
 // Call-site blocks: the compiler records each element tree's static shape and passes only the
@@ -214,7 +214,7 @@ it('clones a call site once and updates only its dynamic positions', () => {
   expect(host.querySelectorAll('li')[0]).toBe(first);
   expect(host.querySelector('b')).toBe(bold);
   expect(errors).toEqual([]);
-  stop();
+  stop.dispose();
   expect(host.childNodes.length).toBe(0);
 });
 
@@ -266,7 +266,7 @@ it('reconciles markup from another call site in place, keeping nodes, drafts and
   expect(bold.textContent).toBe('four');
   expect(clicks).toEqual(['narrow', 'wide', 'narrow']);
   expect(errors).toEqual([]);
-  stop();
+  stop.dispose();
   field.click();
   expect(clicks).toHaveLength(3);
 });
@@ -281,7 +281,7 @@ it('reports a failing dynamic position in a block and keeps its siblings current
   expect(host.querySelector('li')!.textContent).toBe('Name: Bob1');
   owner.patch({ extra: 'recovered' });
   expect(host.querySelectorAll('li')[1]!.textContent).toBe('recovered');
-  stop();
+  stop.dispose();
 });
 
 it('bakes hoisted static children into a block and keeps the SVG namespace', () => {
@@ -295,7 +295,7 @@ it('bakes hoisted static children into a block and keeps the SVG namespace', () 
   expect(svg.querySelector('circle')!.getAttribute('r')).toBe('5');
   owner.patch({ label: 'b' });
   expect(svg.querySelector('text')!.textContent).toBe('b');
-  stop();
+  stop.dispose();
 });
 
 it('delegates bubbling events in bubble order with the element as currentTarget', () => {
@@ -329,7 +329,7 @@ it('delegates bubbling events in bubble order with the element as currentTarget'
   button.click();
   expect(seen).toEqual(['inner:inner:2', 'outer:outer:3', 'inner:inner:2']);
   expect(outside).toEqual(['document']);
-  stop();
+  stop.dispose();
   button.click();
   expect(seen).toHaveLength(3);
   document.removeEventListener('click', onDocument);
@@ -348,8 +348,8 @@ it('runs each delegated handler once when one mount is nested inside another', (
   );
   outer.host.querySelector('button')!.click();
   expect(seen).toEqual(['inner', 'outer']);
-  inner();
-  outer.stop();
+  inner.dispose();
+  outer.stop.dispose();
 });
 
 it('mounts a block element by element when part of its tree cannot be cloned', () => {
@@ -371,7 +371,7 @@ it('mounts a block element by element when part of its tree cannot be cloned', (
   );
   expect(host.querySelector('p')).toBe(paragraph);
   expect(errors).toEqual([]);
-  stop();
+  stop.dispose();
 });
 
 it('skips a child view whose props have identical fields, and renders it when one changes', () => {
@@ -391,7 +391,7 @@ it('skips a child view whose props have identical fields, and renders it when on
   expect(host.querySelector('p')!.textContent).toBe('m:2');
   owner.patch({ rows: [1, 2, 3] });
   expect(host.querySelector('p')!.textContent).toBe('m:3');
-  stop();
+  stop.dispose();
 });
 
 it('reruns list rows only when a captured value changes', () => {
@@ -419,7 +419,7 @@ it('reruns list rows only when a captured value changes', () => {
   expect(host.querySelector('.on')!.textContent).toBe('2');
   owner.patch({ rows: [{ id: 1 }, { id: 2 }, { id: 3 }] });
   expect(texts(host, 'li')).toEqual(['1', '2', '3']);
-  stop();
+  stop.dispose();
 });
 
 it('reaches handlers on disabled controls for movement, and keeps touch moves on the element', () => {
@@ -440,6 +440,6 @@ it('reaches handlers on disabled controls for movement, and keeps touch moves on
   // A touch move that does not bubble only reaches a listener on the element itself.
   button.dispatchEvent(new Event('touchmove'));
   expect(seen).toEqual(['over', 'touch']);
-  stop();
+  stop.dispose();
   host.remove();
 });

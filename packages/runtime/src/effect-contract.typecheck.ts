@@ -9,7 +9,6 @@ export function effectContracts() {
   const key = 'work';
   const lifetime: Effect.Effect<void> = Effect.gen(function* () {
     yield* source.awaitIdle(key);
-    yield* source.awaitStopped();
     yield* source.close();
     yield* owner.close();
   });

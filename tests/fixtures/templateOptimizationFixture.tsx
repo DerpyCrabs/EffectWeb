@@ -60,7 +60,7 @@ export function mountTemplates(parent: Node) {
     source,
     seen,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };
@@ -101,7 +101,7 @@ export function mountContexts(parent: Node, kind: 'html' | 'svg' | 'exact') {
   return {
     source,
     dispose() {
-      unmount();
+      unmount.dispose();
       source.dispose();
     },
   };

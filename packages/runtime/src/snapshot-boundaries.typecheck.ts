@@ -7,7 +7,6 @@ import {
   component,
   program,
   view,
-  ViewBinding,
   type Snapshot,
 } from './index.js';
 
@@ -20,10 +19,6 @@ export function snapshotComposition(props: Snapshot<Props>) {
   view<Props>((model) => {
     // @ts-expect-error Compiled views are mounted in JSX, never called as ordinary functions.
     Child({ items: model.items });
-    // @ts-expect-error ViewBinding is a JSX compiler primitive, not an ordinary function.
-    ViewBinding({ view: Child, model, send: () => {} });
-    // @ts-expect-error An explicit binding must supply the child model's shape.
-    ViewBinding({ view: Child, model: { title: 'wrong model' }, send: () => {} });
     return model.items[0]?.name;
   });
   component<Props, Props>(
@@ -68,7 +63,7 @@ export function snapshotComposition(props: Snapshot<Props>) {
         const source = program<Props, never>({ initial: input, update: (model) => ({ model }) });
         return {
           source,
-          dispose: source.dispose,
+          lifetime: source,
           receive(next: Snapshot<Props>) {
             // @ts-expect-error Controller receive preserves the same boundary.
             next.items[0]!.tags[0] = 'bad';

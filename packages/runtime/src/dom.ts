@@ -143,29 +143,18 @@ export class Scope<M, E> {
  * The props of a view that sends messages. No props satisfy it, so placing such a view as
  * `<Row … />` is a type error that names the fix.
  */
-export interface PlaceWithViewBinding {
-  readonly 'This view sends messages. Place it with <ViewBinding view={View} model={model} send={send} />': never;
+export interface MessageViewPlacement {
+  readonly 'This view sends messages. Give it to component({ init, update }, view) or mount, or pass send to the child as a prop': never;
 }
 export interface View<M, E> extends JSX.ComponentType {
-  (this: never, props: [E] extends [never] ? M | Snapshot<M> : PlaceWithViewBinding): JSX.Element;
+  (this: never, props: [E] extends [never] ? M | Snapshot<M> : MessageViewPlacement): JSX.Element;
   readonly build: Build<M, E>;
 }
-
-/** Mount a view with an explicit model and message dispatcher. */
-export const ViewBinding = /* @__PURE__ */ Object.assign(
-  function ViewBinding<M, E>(
-    this: never,
-    props: { view: View<M, E>; model: NoInfer<M> | Snapshot<NoInfer<M>>; send: Send<NoInfer<E>> },
-  ): JSX.Element {
-    return new SlotPlacement(viewContent(props.view), { model: props.model, send: props.send });
-  },
-  { [jsxComponent]: true as const },
-);
 
 /** Untyped callers get an actionable failure instead of silently losing child messages. */
 export function unboundSend(_message: unknown): never {
   throw new Error(
-    'This view needs a dispatcher. Mount it through ViewBinding with model and send.',
+    'This view sends messages but has no dispatcher. Mount it through component or mount, or pass send as a prop.',
   );
 }
 
@@ -173,10 +162,6 @@ const contentBrand: unique symbol = Symbol('compiled content');
 /** Owned markup accepted wherever JSX can render content. */
 export interface CompiledContent {
   readonly [contentBrand]: true;
-}
-/** An ordinary render callback with a typed input. Invoke it to produce content. */
-export interface Slot<A = void> {
-  (value: A | Snapshot<A>): JSX.Element;
 }
 interface MountedContent extends ContentRange {
   set(value: unknown): void;
@@ -342,7 +327,7 @@ export function view<M, E = never>(
 /* @__NO_SIDE_EFFECTS__ */
 export function compiled<M, E>(build: Build<M, E>): View<M, E> {
   const definition: View<M, E> = Object.assign(
-    (props: M | Snapshot<M> | PlaceWithViewBinding) =>
+    (props: M | Snapshot<M> | MessageViewPlacement) =>
       new SlotPlacement(viewContent(definition), { model: props, send: unboundSend }),
     { build, [jsxComponent]: true as const },
   );
@@ -1480,10 +1465,11 @@ export interface MountOptions {
   readonly onError?: ReportError;
 }
 export interface Mounted {
-  (): void;
   readonly dispose: () => void;
+  /** Remove the view and wait for its owned cleanup, including async finalizers. */
   readonly close: () => Effect.Effect<void>;
 }
+/** A program or any source with a `send`: the view's messages go to it. */
 export function mount<M, E>(
   parent: Node,
   definition: View<M, E>,
@@ -1495,12 +1481,6 @@ export function mount<M>(
   definition: View<M, never>,
   source: Source<M>,
   options?: MountOptions,
-): Mounted;
-export function mount<M, E>(
-  parent: Node,
-  definition: View<M, E>,
-  source: Source<M>,
-  options: MountOptions & { readonly send: Send<E> },
 ): Mounted;
 /** A controller renders its model plus its other members as `model.actions`; mount does not dispose it. */
 export function mount<C extends { readonly source: Source<object> }>(
@@ -1520,13 +1500,13 @@ export function mount<M, E>(
   parent: Node,
   definition: View<M, E>,
   input: unknown,
-  options: MountOptions & { readonly send?: Send<E> } = {},
+  options: MountOptions = {},
 ): Mounted {
   return mountViewWithSettlement(
     parent,
     definition,
     mountSource(input) as Source<M>,
-    { ...options, send: options.send ?? mountSend<E>(input) },
+    { ...options, send: mountSend<E>(input) },
     new Settlement(),
   );
 }
@@ -1587,15 +1567,14 @@ export function mountViewWithSettlement<M, E>(
         finish();
       }
     };
-    return Object.assign(dispose, {
+    return {
       dispose,
-      close: () => {
-        return Effect.suspend(() => {
+      close: () =>
+        Effect.suspend(() => {
           dispose();
           return scope.settlement.wait();
-        });
-      },
-    });
+        }),
+    };
   });
 }
 const classTokens = new WeakMap<Element, Set<string>>();

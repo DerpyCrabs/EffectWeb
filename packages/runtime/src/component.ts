@@ -42,7 +42,7 @@ export type FieldsPatch<State> = (Partial<State> | Partial<Snapshot<State>>) & {
 /** The owner behind a fields component: its fields, plus work owned by the placement. */
 export interface ComponentOwner<State extends object> extends Pick<
   ModelOwner<State>,
-  'read' | 'run' | 'task' | 'cancel' | 'isRunning' | 'awaitIdle'
+  'read' | 'run' | 'task' | 'cancel' | 'awaitIdle' | 'own' | 'disposed'
 > {
   readonly patch: Send<FieldsPatch<State>>;
 }
@@ -62,25 +62,10 @@ type FieldsMessage =
  *   pure transition returning the next model and commands; `receive(model, previous)` runs
  *   when the props change, with the new props already in `model.props`.
  *
- * - Existing program: `component({ program, receive? }, MessageView)` owns the returned
- *   program directly. Its factory must supply its own service context; it does not inherit
- *   the mount runtime. `receive(program, props)` sends updated parent input.
- *
  * `identity` recreates the component when the entity behind the props changes.
  */
-export function component<Props, Model, Message, Source extends Program<Model, Message>>(
-  definition: Identity<Props> & {
-    readonly program: (props: Snapshot<Props>) => Program<Model, Message> & Source;
-    readonly receive?: (program: Source, props: Snapshot<Props>) => void;
-    readonly init?: never;
-    readonly update?: never;
-    readonly context?: never;
-  },
-  view: View<Model, Message>,
-): View<Props, never>;
 export function component<Props, State extends object, Message, R = never>(
   definition: Identity<Props> & {
-    readonly program?: never;
     readonly init: (props: Snapshot<Props>) => OwnState<State>;
     readonly receive?: (
       model: Snapshot<Placed<Props, State>>,
@@ -97,7 +82,6 @@ export function component<Props, State extends object>(
   definition: Identity<Props> & {
     readonly init: (props: Snapshot<Props>) => OwnState<State>;
     readonly update?: never;
-    readonly program?: never;
   },
   view: Pick<View<Placed<Props, State>, FieldsPatch<State>>, 'build'>,
 ): View<Props, never>;
@@ -105,7 +89,6 @@ export function component<Props, State extends object>(
   definition: Identity<Props> & {
     readonly init: (props: Snapshot<Props>) => OwnState<State>;
     readonly update?: never;
-    readonly program?: never;
   },
   view: (owner: ComponentOwner<State>) => View<Placed<Props, State>, FieldsPatch<State>>,
 ): View<Props, never>;
@@ -114,17 +97,7 @@ export function component(definition: object, view: unknown): View<unknown, neve
     readonly identity?: (props: Snapshot<unknown>) => unknown;
     readonly init: (props: never) => object;
     readonly update?: unknown;
-    readonly program?: (props: Snapshot<unknown>) => Program<unknown, unknown>;
-    readonly receive?: (program: Program<unknown, unknown>, props: Snapshot<unknown>) => void;
   };
-  if (shape.program) {
-    return programView({
-      ...(shape.identity ? { identity: shape.identity } : {}),
-      create: shape.program,
-      receive: shape.receive ?? (() => {}),
-      view: view as View<unknown, unknown>,
-    });
-  }
   const rendered = view as View<never, never>;
   if (shape.update) return messageComponent(shape as never, rendered);
   return fieldsComponent(shape as never, rendered as never);
@@ -183,8 +156,11 @@ function fieldsComponent(
             policy,
           )) as unknown as ComponentOwner<object>['task'],
         cancel: (key) => owner?.cancel(key),
-        isRunning: (key) => owner?.isRunning(key) ?? false,
         awaitIdle: (key) => owner?.awaitIdle(key) ?? Effect.void,
+        own: (resource) => work().own(resource),
+        get disposed() {
+          return closed;
+        },
       };
       const placed: Program<Model, Partial<object>> = {
         model: source.model,
@@ -296,11 +272,17 @@ function messageComponent<Props, Model extends { readonly props: Props }, Messag
   );
 }
 
+/** What a placement releases with its controller: an owner, or any `{ dispose, close? }`. */
+export interface ControllerLifetime {
+  readonly dispose: () => void;
+  /** Awaited teardown, when the resource has one; `dispose` alone is immediate. */
+  readonly close?: () => Effect.Effect<void, unknown>;
+}
 /**
- * A controller publishes through `source` and transfers cleanup through `lifetime`, or the
- * legacy `dispose`/`close` pair.
- * Everything else it returns reaches the view as `model.actions`, usually methods the view
- * calls as `model.actions.name(…)`; the lifecycle members below are not actions.
+ * A controller publishes through `source` and hands its cleanup over as `lifetime`, usually
+ * the `modelOwner` it created. Everything else it returns reaches the view as `model.actions`,
+ * usually methods the view calls as `model.actions.name(…)`; the lifecycle members below are
+ * not actions.
  */
 export type ViewController<Props, Model> = {
   readonly source: Source<Model>;
@@ -308,22 +290,8 @@ export type ViewController<Props, Model> = {
   readonly receive?: (props: Snapshot<Props>) => void;
   /** Capture DOM state before the view is torn down. */
   readonly beforeDispose?: () => void;
-} & (
-  | {
-      readonly lifetime: {
-        readonly dispose: () => void;
-        readonly close: () => Effect.Effect<void, unknown>;
-      };
-      readonly dispose?: never;
-      readonly close?: never;
-    }
-  | {
-      readonly lifetime?: never;
-      readonly dispose: () => void;
-      /** Legacy source-dispose identity also transfers the source's asynchronous close. */
-      readonly close?: () => Effect.Effect<void, unknown>;
-    }
-);
+  readonly lifetime: ControllerLifetime;
+};
 /**
  * A controller created from the view's props and released with the view. Use it when a view
  * needs a controller object (`modelOwner`, queries, subscriptions) rather than named messages.
@@ -350,17 +318,7 @@ export function controllerView<Props, Model extends object, Controller extends o
     ...(definition.identity ? { identity: definition.identity } : {}),
     create(props) {
       const controller = definition.controller(props);
-      const published = controller.source as unknown as Partial<Program<object, never>>;
-      // `dispose: owner.dispose` hands the source's whole teardown over, including its async close.
       const lifetime = controller.lifetime;
-      if (lifetime && (controller.dispose !== undefined || controller.close !== undefined)) {
-        throw new Error('Return either lifetime or dispose/close, not both');
-      }
-      const dispose = lifetime ? () => lifetime.dispose() : controller.dispose!;
-      const close = lifetime
-        ? () => lifetime.close()
-        : (controller.close ??
-          (controller.dispose === published.dispose ? published.close : undefined));
       const rendered = controllerSource(
         controller as unknown as { readonly source: Source<object> },
       ) as unknown as Source<Rendered>;
@@ -368,8 +326,8 @@ export function controllerView<Props, Model extends object, Controller extends o
         model: rendered.model,
         subscribe: rendered.subscribe,
         send: () => {},
-        dispose,
-        ...(close ? { close } : {}),
+        dispose: () => lifetime.dispose(),
+        ...(lifetime.close ? { close: () => lifetime.close!() } : {}),
       };
       controllers.set(source, controller);
       return source;

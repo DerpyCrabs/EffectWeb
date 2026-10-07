@@ -98,7 +98,7 @@ export function makeMount<M, Message, E, R>(
           if (exit._tag === 'Failure') reportSafely(options.onError ?? reportError, exit.cause);
         });
       };
-      return Object.assign(dispose, { dispose, close: () => close });
+      return { dispose, close: () => close };
     }).pipe(
       Scope.provide(lifetime.scope),
       Effect.onError((cause) => lifetime.close(Exit.failCause(cause))),

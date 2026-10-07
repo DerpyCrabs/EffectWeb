@@ -46,7 +46,7 @@ describe('identity preservation', () => {
       expect(inputs.map((input) => input.dataset.id)).toEqual(['b', 'a']);
       expect(inputs[style === 'position' ? 0 : 1]).toBe(original);
       expect(inputs[style === 'position' ? 0 : 1]!.value).toBe('unsaved draft for a');
-      stop();
+      stop.dispose();
       owner.dispose();
     });
   }
@@ -131,7 +131,7 @@ it('observe owns a dynamic subscription without disposing its source producer', 
   data.patch({ count: 3 });
   ui.patch({ visible: true });
   expect(host.textContent).toBe('3');
-  stop();
+  stop.dispose();
   expect(source.active()).toBe(0);
   ui.dispose();
   data.dispose();

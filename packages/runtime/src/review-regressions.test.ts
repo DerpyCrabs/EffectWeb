@@ -32,7 +32,7 @@ it('changes list rendering when equal captures come from different callback site
   owner.patch({ flip: true });
   expect(host.querySelectorAll('b')).toHaveLength(2);
   expect(host.querySelectorAll('i')).toHaveLength(0);
-  stop();
+  stop.dispose();
   owner.dispose();
 });
 
@@ -49,7 +49,7 @@ it.each(['(row, index = 0) => <i>{row}{index}</i>', '(row, ...rest) => <i>{row}{
     expect(host.textContent).toBe('a0b1');
     owner.patch({ rows: ['b', 'a'] });
     expect(host.textContent).toBe('b0a1');
-    stop();
+    stop.dispose();
     owner.dispose();
   },
 );
@@ -65,7 +65,6 @@ it('publishes task outcomes only after resource finalizers finish', async () => 
     'drop',
   );
   expect(owner.read().saved.waiting).toBe(true);
-  expect(owner.isRunning('saved')).toBe(true);
   finalizer.succeed(undefined);
   expect(await Effect.runPromise(run.await)).toEqual(Exit.succeed(42));
   expect(owner.read().saved._tag).toBe('Success');
@@ -118,7 +117,7 @@ it('keeps bubbling along the dispatch path when the target removes itself', () =
   );
   host.querySelector('button')!.click();
   expect(seen).toEqual(['child', 'parent']);
-  stop();
+  stop.dispose();
   owner.dispose();
 });
 
@@ -142,8 +141,8 @@ it.each([true, false])(
     button.dispatchEvent(event);
     button.dispatchEvent(event);
     expect(seen).toEqual(bubbles ? ['inner', 'outer', 'inner', 'outer'] : ['inner', 'inner']);
-    inner();
-    outer();
+    inner.dispose();
+    outer.dispose();
   },
 );
 
@@ -160,7 +159,7 @@ it.each([
   expect(host.querySelector('div')).toBe(element);
   expect(element.style.color).toBe('');
   expect(element.style.backgroundColor).toBe('blue');
-  stop();
+  stop.dispose();
   owner.dispose();
 });
 
@@ -194,7 +193,7 @@ it('uses current indices when an index-free list changes renderers after moving'
   expect(host.textContent).toBe('ba');
   owner.patch({ indexed: true });
   const actual = host.textContent;
-  stop();
+  stop.dispose();
   owner.dispose();
   expect(actual).toBe('b0a1');
 });
@@ -218,7 +217,7 @@ it('runs capture before nonbubbling target handlers', () => {
     owner.source,
   );
   host.querySelector('input')!.dispatchEvent(new Event('change'));
-  stop();
+  stop.dispose();
   owner.dispose();
   expect(calls).toEqual(['capture', 'target']);
 });
@@ -244,6 +243,6 @@ it('honors ancestor capture cancellation before a nonbubbling target handler', (
   );
   host.querySelector('input')!.dispatchEvent(new Event('change'));
   expect(calls).toEqual(['capture']);
-  stop();
+  stop.dispose();
   owner.dispose();
 });

@@ -18,7 +18,6 @@ it('an owner without a model joins work finalizers before closing its resources'
     ),
     'drop',
   );
-  expect(scope.isRunning(key)).toBe(true);
   await Effect.runPromise(scope.close());
   expect(calls).toEqual(['command', 'resource']);
   expect(scope.disposed).toBe(true);

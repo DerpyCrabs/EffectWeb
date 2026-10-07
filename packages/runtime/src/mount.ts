@@ -35,36 +35,6 @@ export function domBinding<T extends Element, A>(
   };
 }
 
-export interface DomHandle<T extends Element> {
-  /** Pass as `use={handle.mount}` on exactly one element at a time. */
-  readonly mount: DomMount<T>;
-  /** The element while it is mounted, for event handlers and controller work. */
-  readonly element: () => T | undefined;
-}
-/**
- * A controller-held reference to one element. There are no refs in views; a handle is declared
- * in the controller, attached with `use`, and read where the controller needs the element.
- * `attached` runs after the element is in the document and may return a cleanup.
- */
-export function domHandle<T extends Element>(
-  attached?: (element: T) => void | (() => void),
-): DomHandle<T> {
-  let current: T | undefined;
-  const mount = domMount<T>((element) => {
-    if (current && current !== element && current.isConnected)
-      console.warn(
-        'domHandle is mounted on two elements at once; only the latest is readable. Create one handle per element.',
-      );
-    current = element;
-    const cleanup = attached?.(element);
-    return () => {
-      if (current === element) current = undefined;
-      cleanup?.();
-    };
-  });
-  return { mount, element: () => current };
-}
-
 /** Allocate the lifetime before acquisition so reentrant publications can update or close it. */
 const noCleanup = () => {};
 export function prepareMount<T extends Element>(

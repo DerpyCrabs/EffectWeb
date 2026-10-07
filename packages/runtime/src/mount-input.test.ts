@@ -12,7 +12,7 @@ function counterController() {
   return {
     source: owner.source,
     increment: () => owner.patch({ count: owner.read().count + 1 }),
-    dispose: owner.dispose,
+    lifetime: owner,
     owner,
   };
 }
@@ -32,7 +32,7 @@ it('mounts a controller with its methods as model.actions, and leaves disposing 
   mounted.dispose();
   expect(host.childNodes).toHaveLength(0);
   expect(counter.owner.disposed).toBe(false);
-  counter.dispose();
+  counter.owner.dispose();
 });
 
 it('mounts a view with fixed input, such as a controller view that takes no props', () => {
@@ -40,7 +40,7 @@ it('mounts a view with fixed input, such as a controller view that takes no prop
   const Greeting = view<{ readonly name: string }>((props) => jsx('p', { children: props.name }));
   const stop = mount(host, Greeting, { name: 'Ada' });
   expect(host.textContent).toBe('Ada');
-  stop();
+  stop.dispose();
   const Root = controllerView(
     { controller: (_props: {}) => counterController() },
     view((model) => jsx('b', { children: String(model.count) })),
@@ -67,5 +67,5 @@ it('makeMount accepts a controller', async () => {
     ),
   );
   expect(host.childNodes).toHaveLength(0);
-  counter.dispose();
+  counter.lifetime.dispose();
 });

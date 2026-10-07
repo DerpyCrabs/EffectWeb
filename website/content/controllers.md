@@ -57,22 +57,21 @@ export const Chat = controllerView(
 );
 ```
 
-`identity` creates a fresh controller when `chatId` changes. `receive` is optional. `lifetime: owner` explicitly supplies both immediate disposal and awaited cleanup. Use `beforeDispose` for a controller-specific hook that runs before its lifetime is released. `lifetime` cannot be combined with controller `dispose` or `close` methods; that combination is rejected by the types and at runtime. To declare the view separately, type it with `ControllerModel<typeof chatController>`.
+`identity` creates a fresh controller when `chatId` changes. `receive` is optional. `lifetime` is what the placement releases: the owner, or any object with `dispose` and an optional awaited `close`. Use `beforeDispose` for a controller-specific hook that runs before the lifetime is released. Everything else the controller returns, including a method named `dispose`, reaches the view as an action. To declare the view separately, type it with `ControllerModel<typeof chatController>`.
 
 ## The model owner
 
-| Method                          | What it does                                                                                  |
-| ------------------------------- | --------------------------------------------------------------------------------------------- |
-| `read()`                        | The current state.                                                                            |
-| `patch(fields)`                 | Publish new values for some fields.                                                           |
-| `edit(key, fn)`                 | Publish `fn(current)` for one field.                                                          |
-| `transaction(fn)`               | Group several changes into one publication.                                                   |
-| `run(key, effect, policy)`      | Start work and return a handle to that run. See [Async work](/docs/tasks/#run-work-in-a-key). |
-| `task(field, effect, policy)`   | `run`, publishing the work's `AsyncResult` in `model[field]`.                                 |
-| `cancel(key)`, `isRunning(key)` | Stop or inspect the work in a key.                                                            |
-| `awaitIdle(key?)`               | An Effect that waits until work finishes.                                                     |
-| `own(resource)`                 | Release a cache, subscription or cleanup function with the owner.                             |
-| `dispose()`, `close()`          | Stop all work. `close()` is an Effect that waits for cleanup.                                 |
+| Method                        | What it does                                                                                  |
+| ----------------------------- | --------------------------------------------------------------------------------------------- |
+| `read()`                      | The current state.                                                                            |
+| `patch(fields)`               | Publish new values for some fields.                                                           |
+| `edit(key, fn)`               | Publish `fn(current)` for one field.                                                          |
+| `run(key, effect, policy)`    | Start work and return a handle to that run. See [Async work](/docs/tasks/#run-work-in-a-key). |
+| `task(field, effect, policy)` | `run`, publishing the work's `AsyncResult` in `model[field]`.                                 |
+| `cancel(key)`                 | Stop the work in a key.                                                                       |
+| `awaitIdle(key?)`             | An Effect that waits until work finishes.                                                     |
+| `own(resource)`               | Release a cache, subscription or cleanup function with the owner.                             |
+| `dispose()`, `close()`        | Stop all work. `close()` is an Effect that waits for cleanup.                                 |
 
 Inside an Effect scope, `Effect.acquireRelease(Effect.sync(() => modelOwner(initial)), (owner) => owner.close())` creates an owner that closes with the scope. `close()` never fails; cleanup errors go to the `onDefect` option.
 

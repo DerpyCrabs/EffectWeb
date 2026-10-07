@@ -2,7 +2,6 @@ import { controllerView } from 'effectweb';
 import { Cause, Effect } from 'effect';
 import {
   component,
-  type Slot,
   program,
   domMount,
   errorBoundary,
@@ -10,8 +9,9 @@ import {
   mount,
   Portal,
   view,
-  ViewBinding,
   type DomMount,
+  type JSX,
+  type Send,
   type Snapshot,
 } from 'effectweb';
 
@@ -38,7 +38,7 @@ const Nested = component<{ label: string }, { draft: string }>(
     />
   )),
 );
-const EditorView = view<Model, Patch>((model, send) => (
+const EditorContent = view<{ model: Model; send: Send<Patch> }>(({ model, send }) => (
   <section data-editor use={model.host}>
     <button data-increment onClick={() => send({ count: model.count + 1 })}>
       {model.props.id}:{model.props.label}:{model.count}
@@ -49,6 +49,7 @@ const EditorView = view<Model, Patch>((model, send) => (
     </Portal>
   </section>
 ));
+const EditorView = view<Model, Patch>((model, send) => <EditorContent model={model} send={send} />);
 
 export function mountIdentityFixture(
   parent: HTMLElement,
@@ -69,8 +70,7 @@ export function mountIdentityFixture(
   const key = 'owned';
   const OwnerEditor = component<Props, State>({ identity, init }, (owner) =>
     view((model, patch) => (
-      <ViewBinding
-        view={EditorView}
+      <EditorContent
         model={model}
         send={(fields) => {
           patch(fields);
@@ -138,14 +138,11 @@ export function mountIdentityFixture(
                       events.push(`receive:${source.model().props.id}:${next.id}`);
                       source.send({ props: next as Props });
                     },
-                    dispose: source.dispose,
-                    close: source.close,
+                    lifetime: source,
                   };
                 },
               },
-              view((model) => (
-                <ViewBinding view={EditorView} model={model} send={model.actions.patch} />
-              )),
+              view((model) => <EditorContent model={model} send={model.actions.patch} />),
             );
   const owner = modelOwner<Props>({ id: 'a', label: 'first' });
   const unmount = mount(parent, Editor, owner.source);
@@ -173,7 +170,8 @@ function checked(broken: boolean, label: string) {
   if (broken) throw new Error(label);
   return label;
 }
-const Content = view<RecoveryModel, RecoveryMessage>((model) => (
+type Recovery = { model: RecoveryModel; send: Send<RecoveryMessage> };
+const Content = view<Recovery>(({ model }) => (
   <section data-content use={model.host}>
     <span data-value>{checked(model.broken, model.label)}</span>
     <Portal>
@@ -181,13 +179,17 @@ const Content = view<RecoveryModel, RecoveryMessage>((model) => (
     </Portal>
   </section>
 ));
-const Fallback = view<{ model: RecoveryModel; error: unknown }, RecoveryMessage>((state, send) => (
-  <button data-fallback use={state.model.fallbackHost} onClick={() => send('Retry')}>
-    {checked(state.model.fallbackBroken, `Failed:${state.model.label}`)}
+const Fallback = view<{ model: Recovery; error: unknown }>((state) => (
+  <button
+    data-fallback
+    use={state.model.model.fallbackHost}
+    onClick={() => state.model.send('Retry')}
+  >
+    {checked(state.model.model.fallbackBroken, `Failed:${state.model.model.label}`)}
   </button>
 ));
-const OuterFallback = view<{ model: RecoveryModel; error: unknown }, RecoveryMessage>((state) => (
-  <aside data-outer>Outer:{state.model.label}</aside>
+const OuterFallback = view<{ model: Recovery; error: unknown }>((state) => (
+  <aside data-outer>Outer:{state.model.model.label}</aside>
 ));
 
 export function mountRecoveryFixture(parent: HTMLElement, initialBroken = false, nested = false) {
@@ -219,7 +221,7 @@ export function mountRecoveryFixture(parent: HTMLElement, initialBroken = false,
   });
   const Safe = errorBoundary(Content, {
     fallback: Fallback,
-    reset: (model) => model.reset,
+    reset: (state) => state.model.reset,
     onError: (error) => {
       errors.push(String(error));
     },
@@ -227,7 +229,7 @@ export function mountRecoveryFixture(parent: HTMLElement, initialBroken = false,
   const Outer = nested
     ? errorBoundary(Safe, {
         fallback: OuterFallback,
-        reset: (model) => model.reset,
+        reset: (state) => state.model.reset,
         onError: (error) => {
           outerErrors.push(String(error));
         },
@@ -236,7 +238,7 @@ export function mountRecoveryFixture(parent: HTMLElement, initialBroken = false,
   const Root = view<RecoveryModel, RecoveryMessage>((model, send) => (
     <main>
       <output data-sibling>{model.label}</output>
-      <ViewBinding view={Outer} model={model} send={send} />
+      <Outer model={model} send={send} />
     </main>
   ));
   const source = program<RecoveryModel, RecoveryMessage | Partial<RecoveryModel>>({
@@ -344,15 +346,17 @@ export async function staleBoundaryCleanupFixture() {
         const source = program<Props, never>({ initial: props, update: (model) => ({ model }) });
         return {
           source,
-          dispose: source.dispose,
-          close: () =>
-            Effect.gen(function* () {
-              yield* source.close();
-              if (props.id === 'a') {
-                yield* Effect.promise(() => gate);
-                return yield* Effect.fail(new Error('old cleanup'));
-              }
-            }),
+          lifetime: {
+            dispose: source.dispose,
+            close: () =>
+              Effect.gen(function* () {
+                yield* source.close();
+                if (props.id === 'a') {
+                  yield* Effect.promise(() => gate);
+                  return yield* Effect.fail(new Error('old cleanup'));
+                }
+              }),
+          },
         };
       },
     },
@@ -443,10 +447,10 @@ export async function slotBoundaryFixture() {
   document.body.append(host);
   const errors: string[] = [];
   const unhandled: string[] = [];
-  const Shell = view<{ content: Slot }>((model) => (
+  const Shell = view<{ content: () => JSX.Element }>((model) => (
     <section data-slot-content>{model.content()}</section>
   ));
-  const Failure = view<{ model: { content: Slot }; error: unknown }>(() => (
+  const Failure = view<{ model: { content: () => JSX.Element }; error: unknown }>(() => (
     <aside data-slot-fallback>Failed</aside>
   ));
   const Safe = errorBoundary(Shell, {
