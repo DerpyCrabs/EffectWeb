@@ -1,5 +1,5 @@
 import { equalKeys, copyKey, KeyMap } from './command-key.js';
-import { protectSnapshot, type Snapshot } from './snapshot.js';
+import { protectSnapshot } from './snapshot.js';
 import * as Cause from 'effect/Cause';
 import * as Deferred from 'effect/Deferred';
 import * as Effect from 'effect/Effect';
@@ -41,12 +41,9 @@ export interface DisposableOwner {
 export interface ModelOwner<Model extends object, R = never> extends DisposableOwner {
   readonly source: Program<Model, never>;
   /** Latest accepted immutable state, including writes queued during command startup. */
-  readonly read: () => Snapshot<Model>;
-  readonly patch: (changes: Partial<Model> | Partial<Snapshot<Model>>) => void;
-  readonly edit: <K extends keyof Model>(
-    key: K,
-    change: (value: Snapshot<Model[K]>) => Model[K] | Snapshot<Model[K]>,
-  ) => void;
+  readonly read: () => Model;
+  readonly patch: (changes: Partial<Model>) => void;
+  readonly edit: <K extends keyof Model>(key: K, change: (value: Model[K]) => Model[K]) => void;
   /**
    * Starts the work now and returns a handle to this run. `yield* run.await` gives its `Exit`
    * once the work and its finalizers are done, as `Fiber.await` does: a cancelled, replaced,
@@ -108,9 +105,17 @@ export type TaskValue<Model, Key> =
 export type TaskError<Model, Key> =
   TaskResult<Model, Key> extends AsyncResult.AsyncResult<infer _A, infer E> ? E : never;
 /**
+ * The model an owner publishes for the state it was given. A result field holds every outcome,
+ * so `saved: AsyncResult.initial<number, Error>()` declares `AsyncResult.AsyncResult<number, Error>`.
+ */
+export type ModelFields<State> = State extends readonly unknown[]
+  ? State
+  : { [K in keyof State]: WidenResult<State[K]> };
+type WidenResult<T> =
+  T extends AsyncResult.AsyncResult<infer A, infer E> ? AsyncResult.AsyncResult<A, E> : T;
+/**
  * The Effect a task accepts. When the field cannot hold the outcome, the parameter names the
- * fix instead: `AsyncResult.initial()` alone has the narrower type `Initial`, and a row record
- * must allow rows that have not run yet.
+ * fix instead: a row record must allow rows that have not run yet.
  */
 type TaskEffect<Model, Key, R> = Key extends readonly [infer Field extends keyof Model, unknown]
   ? undefined extends Model[Field][keyof Model[Field]]
@@ -121,7 +126,7 @@ type TaskEffect<Model, Key, R> = Key extends readonly [infer Field extends keyof
         Key
       >
     ? Effect.Effect<TaskValue<Model, Key>, TaskError<Model, Key>, R | Scope.Scope>
-    : 'Declare the result field as AsyncResult.AsyncResult<Value, Error>; AsyncResult.initial() alone has the narrower type Initial';
+    : 'Declare the result field as AsyncResult.AsyncResult<Value, Error>';
 
 type Options = { onDefect?: ReportError };
 /**
@@ -131,18 +136,18 @@ type Options = { onDefect?: ReportError };
 export function modelOwner<Model extends object>(
   initial: Model,
   options?: Options,
-): ModelOwner<Model>;
+): ModelOwner<ModelFields<Model>>;
 export function modelOwner<Model extends object, R>(
   initial: Model,
   options: Options & { context: Context.Context<R> },
-): ModelOwner<Model, R>;
+): ModelOwner<ModelFields<Model>, R>;
 export function modelOwner<Model extends object, R>(
   initial: Model,
   options: Options & { context?: Context.Context<R> } = {},
-): ModelOwner<Model, R> {
+): ModelOwner<ModelFields<Model>, R> {
   const { context, ...rest } = options;
-  return createModelOwner<Model, R>(
-    initial,
+  return createModelOwner<ModelFields<Model>, R>(
+    initial as ModelFields<Model>,
     context ? { ...rest, runtime: contextRunner(context) } : rest,
   );
 }
@@ -174,7 +179,7 @@ export function createModelOwner<Model extends object, R>(
   options: Options & { runtime?: OwnerRuntime<R> } = {},
 ): ModelOwner<Model, R> {
   type Operation =
-    | { type: 'Patch'; changes: Partial<Model> | Partial<Snapshot<Model>> }
+    | { type: 'Patch'; changes: Partial<Model> }
     | {
         type: 'Run';
         key: RunKey;
@@ -243,7 +248,7 @@ export function createModelOwner<Model extends object, R>(
     },
   });
   let accepted = source.model() as Model;
-  const read = (): Snapshot<Model> => protectSnapshot(accepted) as Snapshot<Model>;
+  const read = (): Model => protectSnapshot(accepted) as Model;
   const submit = (operation: Operation) => {
     if (disposed) {
       if (operation.type === 'Run') operation.onDiscard('Disposed');
@@ -251,8 +256,7 @@ export function createModelOwner<Model extends object, R>(
     }
     submitBatch([operation]);
   };
-  const patch = (changes: Partial<Model> | Partial<Snapshot<Model>>) =>
-    submit({ type: 'Patch', changes });
+  const patch = (changes: Partial<Model>) => submit({ type: 'Patch', changes });
   const submitBatch = (operations: Batch) => {
     let next = accepted;
     for (const operation of operations)
@@ -358,9 +362,7 @@ export function createModelOwner<Model extends object, R>(
     edit: (key, change) => {
       if (!disposed) {
         const changes: Partial<Model> = {};
-        changes[key] = change(
-          (read() as Model)[key] as Snapshot<Model[typeof key]>,
-        ) as Model[typeof key];
+        changes[key] = change((read() as Model)[key] as Model[typeof key]) as Model[typeof key];
         patch(changes);
       }
     },

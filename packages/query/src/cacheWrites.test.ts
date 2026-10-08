@@ -25,7 +25,7 @@ it('seeds readonly data without loading and publishes protected updates to both 
     load,
   });
   const cache = makeCache();
-  const args = { ids: ['a'] } as const;
+  const args = { ids: ['a'] };
   const seed = { names: ['Ada'], detail: { count: 1 } };
   const written = cache.setQueryData(definition, args, seed);
   const first = queryResource({ cache }, definition);

@@ -156,7 +156,6 @@ test('the Vite development plugin enables snapshot protection automatically', as
       const initial = app.model();
       let rejected = false;
       try {
-        // @ts-expect-error Deliberately verify protection against an untyped retained alias.
         initial.text = 'mutated';
       } catch (error) {
         rejected = error instanceof TypeError;

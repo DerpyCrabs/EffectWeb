@@ -224,8 +224,8 @@ for (const keyed of [true, false]) {
         element(parent, before, 'span').textContent = String(scope.value.id);
       });
       const source = program({
-        initial: [1],
-        update: (_model: readonly number[], model: readonly number[]) => ({ model }),
+        initial: [1] as readonly number[],
+        update: (_model, model: readonly number[]) => ({ model }),
       });
       const Root = view<readonly number[], readonly number[]>((model) => {
         const render = (id: number) => renderComponent(Child, { id });

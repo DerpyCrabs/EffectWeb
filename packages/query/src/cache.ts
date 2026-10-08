@@ -12,7 +12,6 @@ import { registerCache, type QueryEntry } from './cache-internals.js';
 import { queryDefinition } from './query-internals.js';
 import { reportError, reportSafely } from './errors.js';
 import { protectSnapshot, shareValue } from 'effectweb/advanced';
-import type { Snapshot } from 'effectweb';
 import * as Clock from 'effect/Clock';
 
 type Result = AsyncResult.AsyncResult<unknown, unknown>;
@@ -23,7 +22,7 @@ interface Lifetime {
 interface ResourceEntry {
   key: string;
   load: () => Effect.Effect<unknown, unknown, Scope.Scope>;
-  share: (previous: Snapshot<unknown>, next: unknown) => unknown;
+  share: (previous: unknown, next: unknown) => unknown;
   loadedAt?: number;
   query?: object;
   args?: unknown;
@@ -87,7 +86,7 @@ const settledExit = <A, E>(
 
 // Resource storage erases types; a handle acquired with a query definition restores them.
 const resultOf = <A, E>(entry: TypedResourceEntry<A, E>) =>
-  entry.state as AsyncResult.AsyncResult<Snapshot<A>, E>;
+  entry.state as AsyncResult.AsyncResult<A, E>;
 
 function createQueryCache<R>(
   context: Context.Context<R>,
@@ -213,7 +212,7 @@ function createQueryCache<R>(
       return Effect.suspend(() => entry.load()).pipe(
         Effect.map((value) => {
           const shared = Option.isSome(previous)
-            ? entry.share(previous.value as Snapshot<unknown>, value)
+            ? entry.share(previous.value as unknown, value)
             : value;
           const snapshot = protectSnapshot(shared);
           if (!disposed && entry.lifetime === lifetime) remember(entry, snapshot);
@@ -327,8 +326,7 @@ function createQueryCache<R>(
   const acquire = <A, E>(
     key: string,
     load: () => Effect.Effect<A, E, Scope.Scope>,
-    share: (previous: Snapshot<A>, next: A | Snapshot<A>) => A | Snapshot<A> = (previous, next) =>
-      shareValue(previous, next as Snapshot<A>),
+    share: (previous: A, next: A) => A = (previous, next) => shareValue(previous, next as A),
   ) => {
     let entry = resources.get(key);
     if (entry) {
@@ -361,14 +359,9 @@ function createQueryCache<R>(
   const checkWritable = () => {
     if (disposed) throw new Error('Cannot write to a disposed query cache.');
   };
-  const queryKey = <Args, A, E>(
-    definition: Query<Args, A, E, R | Scope.Scope>,
-    args: Args | Snapshot<Args>,
-  ) => `query:${identity(definition)}:${encodeQueryArguments(definition, args)}`;
-  const acquireQuery = <Args, A, E>(
-    definition: Query<Args, A, E, R | Scope.Scope>,
-    args: Args | Snapshot<Args>,
-  ) => {
+  const queryKey = <Args, A, E>(definition: Query<Args, A, E, R | Scope.Scope>, args: Args) =>
+    `query:${identity(definition)}:${encodeQueryArguments(definition, args)}`;
+  const acquireQuery = <Args, A, E>(definition: Query<Args, A, E, R | Scope.Scope>, args: Args) => {
     const config = queryDefinition(definition);
     protectSnapshot(args);
     const entry = acquire(
@@ -376,8 +369,8 @@ function createQueryCache<R>(
       () => {
         const effect = Effect.suspend(() =>
           config.load(
-            args as Snapshot<Args>,
-            resources.get(queryKey(definition, args))?.value?.value as Snapshot<A> | undefined,
+            args as Args,
+            resources.get(queryKey(definition, args))?.value?.value as A | undefined,
           ),
         );
         // Loaders get the cache's services and the scope of the load that owns them.
@@ -393,10 +386,7 @@ function createQueryCache<R>(
     entry.unused = config.unused ?? options.unused;
     return { entry, config };
   };
-  const selectQuery = <Args, A, E>(
-    definition: Query<Args, A, E, R | Scope.Scope>,
-    args: Args | Snapshot<Args>,
-  ) => {
+  const selectQuery = <Args, A, E>(definition: Query<Args, A, E, R | Scope.Scope>, args: Args) => {
     const { entry, config } = acquireQuery(definition, args);
     if (entry.canceled && !entry.value) refresh(entry);
     if (
@@ -424,7 +414,7 @@ function createQueryCache<R>(
     for (const abort of [...entry.prefetches]) abort();
   };
   /** Resolve with the next settled result; Initial waiters are released by cancellation. */
-  const awaitResult = <A, E>(entry: TypedResourceEntry<A, E>): Effect.Effect<Snapshot<A>, E> =>
+  const awaitResult = <A, E>(entry: TypedResourceEntry<A, E>): Effect.Effect<A, E> =>
     Effect.callback((resume) => {
       const current = read(entry);
       if (settled(current)) return resume(settledExit(current));
@@ -439,7 +429,7 @@ function createQueryCache<R>(
     });
   const matching = <Args, A, E>(
     definition: Query<Args, A, E, R | Scope.Scope>,
-    selected: [] | [Args | Snapshot<Args>],
+    selected: [] | [Args],
   ) =>
     [...resources].filter(
       ([key, entry]) =>
@@ -450,9 +440,9 @@ function createQueryCache<R>(
     batch,
     getQueryData<Args, A, E>(
       definition: Query<Args, A, E, R | Scope.Scope>,
-      args: Args | Snapshot<Args>,
-    ): Snapshot<A> | undefined {
-      return resources.get(queryKey(definition, args))?.value?.value as Snapshot<A> | undefined;
+      args: Args,
+    ): A | undefined {
+      return resources.get(queryKey(definition, args))?.value?.value as A | undefined;
     },
     invalidateGroup(group) {
       batch(() => {
@@ -470,9 +460,9 @@ function createQueryCache<R>(
     },
     prefetch<Args, A, E>(
       definition: Query<Args, A, E, R | Scope.Scope>,
-      args: Args | Snapshot<Args>,
+      args: Args,
       options?: { readonly refresh?: boolean },
-    ): Effect.Effect<Snapshot<A>, E> {
+    ): Effect.Effect<A, E> {
       return Effect.suspend(() => {
         checkWritable();
         const entry = selectQuery(definition, args);
@@ -497,39 +487,39 @@ function createQueryCache<R>(
     },
     setQueryData<Args, A, E>(
       definition: Query<Args, A, E, R | Scope.Scope>,
-      args: Args | Snapshot<Args>,
-      value: A | Snapshot<A>,
-    ): Snapshot<A> {
+      args: Args,
+      value: A,
+    ): A {
       checkWritable();
       const { entry, config } = acquireQuery(definition, args);
       const previous = entry.value;
       const next = protectSnapshot(value);
       const shared = previous
         ? config.share
-          ? config.share(previous.value as Snapshot<A>, next)
-          : shareValue(previous.value as Snapshot<A>, next as Snapshot<A>)
+          ? config.share(previous.value as A, next)
+          : shareValue(previous.value as A, next as A)
         : next;
-      const snapshot = protectSnapshot(shared) as Snapshot<A>;
+      const snapshot = protectSnapshot(shared) as A;
       checkWritable();
       set(entry, snapshot);
       return snapshot;
     },
     updateQueryData<Args, A, E>(
       definition: Query<Args, A, E, R | Scope.Scope>,
-      args: Args | Snapshot<Args>,
-      update: (previous: Snapshot<A>) => A | Snapshot<A> | undefined,
-    ): Snapshot<A> | undefined {
+      args: Args,
+      update: (previous: A) => A | undefined,
+    ): A | undefined {
       checkWritable();
       queryDefinition(definition);
       protectSnapshot(args);
       const previous = resources.get(queryKey(definition, args))?.value;
       if (!previous) return undefined;
-      const next = update(previous.value as Snapshot<A>);
+      const next = update(previous.value as A);
       return next === undefined ? undefined : cache.setQueryData(definition, args, next);
     },
     invalidateQuery<Args, A, E>(
       definition: Query<Args, A, E, R | Scope.Scope>,
-      ...selected: [] | [Args | Snapshot<Args>]
+      ...selected: [] | [Args]
     ) {
       if (selected.length) {
         const entry = resources.get(queryKey(definition, selected[0]));
@@ -589,10 +579,8 @@ function createQueryCache<R>(
         generationListeners.delete(listener);
       };
     },
-    query: <Args, A, E>(
-      definition: Query<Args, A, E, R | Scope.Scope>,
-      args: Args | Snapshot<Args>,
-    ) => selectQuery(definition, args),
+    query: <Args, A, E>(definition: Query<Args, A, E, R | Scope.Scope>, args: Args) =>
+      selectQuery(definition, args),
   });
   return Object.freeze(cache);
 }
@@ -602,25 +590,25 @@ export interface QueryCache<R = never> {
   batch(work: () => void): void;
   getQueryData<Args, A, E>(
     definition: Query<Args, A, E, R | Scope.Scope>,
-    args: NoInfer<Args> | Snapshot<NoInfer<Args>>,
-  ): Snapshot<A> | undefined;
+    args: NoInfer<Args>,
+  ): A | undefined;
   invalidateGroup(group: QueryGroup): void;
   /** Cancel requests while retaining the last success. Explicit refresh restarts them. */
   cancelQuery<Args, A, E>(
     definition: Query<Args, A, E, R | Scope.Scope>,
-    ...selected: [] | [NoInfer<Args> | Snapshot<NoInfer<Args>>]
+    ...selected: [] | [NoInfer<Args>]
   ): void;
   prefetch<Args, A, E>(
     definition: Query<Args, A, E, R | Scope.Scope>,
-    args: NoInfer<Args> | Snapshot<NoInfer<Args>>,
+    args: NoInfer<Args>,
     options?: { readonly refresh?: boolean },
-  ): Effect.Effect<Snapshot<A>, E>;
+  ): Effect.Effect<A, E>;
   /** Publish a protected success, including undefined, and supersede any pending load for this key. */
   setQueryData<Args, A, E>(
     definition: Query<Args, A, E, R | Scope.Scope>,
-    args: NoInfer<Args> | Snapshot<NoInfer<Args>>,
-    value: NoInfer<A> | Snapshot<NoInfer<A>>,
-  ): Snapshot<A>;
+    args: NoInfer<Args>,
+    value: NoInfer<A>,
+  ): A;
   /**
    * Update an existing success, including one retained during refresh or failure, and supersede its load.
    * No success or an undefined updater return skips the write. Use setQueryData to seed or store undefined.
@@ -628,12 +616,12 @@ export interface QueryCache<R = never> {
    */
   updateQueryData<Args, A, E>(
     definition: Query<Args, A, E, R | Scope.Scope>,
-    args: NoInfer<Args> | Snapshot<NoInfer<Args>>,
-    update: (previous: Snapshot<A>) => NoInfer<A> | Snapshot<NoInfer<A>> | undefined,
-  ): Snapshot<A> | undefined;
+    args: NoInfer<Args>,
+    update: (previous: A) => NoInfer<A> | undefined,
+  ): A | undefined;
   invalidateQuery<Args, A, E>(
     definition: Query<Args, A, E, R | Scope.Scope>,
-    ...selected: [] | [NoInfer<Args> | Snapshot<NoInfer<Args>>]
+    ...selected: [] | [NoInfer<Args>]
   ): void;
   /**
    * Interrupt every request and drop all cached data, for a sign-out or account switch.

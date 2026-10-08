@@ -464,7 +464,6 @@ writeFileSync(
     options: { typeAware: true, typeCheck: true },
     rules: {
       'effectweb/valid-view': 'error',
-      'effectweb/query-key': 'error',
       'effectweb/identity': 'error',
       'effecttsgo/floating-effect': 'error',
       'typescript/no-explicit-any': 'error',
@@ -672,8 +671,8 @@ try {
   assert.equal(await page.locator('.lucide-camera').getAttribute('width'), '26');
   assert.equal(
     await page.locator('html').getAttribute('data-snapshot-frozen'),
-    'true',
-    'Published plain snapshots must stay protected in production',
+    'false',
+    'Production builds skip the freeze pass; development builds freeze published data',
   );
   assert.equal(
     await page.evaluate(() => window.originalCamera === document.querySelector('.lucide-camera')),

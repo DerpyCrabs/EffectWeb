@@ -24,6 +24,12 @@ const applyTheme = () => {
     /* Storage may be disabled. */
   }
 };
+// The web fonts have no ⌘; only Mac system fonts render it well, and only Macs use it.
+const reflectShortcut = () => {
+  if (!/Mac|iPhone|iPad/u.test(navigator.platform)) return;
+  const key = query<HTMLElement>('.search-trigger kbd');
+  if (key) key.textContent = '⌘ K';
+};
 const reflectTheme = () =>
   query<HTMLButtonElement>('.theme-toggle')?.setAttribute(
     'aria-label',
@@ -201,6 +207,7 @@ window.addEventListener('resize', scheduleContents);
 document.addEventListener('astro:after-swap', applyTheme);
 document.addEventListener('astro:page-load', () => {
   reflectTheme();
+  reflectShortcut();
   closeMenu();
   query<HTMLDialogElement>('.search-dialog')?.close();
   headings = Array.from(document.querySelectorAll<HTMLElement>('.prose h2[id]'));

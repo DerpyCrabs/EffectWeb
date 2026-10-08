@@ -12,7 +12,6 @@ import {
   type DomMount,
   type JSX,
   type Send,
-  type Snapshot,
 } from 'effectweb';
 
 interface Props {
@@ -57,7 +56,7 @@ export function mountIdentityFixture(
 ) {
   const events: string[] = [];
   const sources: Array<ReturnType<typeof program<Model, Partial<Model>>>> = [];
-  const init = (props: Snapshot<Props>): State => ({
+  const init = (props: Props): State => ({
     count: 0,
     host: domMount(() => {
       events.push(`mount:${props.id}`);
@@ -66,7 +65,7 @@ export function mountIdentityFixture(
       };
     }),
   });
-  const identity = (props: Snapshot<Props>) => props.id;
+  const identity = (props: Props) => props.id;
   const key = 'owned';
   const OwnerEditor = component<Props, State>({ identity, init }, (owner) =>
     view((model, patch) => (
@@ -342,7 +341,7 @@ export async function staleBoundaryCleanupFixture() {
   });
   const Child = controllerView(
     {
-      controller: (props: Snapshot<Props>) => {
+      controller: (props: Props) => {
         const source = program<Props, never>({ initial: props, update: (model) => ({ model }) });
         return {
           source,

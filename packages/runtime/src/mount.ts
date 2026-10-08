@@ -1,4 +1,3 @@
-import type { Snapshot } from './snapshot.js';
 import { reportError, reportSafely, type ReportError } from './errors.js';
 import * as Cause from 'effect/Cause';
 import * as Deferred from 'effect/Deferred';
@@ -25,13 +24,13 @@ export function domMount<T extends Element>(start: (element: T) => Work): DomMou
 }
 /** A stable DOM lifecycle with fresh immutable inputs, for focus, measurements and native events. */
 export function domBinding<T extends Element, A>(
-  data: A | Snapshot<A>,
-  acquire: (element: T, input: () => Snapshot<A>) => Work,
+  data: A,
+  acquire: (element: T, input: () => A) => Work,
 ): DomMount<T> {
   return {
     identity: acquire,
     data,
-    acquire: (element, input) => acquire(element, input as () => Snapshot<A>),
+    acquire: (element, input) => acquire(element, input as () => A),
   };
 }
 

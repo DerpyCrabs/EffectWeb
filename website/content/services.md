@@ -21,7 +21,7 @@ Effect.runFork(Effect.scoped(main));
 
 `makeMount` returns an Effect, so it does nothing until it runs inside your app's Effect: write `yield* makeMount(…)`. Calling it as a plain statement mounts nothing and reports no error; outside an Effect, use `mount`. It gives Effects started by views the services of the Effect it runs in, and removes the view when the scope closes. `Effect.never` keeps that scope, and any services built for it, open for as long as the page is. Vite reloads the page when the entry module changes, so the entry needs no hot-reload cleanup.
 
-Both take the same third argument: a source such as `owner.source`, a [controller](/docs/controllers/#create-a-controller-from-a-view), whose methods reach the view as `model.actions`, or fixed props such as `{}` for a root that takes none. Neither disposes it. `mount(parent, App, input)` returns a handle; call its `dispose()` to remove the view.
+Both take the same third argument: a source such as `owner.source` or a program, or fixed props such as `{}` for a root that takes none, such as a [`controllerView`](/docs/controllers/#create-a-controller-from-a-view). Neither disposes a source. `mount(parent, App, input)` returns a handle; call its `dispose()` to remove the view.
 
 ## Provide services
 

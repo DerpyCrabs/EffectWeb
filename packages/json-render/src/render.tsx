@@ -11,7 +11,7 @@ import {
   type Spec,
   type UIElement,
 } from '@json-render/core';
-import { list, view, type JSX, type Snapshot } from 'effectweb';
+import { list, view, type JSX } from 'effectweb';
 
 export interface ActionEvent {
   readonly type: 'action';
@@ -24,7 +24,7 @@ export interface ActionEvent {
 }
 export interface ComponentRenderProps<P = Record<string, unknown>> {
   readonly key: string;
-  readonly element: Snapshot<UIElement>;
+  readonly element: UIElement;
   readonly props: P;
   readonly children: JSX.Element;
   readonly bindings: Readonly<Record<string, string>> | undefined;
@@ -50,7 +50,7 @@ export function defineRegistry<C extends Catalog>(
 }
 
 export interface RendererProps {
-  readonly spec: Spec | Snapshot<Spec> | null;
+  readonly spec: Spec | null;
   readonly registry: ComponentRegistry;
   readonly state: Readonly<Record<string, unknown>>;
   readonly dispatch: (event: ActionEvent) => void;
@@ -61,7 +61,7 @@ export interface RendererProps {
 }
 
 function renderElement(
-  model: Snapshot<RendererProps>,
+  model: RendererProps,
   key: string,
   ancestors: ReadonlySet<string>,
 ): JSX.Element {
@@ -91,8 +91,8 @@ function renderElement(
     loading: model.loading ?? false,
     emit: (event, extra = {}) => {
       const bound = element.on?.[event];
-      const bindings: readonly Snapshot<ActionBinding>[] = bound
-        ? ((Array.isArray(bound) ? bound : [bound]) as readonly Snapshot<ActionBinding>[])
+      const bindings: readonly ActionBinding[] = bound
+        ? ((Array.isArray(bound) ? bound : [bound]) as readonly ActionBinding[])
         : [];
       for (const binding of bindings) {
         const params = Object.fromEntries(

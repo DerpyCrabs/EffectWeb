@@ -2,7 +2,7 @@
 import { Cause, Effect } from 'effect';
 import { expect, it } from 'vitest';
 import { markup, mountViewWithSettlement, view } from './dom.js';
-import { modelOwner } from './owner.js';
+import { createModelOwner, modelOwner } from './owner.js';
 import { Settlement } from './settlement.js';
 import type { JSX } from './jsx.js';
 
@@ -37,7 +37,7 @@ const button = markup('button');
 function mountedButton<Attrs extends object>(initial: Attrs) {
   const errors: unknown[] = [];
   const host = document.createElement('div');
-  const owner = modelOwner<{ attrs: Attrs }>({ attrs: initial });
+  const owner = createModelOwner<{ attrs: Attrs }, never>({ attrs: initial });
   const settlement = new Settlement();
   const mounted = mountViewWithSettlement(
     host,

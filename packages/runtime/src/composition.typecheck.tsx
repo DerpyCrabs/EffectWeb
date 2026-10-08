@@ -28,7 +28,6 @@ const Fallback = view<{ model: { count: number }; error: unknown }, 'Increment'>
 const Safe = errorBoundary(Child, {
   fallback: Fallback,
   reset: (model) => {
-    // @ts-expect-error Reset identity borrows the immutable input.
     model.count++;
     return model.count;
   },
@@ -47,7 +46,6 @@ errorBoundary(Child, { fallback: WrongMessage });
 const Local = component<{ id: string }, { draft: string }>(
   {
     identity: (props) => {
-      // @ts-expect-error Entity identity cannot mutate parent inputs.
       props.id = 'changed';
       return props.id;
     },

@@ -1,7 +1,6 @@
 import attributeData from './dom-attributes.json' with { type: 'json' };
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
-import type { Snapshot } from './snapshot.js';
 
 import { keyed, validateIdentities } from './collection.js';
 import { runAll, reportError, reportSafely, type ReportError } from './errors.js';
@@ -23,7 +22,7 @@ import { Settlement } from './settlement.js';
 import { prepareMount } from './mount.js';
 import type { Send } from './program.js';
 import type { Source } from './source.js';
-import { isSource, mountSource, type ControllerModel } from './controller.js';
+import { isSource, mountSource } from './controller.js';
 type Dependencies = () => readonly unknown[];
 type BindingLocation = BindingSource | (() => BindingSource | undefined);
 const bindingLocation = (source: BindingLocation | undefined) =>
@@ -147,7 +146,7 @@ export interface MessageViewPlacement {
   readonly 'This view sends messages. Give it to component({ init, update }, view) or mount, or pass send to the child as a prop': never;
 }
 export interface View<M, E> extends JSX.ComponentType {
-  (this: never, props: [E] extends [never] ? M | Snapshot<M> : MessageViewPlacement): JSX.Element;
+  (this: never, props: [E] extends [never] ? M : MessageViewPlacement): JSX.Element;
   readonly build: Build<M, E>;
 }
 
@@ -316,18 +315,16 @@ const foreignContentMessage =
   'This JSX was built by a second copy of effectweb. Two runtime copies are loaded: deduplicate the effectweb dependency (one install, resolve.dedupe, or one import path) so views and the compiled output share a runtime.';
 /** Evaluate ordinary synchronous JavaScript for each immutable model publication. */
 /* @__NO_SIDE_EFFECTS__ */
-export function view<M, E = never>(
-  render: (model: Snapshot<M>, send: Send<E>) => JSX.Element,
-): View<M, E> {
+export function view<M, E = never>(render: (model: M, send: Send<E>) => JSX.Element): View<M, E> {
   return compiled((scope, parent, before) => {
-    const read = () => render(scope.value as Snapshot<M>, scope.send);
+    const read = () => render(scope.value as M, scope.send);
     return text(scope, parent, before, () => [scope.value], read);
   });
 }
 /* @__NO_SIDE_EFFECTS__ */
 export function compiled<M, E>(build: Build<M, E>): View<M, E> {
   const definition: View<M, E> = Object.assign(
-    (props: M | Snapshot<M> | MessageViewPlacement) =>
+    (props: M | MessageViewPlacement) =>
       new SlotPlacement(viewContent(definition), { model: props, send: unboundSend }),
     { build, [jsxComponent]: true as const },
   );
@@ -337,14 +334,14 @@ export function compiled<M, E>(build: Build<M, E>): View<M, E> {
 /** Skip a view only under the caller's explicit equality contract. */
 export function memoView<M, E>(
   definition: View<M, E>,
-  equals: (previous: Snapshot<M>, next: Snapshot<M>) => boolean,
+  equals: (previous: M, next: M) => boolean,
 ): View<M, E> {
   return compiled((scope, parent, before) => {
     const child = new Scope(scope.value, scope.send, scope.report, scope.settlement);
     scope.cleanups.push(() => child.dispose());
     const range = definition.build(child, parent, before);
     scope.jobs.push(() => {
-      if (!equals(child.value as Snapshot<M>, scope.value as Snapshot<M>)) child.set(scope.value);
+      if (!equals(child.value as M, scope.value as M)) child.set(scope.value);
     });
     return range;
   });
@@ -1362,10 +1359,7 @@ const observationDefinition = contentDefinition<Observation>((scope, parent, bef
 });
 
 /** Render a declared source in its own subscribed region. No dependencies are inferred. */
-export function observe<A>(
-  source: Source<A>,
-  render: (value: Snapshot<A>) => JSX.Element,
-): JSX.Element {
+export function observe<A>(source: Source<A>, render: (value: A) => JSX.Element): JSX.Element {
   return new SlotPlacement(observationDefinition, { source, render });
 }
 export interface PortalProps {
@@ -1482,18 +1476,11 @@ export function mount<M>(
   source: Source<M>,
   options?: MountOptions,
 ): Mounted;
-/** A controller renders its model plus its other members as `model.actions`; mount does not dispose it. */
-export function mount<C extends { readonly source: Source<object> }>(
-  parent: Node,
-  definition: View<ControllerModel<C>, never>,
-  controller: C,
-  options?: MountOptions,
-): Mounted;
 /** Fixed input, such as `{}` for a root that takes no props. */
 export function mount<M>(
   parent: Node,
   definition: View<M, never>,
-  props: M | Snapshot<M>,
+  props: M,
   options?: MountOptions,
 ): Mounted;
 export function mount<M, E>(

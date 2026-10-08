@@ -127,12 +127,8 @@ This has two consequences.
 
 Nothing else triggers a render. Changing an object in place, or a variable outside the model, does not update the screen.
 
-## Snapshot types
+## Published data is immutable
 
-Data published to views has the type `Snapshot<T>`: `T` made deeply readonly. Use it for parameters that receive published data:
+A view, `update`, `receive`, `owner.read()` and a query result give you the data with the type you declared; the framework does not rewrite your types. The contract is that nobody changes that data in place: a new value is a new object, which is what lets unchanged views skip. The lint rules reject mutating calls on model data in views and handlers, and in development builds every published object is frozen, so a mutation anywhere throws a `TypeError` where it happens. Production builds skip the freeze.
 
-```ts
-const total = (rows: Snapshot<readonly Row[]>) => rows.reduce((sum, row) => sum + row.amount, 0);
-```
-
-A normal mutable value can be passed where a `Snapshot<T>` is expected, so callers do not need casts. Do not cast the readonly away to call a function that wants mutable data; change the function to accept `Snapshot<T>`. Functions, Effects, dates, DOM nodes and Effect data types such as `Option` are left as they are.
+Declare `readonly` fields and `readonly` arrays in your own model types where you want the compiler to reject mutation too. A helper that receives published data takes the same type as the model declares; no cast is needed in either direction.

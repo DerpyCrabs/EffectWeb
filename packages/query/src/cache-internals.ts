@@ -2,7 +2,6 @@ import type * as Scope from 'effect/Scope';
 import type * as AsyncResult from 'effect/reactivity/AsyncResult';
 import type { QueryCache } from './cache.js';
 import type { Query } from './query.js';
-import { type Snapshot } from 'effectweb';
 
 declare const entryType: unique symbol;
 /** One cached query resource, readable and observable through the cache internals. */
@@ -15,19 +14,16 @@ export interface CacheInternals<R> {
   refresh(entry: QueryEntry<unknown, unknown>): void;
   revision<Args, A, E>(
     definition: Query<Args, A, E, R | Scope.Scope>,
-    args: Args | Snapshot<Args>,
+    args: Args,
   ): number | undefined;
   retain(entry: QueryEntry<unknown, unknown>): () => void;
   /** Current result; a stale or unstarted entry starts loading. */
-  read<A, E>(entry: QueryEntry<A, E>): AsyncResult.AsyncResult<Snapshot<A>, E>;
+  read<A, E>(entry: QueryEntry<A, E>): AsyncResult.AsyncResult<A, E>;
   subscribe(entry: QueryEntry<unknown, unknown>, listener: () => void): () => void;
   /** Account generation; every reset invalidates earlier selections. */
   readonly generation: () => number;
   onGeneration(listener: () => void): () => void;
-  query<Args, A, E>(
-    definition: Query<Args, A, E, R | Scope.Scope>,
-    args: Args | Snapshot<Args>,
-  ): QueryEntry<A, E>;
+  query<Args, A, E>(definition: Query<Args, A, E, R | Scope.Scope>, args: Args): QueryEntry<A, E>;
 }
 const caches = new WeakMap<object, unknown>();
 export function registerCache<R>(cache: QueryCache<R>, internals: CacheInternals<R>): void {

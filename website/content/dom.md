@@ -25,7 +25,7 @@ Setup runs in a microtask after the element is inserted. A test that mounts a vi
 `domBinding(data, setup)` keeps one widget instance while its data changes. The setup receives a function that returns the current data, and returns an `update` method called after each change.
 
 ```tsx check
-import { domBinding, view, type Snapshot } from 'effectweb';
+import { domBinding, view } from 'effectweb';
 
 declare const chart: {
   create: (canvas: HTMLCanvasElement) => {
@@ -34,7 +34,7 @@ declare const chart: {
   };
 }; // @hide
 
-const drawChart = (canvas: HTMLCanvasElement, points: () => Snapshot<readonly number[]>) => {
+const drawChart = (canvas: HTMLCanvasElement, points: () => readonly number[]) => {
   const instance = chart.create(canvas);
   instance.draw(points());
   return { update: () => instance.draw(points()), dispose: instance.destroy };

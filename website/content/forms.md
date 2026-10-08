@@ -7,7 +7,7 @@ Bind each input's `value` to the model and update it in `onInput`. In the submit
 ```tsx check
 import { Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { component, resourceError, view, type Snapshot } from 'effectweb';
+import { component, resourceError, view } from 'effectweb';
 
 type Props = {
   readonly id: string;
@@ -19,7 +19,7 @@ type State = { readonly draft: string; readonly saved: AsyncResult.AsyncResult<v
 
 export const RenameForm = component(
   {
-    init: (props: Snapshot<Props>): State => ({ draft: props.title, saved: AsyncResult.initial() }),
+    init: (props: Props): State => ({ draft: props.title, saved: AsyncResult.initial() }),
     identity: (props) => props.id,
   },
   (owner) =>

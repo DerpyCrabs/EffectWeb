@@ -5,7 +5,7 @@ import { list, mount, observe, view } from './dom.js';
 import { jsx } from './jsx-runtime.js';
 import { modelOwner } from './owner.js';
 import { shareValue } from './share.js';
-import { protectSnapshot, type Snapshot, type SnapshotOpaque } from './snapshot.js';
+import { protectSnapshot } from './snapshot.js';
 import { mapSource, type Source } from './source.js';
 
 type Row = { id: string; label: string; nested: { value: number } };
@@ -13,9 +13,9 @@ const initialRows = (): Row[] => [
   { id: 'a', label: 'A', nested: { value: 1 } },
   { id: 'b', label: 'B', nested: { value: 2 } },
 ];
-const byId = (row: Snapshot<Row>) => row.id;
+const byId = (row: Row) => row.id;
 const domain = collection<Row>(byId);
-const renderRow = (row: Snapshot<Row>) => jsx('input', { 'data-id': row.id });
+const renderRow = (row: Row) => jsx('input', { 'data-id': row.id });
 
 // Compare real DOM-local draft state, not only the keys computed by each API.
 describe('identity preservation', () => {
@@ -75,7 +75,7 @@ function tracked<A>(source: Source<A>) {
   let active = 0;
   return {
     model: source.model,
-    subscribe(listener: (value: Snapshot<A>) => void) {
+    subscribe(listener: (value: A) => void) {
       active++;
       const stop = source.subscribe(listener);
       let stopped = false;
@@ -151,7 +151,7 @@ it('sharing and protection are distinct: borrowed data is not frozen by shareVal
 
 it('a Snapshot type annotation alone does not protect a mutable producer alias', () => {
   const mutable = { nested: { value: 1 } };
-  const readonly: Snapshot<typeof mutable> = mutable;
+  const readonly: typeof mutable = mutable;
   mutable.nested.value = 2;
   expect(readonly.nested.value).toBe(2);
   protectSnapshot(mutable);
@@ -176,12 +176,11 @@ it('opaque resources stay live while plain data is protected', () => {
   // Runtime opacity is prototype-based; the optional type brand is not consulted.
 });
 
-// Opaque branding does not change runtime representation.
-it('a branded plain service still freezes at runtime despite allowing mutable fields in its type', () => {
-  interface Service extends SnapshotOpaque {
+it('a plain service object freezes at runtime despite mutable fields in its type', () => {
+  interface Service {
     pending: string[];
   }
   const service: Service = { pending: [] };
-  const published: Snapshot<Service> = protectSnapshot(service);
+  const published: Service = protectSnapshot(service);
   expect(() => published.pending.push('work')).toThrow();
 });

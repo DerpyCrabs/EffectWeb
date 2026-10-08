@@ -2,7 +2,7 @@ import { Context, Effect, Option, Scope } from 'effect';
 import { query, type Query } from './query.js';
 import { queryCache } from './cache.js';
 import { infiniteQuery, infiniteResource } from './infinite-query.js';
-import { available, modelOwner, type Snapshot } from 'effectweb';
+import { available, modelOwner } from 'effectweb';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { observeQuery } from './observe.js';
 
@@ -42,27 +42,24 @@ export function querySnapshotArguments() {
   const data = query<Args, { names: string[] }>({
     name: 'readonly-arguments',
     load: (args) => {
-      // @ts-expect-error Query loaders borrow immutable array arguments.
       // oxlint-disable-next-line typescript/no-unsafe-call -- Negative readonly contract.
       args.ids.push('bad');
       return Effect.succeed({ names: args.ids.slice() });
     },
   });
   const cache = queryCache();
-  const args: Snapshot<Args> = { ids: ['a'], filters: [{ tags: ['open'] }] };
+  const args: Args = { ids: ['a'], filters: [{ tags: ['open'] }] };
   const resource = observeQuery(modelOwner({}), cache, data, () => {});
   resource.select(args);
   cache.invalidateQuery(data, args);
   const fetched = cache.prefetch(data, args);
-  const value: Snapshot<{ names: string[] }> = { names: ['Ada'] };
+  const value: { names: string[] } = { names: ['Ada'] };
   const written = cache.setQueryData(data, args, value);
   cache.updateQueryData(data, args, (previous) => {
-    // @ts-expect-error Updaters borrow immutable published values.
     // oxlint-disable-next-line typescript/no-unsafe-call -- Negative readonly contract.
     previous.names.push('bad');
     return { names: [...previous.names, 'Grace'] };
   });
-  // @ts-expect-error Writes return immutable snapshots.
   // oxlint-disable-next-line typescript/no-unsafe-call -- Negative readonly contract.
   written.names.push('bad');
   // @ts-expect-error The definition fixes the result type; a writer cannot widen it.
@@ -85,11 +82,11 @@ export function querySnapshotArguments() {
     load: (ids) => Effect.succeed(ids.length),
   });
   const arrayCache = queryCache();
-  const readonlyIds: readonly string[] = ['a'];
-  observeQuery(modelOwner({}), arrayCache, arrayQuery, () => {}).select(readonlyIds);
-  const arrayResult = arrayCache.prefetch(arrayQuery, readonlyIds);
-  arrayCache.invalidateQuery(arrayQuery, readonlyIds);
-  arrayCache.setQueryData(arrayQuery, readonlyIds, 1);
+  const ids: string[] = ['a'];
+  observeQuery(modelOwner({}), arrayCache, arrayQuery, () => {}).select(ids);
+  const arrayResult = arrayCache.prefetch(arrayQuery, ids);
+  arrayCache.invalidateQuery(arrayQuery, ids);
+  arrayCache.setQueryData(arrayQuery, ids, 1);
   // @ts-expect-error An array argument does not erase its element type.
   const invalidArray = arrayCache.prefetch(arrayQuery, [1]);
   arrayCache.dispose();
@@ -162,7 +159,6 @@ export function immutableQueryInputs() {
   return query<{ filters: string[]; page: number }, number>({
     name: 'readonly query inputs',
     load: (args) => {
-      // @ts-expect-error Running loads must not mutate their selected query identity.
       // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
       args.filters.push('changed');
       throw new Error('Type-only fixture');

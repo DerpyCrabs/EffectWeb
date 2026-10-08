@@ -12,10 +12,7 @@ import { modelOwner } from 'effectweb';
 declare const documents: { save: (text: string) => Effect.Effect<number, Error> }; // @hide
 
 export function documentController() {
-  const owner = modelOwner<{ text: string; saved: AsyncResult.AsyncResult<number, Error> }>({
-    text: '',
-    saved: AsyncResult.initial(),
-  });
+  const owner = modelOwner({ text: '', saved: AsyncResult.initial<number, Error>() });
 
   return {
     source: owner.source,
@@ -34,17 +31,17 @@ In a view, read `model.saved.waiting` and `resourceError(model.saved)`.
 
 ## Create a controller from a view
 
-For a top-level feature, pass the controller itself to [`mount`](/docs/services/): `mount(element, App, documentController())`. Its methods reach the view as `model.actions`, and `mount` leaves disposing it to you. For a controller that belongs to one place on the page, use `controllerView`. It takes the same object, creates it when the view appears, passes it new props, and disposes it when the view goes away.
+`controllerView` takes the object above, creates it when the view appears, passes it new props, and disposes it when the view goes away. Its methods reach the view as `model.actions`. For a top-level feature, [mount](/docs/services/) the resulting view with `{}` as its props.
 
 ```tsx check
-import { controllerView, modelOwner, view, type Snapshot } from 'effectweb';
+import { controllerView, modelOwner, view } from 'effectweb';
 
-function chatController(props: Snapshot<{ readonly chatId: string }>) {
+function chatController(props: { readonly chatId: string }) {
   const owner = modelOwner({ chatId: props.chatId, draft: '' });
   return {
     source: owner.source,
     edit: (draft: string) => owner.patch({ draft }),
-    receive: (next: Snapshot<{ readonly chatId: string }>) => owner.patch({ chatId: next.chatId }),
+    receive: (next: { readonly chatId: string }) => owner.patch({ chatId: next.chatId }),
     lifetime: owner,
   };
 }

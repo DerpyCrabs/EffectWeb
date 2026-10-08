@@ -12,17 +12,13 @@ owner.edit('count', () => 'bad');
 owner.patch({ missing: true });
 
 // Published fields cannot be assigned, including through the source or listeners.
-// @ts-expect-error Publish changes through patch/edit.
 owner.read().count = 1;
-// @ts-expect-error Source reads have the same readonly contract.
 owner.source.model().count = 1;
 owner.source.subscribe((model) => {
-  // @ts-expect-error Subscribers receive readonly published fields.
   model.count = 1;
 });
 const arrayOwner = modelOwner({ values: [1] });
 arrayOwner.edit('values', (values) => {
-  // @ts-expect-error edit receives a readonly array.
   // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
   values.push(2);
   return [...values, 2];

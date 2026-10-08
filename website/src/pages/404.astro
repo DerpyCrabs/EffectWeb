@@ -1,5 +1,6 @@
 ---
 import Site from '../layouts/Site.astro';
+import Icon from '../components/Icon.astro';
 ---
 
 <Site title="Page not found" description="Find your way back to the EffectWeb documentation.">
@@ -7,6 +8,6 @@ import Site from '../layouts/Site.astro';
     <span class="eyebrow">404</span>
     <h1>Page not found</h1>
     <p>Find an API with search, or start with the documentation.</p>
-    <a class="button primary" href="/docs/getting-started/">Go to the docs →</a>
+    <a class="button primary" href="/docs/getting-started/">Go to the docs <Icon name="arrow-right" /></a>
   </main>
 </Site>

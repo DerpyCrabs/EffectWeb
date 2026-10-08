@@ -20,7 +20,7 @@ export const userQuery = query({
 });
 ```
 
-The cache key is the query's name plus **all** of its arguments. There is no separate key to keep in sync, so you cannot forget a filter or a page size (EW2002). Arguments must be plain data: objects, arrays, strings, numbers, booleans. Services such as an API client come from the Effect environment, not from arguments. A query whose `load` takes no arguments is read with `true` as its argument: `querySource(cache, settingsQuery, true)`, `settings.select(true)`.
+The cache key is the query's name plus **all** of its arguments. There is no separate key to keep in sync, so you cannot forget a filter or a page size; the types reject a `key` field. Arguments must be plain data: objects, arrays, strings, numbers, booleans. Services such as an API client come from the Effect environment, not from arguments. A query whose `load` takes no arguments is read with `true` as its argument: `querySource(cache, settingsQuery, true)`, `settings.select(true)`.
 
 ## Create the cache
 
@@ -68,7 +68,7 @@ export const UserName = view<{ readonly id: string }>((props) =>
 ```ts check
 import { Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { modelOwner, type Snapshot } from 'effectweb';
+import { modelOwner } from 'effectweb';
 import { observeQuery, query, type QueryCache } from '@effectweb/query';
 
 type User = { readonly id: string; readonly name: string }; // @hide
@@ -79,7 +79,7 @@ const userQuery = query({
 }); // @hide
 
 export function profileController(cache: QueryCache, id: string) {
-  const owner = modelOwner<{ user: AsyncResult.AsyncResult<Snapshot<User>, Error> }>({
+  const owner = modelOwner<{ user: AsyncResult.AsyncResult<User, Error> }>({
     user: AsyncResult.initial(),
   });
   const user = observeQuery(owner, cache, userQuery, 'user');
@@ -117,11 +117,10 @@ export const messagesQuery = infiniteQuery({
   initial: 0,
   load: (args: { readonly chatId: string }, cursor: number) => loadPage(args.chatId, cursor),
   next: (page) => page.next,
-  maxPages: 10,
 });
 ```
 
-Read it with `querySource` like any query. The result has `pages` and `next`; `next === undefined` means there are no more pages. Call `fetchNextPage(cache, messagesQuery, args)` from an event handler to load the next one; after a failed page it loads that page again. `maxPages` limits how many pages are kept in memory.
+Read it with `querySource` like any query. The result has `pages` and `next`; `next === undefined` means there are no more pages. Call `fetchNextPage(cache, messagesQuery, args)` from an event handler to load the next one; after a failed page it loads that page again.
 
 Refreshing reloads the pages already loaded. Set `refresh: 'first'` to start again from the first page.
 

@@ -2,9 +2,6 @@
 // Adapter-building and specialized APIs live in `effectweb/advanced`;
 // test helpers live in `effectweb/testing`.
 
-// Immutable data
-export type { Snapshot, SnapshotOpaque, snapshotOpaque } from './snapshot.js';
-
 // Views and rendering
 export { view, list, observe, mount, type View, type Mounted } from './dom.js';
 export { makeMount } from './render.js';
@@ -31,6 +28,7 @@ export {
 export {
   modelOwner,
   type ModelOwner,
+  type ModelFields,
   type DisposableOwner,
   type OwnedRun,
   type Ownable,

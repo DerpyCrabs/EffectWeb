@@ -4,7 +4,6 @@ mod list_captures;
 mod list_identity;
 mod lower;
 mod owned_work;
-mod query_diagnostics;
 mod render_lint;
 mod sourcemap;
 use oxc::{
@@ -17,7 +16,7 @@ use oxc::{
 };
 use serde::Serialize;
 use std::collections::HashSet;
-/// Query definitions live in this package; EW2002 checks its `query` calls.
+/// Query definitions live in this package; the render lint treats its calls as framework calls.
 pub const QUERY_PACKAGE: &str = "@effectweb/query";
 /// Adapter and icon packages render through the same runtime as their importer.
 const ADAPTER_SCOPE: &str = "@effectweb/";
@@ -111,14 +110,12 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
             diagnostics.push(diagnostic);
         }
         let mut views = HashSet::new();
-        let mut queries = HashSet::new();
         for statement in &program.body {
             let Statement::ImportDeclaration(import) = statement else {
                 continue;
             };
             let root = import.source.value == import_source;
             let dom = root || import.source.value == format!("{import_source}/dom");
-            let query = import.source.value == QUERY_PACKAGE;
             for specifier in import.specifiers.iter().flatten() {
                 let ImportDeclarationSpecifier::ImportSpecifier(specifier) = specifier else {
                     continue;
@@ -127,34 +124,16 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                 if specifier.imported.name() == "view" && dom {
                     views.insert(specifier.local.symbol_id.get().unwrap());
                 }
-                if specifier.imported.name() == "query" && query {
-                    queries.insert(specifier.local.symbol_id.get().unwrap());
-                }
             }
         }
-        for markers in [&mut views, &mut queries] {
-            let mut aliases = markers.iter().map(|id| (*id, 0)).collect();
-            analysis::resolve_host_aliases(&program, semantic.semantic.scoping(), &mut aliases);
-            markers.extend(aliases.into_keys());
-        }
+        let mut aliases = views.iter().map(|id| (*id, 0)).collect();
+        analysis::resolve_host_aliases(&program, semantic.semantic.scoping(), &mut aliases);
+        views.extend(aliases.into_keys());
         index.compiled_views = index.calls.iter().filter(|call| matches!(&call.callee, Expression::Identifier(id) if index.symbol(id).is_some_and(|id| views.contains(&id)))).map(|call| call.span).collect();
         for call in &index.calls {
             let Expression::Identifier(id) = &call.callee else {
                 continue;
             };
-            if index.symbol(id).is_some_and(|id| queries.contains(&id))
-                && query_diagnostics::custom_key(call)
-            {
-                let mut diagnostic = lower::diagnostic(
-                    source,
-                    filename,
-                    call.span,
-                    "Remove key. Query identity includes every request argument; provide services through the Effect environment.",
-                );
-                diagnostic.code = "EW2002".into();
-                diagnostic.category = "unprovable-dependency".into();
-                diagnostics.push(diagnostic);
-            }
             if !index.symbol(id).is_some_and(|id| views.contains(&id)) {
                 continue;
             }

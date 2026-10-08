@@ -1,6 +1,5 @@
 import type { HtmlAttributes } from './html-attributes.js';
 import type { SvgAttributes, SvgPresentationAttributes } from './svg-attributes.js';
-import type { SnapshotOpaque } from './snapshot.js';
 import type { CompiledContent } from './dom.js';
 import type { DomMount } from './mount.js';
 import type { OwnedRun } from './owner.js';
@@ -15,7 +14,7 @@ export namespace JSX {
   }
   export type ElementType = keyof IntrinsicElements | (ComponentType & ((props: never) => Element));
   /** Immutable compiler input; preserve this recursive presentation type through snapshots. */
-  export interface ElementArray extends ReadonlyArray<Element>, SnapshotOpaque {}
+  export interface ElementArray extends ReadonlyArray<Element> {}
   export type Element =
     | string
     | number

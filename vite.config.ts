@@ -22,7 +22,6 @@ export default defineConfig({
     jsPlugins: ['./packages/compiler/dist/oxlint.js'],
     options: { typeAware: true, typeCheck: true },
     rules: {
-      'effectweb/query-key': 'error',
       'effecttsgo/missing-effect-context': 'error',
       'effecttsgo/missing-effect-error': 'error',
       'effecttsgo/missing-layer-context': 'error',

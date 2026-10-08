@@ -2,8 +2,7 @@ import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
 import * as Scope from 'effect/Scope';
 import { mountSend, mountViewWithSettlement, type Mounted, type View } from './dom.js';
-import { mountSource, type ControllerModel } from './controller.js';
-import type { Snapshot } from './snapshot.js';
+import { mountSource } from './controller.js';
 import type { Source } from './source.js';
 import type { Send } from './program.js';
 import { makeUiRuntime } from './runtime.js';
@@ -23,20 +22,11 @@ export function makeMount<M, Message = never, E = never, R = never>(
       : { readonly send: Send<Message> }),
   options?: { readonly onError?: ReportError },
 ): Effect.Effect<Mounted, E, R | Scope.Scope>;
-/** A controller renders its model plus its other members as `model.actions`; the mount does not dispose it. */
-export function makeMount<C extends { readonly source: Source<object> }, E = never, R = never>(
-  parent: Node,
-  definition:
-    | View<ControllerModel<C>, never>
-    | Effect.Effect<View<ControllerModel<C>, never>, E, R>,
-  controller: C,
-  options?: { readonly onError?: ReportError },
-): Effect.Effect<Mounted, E, R | Scope.Scope>;
 /** Fixed input, such as `{}` for a root that takes no props. */
 export function makeMount<M, E = never, R = never>(
   parent: Node,
   definition: View<M, never> | Effect.Effect<View<M, never>, E, R>,
-  props: M | Snapshot<M>,
+  props: M,
   options?: { readonly onError?: ReportError },
 ): Effect.Effect<Mounted, E, R | Scope.Scope>;
 export function makeMount<M, Message, E, R>(

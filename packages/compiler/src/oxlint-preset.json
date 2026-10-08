@@ -3,7 +3,6 @@
   "jsPlugins": ["./oxlint.js"],
   "rules": {
     "effectweb/valid-view": "error",
-    "effectweb/query-key": "error",
     "effectweb/identity": "error",
     "effectweb/render-safety": "error",
     "effectweb/no-hook-names": "error",

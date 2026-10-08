@@ -1,24 +1,24 @@
-import { protectSnapshot, type Snapshot } from './snapshot.js';
+import { protectSnapshot } from './snapshot.js';
 import { reportError, reportSafely } from './errors.js';
 
 /** A current immutable value and its publications. Observation does not own the producer. */
 export interface Source<A> {
-  readonly model: () => Snapshot<A>;
-  readonly subscribe: (listener: (value: Snapshot<A>) => void) => () => void;
+  readonly model: () => A;
+  readonly subscribe: (listener: (value: A) => void) => () => void;
 }
 
 /** Select explicit inputs. Equal results retain their identity and do not notify subscribers. */
 export function mapSource<A, B>(
   source: Source<A>,
-  project: (value: Snapshot<A>) => B | Snapshot<B>,
-  equals: (previous: Snapshot<B>, next: Snapshot<B>) => boolean = Object.is,
+  project: (value: A) => B,
+  equals: (previous: B, next: B) => boolean = Object.is,
 ): Source<B> {
   let initialized = false;
-  let previousInput: Snapshot<A>;
-  let current: Snapshot<B>;
-  const select = (input: Snapshot<A>): Snapshot<B> => {
+  let previousInput: A;
+  let current: B;
+  const select = (input: A): B => {
     if (initialized && Object.is(previousInput, input)) return current;
-    const next = protectSnapshot(project(input)) as Snapshot<B>;
+    const next = protectSnapshot(project(input)) as B;
     if (!initialized || !equals(current, next)) current = next;
     previousInput = input;
     initialized = true;
@@ -54,13 +54,13 @@ export interface ProjectionSource<Model> extends Source<Model> {
 export function projectionSource<Model>(options: {
   invalidate?: () => void;
   refresh?: () => void;
-  project: () => Model | Snapshot<Model>;
-  reconcile?: (previous: Snapshot<Model>, next: Model | Snapshot<Model>) => Model | Snapshot<Model>;
+  project: () => Model;
+  reconcile?: (previous: Model, next: Model) => Model;
   afterPublish?: () => void;
 }): ProjectionSource<Model> {
-  const listeners = new Set<(model: Snapshot<Model>) => void>();
+  const listeners = new Set<(model: Model) => void>();
   const subscriptions = new Set<() => void>();
-  let published: Snapshot<Model>;
+  let published: Model;
   let started = false;
   let disposed = false;
   let queued = false;
@@ -82,7 +82,7 @@ export function projectionSource<Model>(options: {
     const value = options.project();
     const next = protectSnapshot(
       options.reconcile ? options.reconcile(published, value) : value,
-    ) as Snapshot<Model>;
+    ) as Model;
     if (disposed || version !== revision) return;
     if (next !== published) {
       published = next;
@@ -124,7 +124,7 @@ export function projectionSource<Model>(options: {
       options.refresh?.();
       if (disposed) return;
       const version = revision;
-      published = protectSnapshot(options.project()) as Snapshot<Model>;
+      published = protectSnapshot(options.project()) as Model;
       started = true;
       if (version !== revision) changed();
     },
@@ -132,7 +132,7 @@ export function projectionSource<Model>(options: {
       if (!started) throw new Error('Start projection publication before reading its model');
       return published;
     },
-    subscribe(this: void, listener: (model: Snapshot<Model>) => void) {
+    subscribe(this: void, listener: (model: Model) => void) {
       if (disposed) return () => {};
       listeners.add(listener);
       return () => {

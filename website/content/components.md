@@ -32,7 +32,7 @@ export const Disclosure = component<{ readonly title: string }, { open: boolean 
 - `patch` takes the fields to change. It does not take an updater function.
 - The parent's props are available as `local.props`.
 
-The type arguments are the props and the fields. You can leave them out if you type the props on `init` instead: `init: (props: Snapshot<Props>) => …`.
+The type arguments are the props and the fields. You can leave them out if you type the props on `init` instead: `init: (props: Props) => …`.
 
 To reset the state when the component starts showing a different entity, add `identity: (props) => props.id`.
 
@@ -43,7 +43,7 @@ When the component needs to save, load or search, pass `owner => view(…)` as t
 ```tsx check
 import { Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { component, view, type Snapshot } from 'effectweb';
+import { component, view } from 'effectweb';
 
 declare const api: { rename: (id: string, title: string) => Effect.Effect<void, Error> }; // @hide
 
@@ -52,7 +52,7 @@ type RenameState = { readonly draft: string; readonly saved: AsyncResult.AsyncRe
 
 export const RenameForm = component(
   {
-    init: (props: Snapshot<RenameProps>): RenameState => ({
+    init: (props: RenameProps): RenameState => ({
       draft: props.title,
       saved: AsyncResult.initial(),
     }),

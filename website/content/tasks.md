@@ -85,14 +85,11 @@ import { modelOwner } from 'effectweb';
 
 declare const documents: { save: (text: string) => Effect.Effect<number, Error> }; // @hide
 
-const owner = modelOwner<{ text: string; saved: AsyncResult.AsyncResult<number, Error> }>({
-  text: '',
-  saved: AsyncResult.initial(),
-});
+const owner = modelOwner({ text: '', saved: AsyncResult.initial<number, Error>() });
 export const save = (text: string) => owner.task('saved', documents.save(text), 'drop');
 ```
 
-`AsyncResult` comes from `effect/reactivity` (`import * as AsyncResult from 'effect/reactivity/AsyncResult'`), not from `effect`. Give the owner its model type, as above, so the field is declared as `AsyncResult.AsyncResult<A, E>`; without it the field is inferred from `AsyncResult.initial()` alone, which is narrower, and later results do not fit. In the view, read `model.saved.waiting`, `resourceError(model.saved)` and `available(model.saved)`.
+`AsyncResult` comes from `effect/reactivity` (`import * as AsyncResult from 'effect/reactivity/AsyncResult'`), not from `effect`. Give `AsyncResult.initial` the value and error types, as above: `modelOwner`, `component` and `program` publish such a field as `AsyncResult.AsyncResult<A, E>`, so later successes and failures fit. Without type arguments the field holds no value type. In the view, read `model.saved.waiting`, `resourceError(model.saved)` and `available(model.saved)`.
 
 A failed `AsyncResult` holds an Effect `Cause`, not your error, and in Effect 4 a `Cause` has no `_tag`. Do not inspect it by hand:
 
@@ -177,7 +174,7 @@ With `task`, a key `[field, id]` writes `model[field][id]`. Declare the field as
 ```tsx check
 import { Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { modelOwner, resourceError, view, type Snapshot } from 'effectweb';
+import { modelOwner, resourceError, view } from 'effectweb';
 
 type Issue = { readonly id: string; readonly title: string };
 declare const api: { save: (issue: Issue) => Effect.Effect<Issue, Error> }; // @hide
@@ -187,19 +184,17 @@ type Saving = Partial<Record<string, AsyncResult.AsyncResult<Issue, Error>>>;
 const owner = modelOwner({ saving: {} as Saving });
 export const save = (issue: Issue) => owner.task(['saving', issue.id], api.save(issue), 'drop');
 
-export const SaveButton = view<{ readonly issue: Issue; readonly saving: Snapshot<Saving> }>(
-  (props) => {
-    const status = props.saving[props.issue.id]; // undefined until this row first saves
-    return (
-      <span>
-        <button disabled={status?.waiting} onClick={() => save(props.issue)}>
-          Save
-        </button>
-        {status && resourceError(status) ? <span role="alert">Save failed</span> : null}
-      </span>
-    );
-  },
-);
+export const SaveButton = view<{ readonly issue: Issue; readonly saving: Saving }>((props) => {
+  const status = props.saving[props.issue.id]; // undefined until this row first saves
+  return (
+    <span>
+      <button disabled={status?.waiting} onClick={() => save(props.issue)}>
+        Save
+      </button>
+      {status && resourceError(status) ? <span role="alert">Save failed</span> : null}
+    </span>
+  );
+});
 ```
 
 If the type error says `Declare per-row results as Partial<Record<Id, AsyncResult.AsyncResult<Value, Error>>>`, the field is declared without `Partial` (so TypeScript believes every row already has a result) or holds something other than `AsyncResult`s.

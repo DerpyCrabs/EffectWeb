@@ -1,4 +1,3 @@
-import type { Snapshot } from './snapshot.js';
 import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
 import type { View } from './dom.js';
@@ -7,6 +6,7 @@ import type { OwnedTransition, Program, Send, Transition } from './program.js';
 import type { Source } from './source.js';
 import { createProgram, mapCommand } from './program.js';
 import { controllerSource, type ControllerActions, type RenderedModel } from './controller.js';
+import type { ModelFields } from './owner.js';
 export type { ControllerModel } from './controller.js';
 import { reportSafely, type ReportError } from './errors.js';
 import type * as Context from 'effect/Context';
@@ -25,20 +25,20 @@ import { patchModel } from './state.js';
 type Services<R> = [R] extends [never]
   ? { readonly context?: Context.Context<never> }
   : { readonly context: Context.Context<R> };
-type Identity<Props> = { readonly identity?: (props: Snapshot<Props>) => unknown };
+type Identity<Props> = { readonly identity?: (props: Props) => unknown };
 // An `init` without a parameter leaves Props uninferred; the view then sees `unknown` props.
 type Known<Props> = [Props] extends [never] ? unknown : Props;
 /** The model a component renders: its own state plus the parent's props, added by the runtime. */
 type Placed<Props, State> = State & { readonly props: Known<Props> };
 /** `init` returns the component's own state; a `props` field there is a mistake the type names. */
-type OwnState<State> = (State | Snapshot<State>) & {
+type OwnState<State> = State & {
   readonly props?: 'Remove props from init: the runtime adds model.props';
 };
+/** The model a component publishes for the state `init` returns; result fields hold every outcome. */
+type Published<State> = ModelFields<NoInfer<State>>;
 
 /** A shallow patch of a component's own fields; `props` belongs to the runtime. */
-export type FieldsPatch<State> = (Partial<State> | Partial<Snapshot<State>>) & {
-  readonly props?: never;
-};
+export type FieldsPatch<State> = Partial<State> & { readonly props?: never };
 /** The owner behind a fields component: its fields, plus work owned by the placement. */
 export interface ComponentOwner<State extends object> extends Pick<
   ModelOwner<State>,
@@ -66,35 +66,38 @@ type FieldsMessage =
  */
 export function component<Props, State extends object, Message, R = never>(
   definition: Identity<Props> & {
-    readonly init: (props: Snapshot<Props>) => OwnState<State>;
+    readonly init: (props: Props) => OwnState<State>;
+    // `State` comes from `init` alone: NoInfer keeps a wider `update` parameter type from widening it.
     readonly receive?: (
-      model: Snapshot<Placed<Props, State>>,
-      previous: Snapshot<Props>,
-    ) => Transition<Placed<Props, State>, Message, R>;
+      model: Placed<Props, Published<State>>,
+      previous: Props,
+    ) => Transition<Placed<Props, Published<State>>, Message, R>;
     readonly update: (
-      model: Snapshot<Placed<Props, State>>,
+      model: Placed<Props, Published<State>>,
       message: Message,
-    ) => Transition<Placed<Props, State>, Message, R>;
+    ) => Transition<Placed<Props, Published<State>>, Message, R>;
   } & Services<R>,
-  view: View<Placed<Props, State>, Message>,
+  view: View<Placed<Props, Published<State>>, Message>,
 ): View<Props, never>;
 export function component<Props, State extends object>(
   definition: Identity<Props> & {
-    readonly init: (props: Snapshot<Props>) => OwnState<State>;
+    readonly init: (props: Props) => OwnState<State>;
     readonly update?: never;
   },
-  view: Pick<View<Placed<Props, State>, FieldsPatch<State>>, 'build'>,
+  view: Pick<View<Placed<Props, Published<State>>, FieldsPatch<Published<State>>>, 'build'>,
 ): View<Props, never>;
 export function component<Props, State extends object>(
   definition: Identity<Props> & {
-    readonly init: (props: Snapshot<Props>) => OwnState<State>;
+    readonly init: (props: Props) => OwnState<State>;
     readonly update?: never;
   },
-  view: (owner: ComponentOwner<State>) => View<Placed<Props, State>, FieldsPatch<State>>,
+  view: (
+    owner: ComponentOwner<Published<State>>,
+  ) => View<Placed<Props, Published<State>>, FieldsPatch<Published<State>>>,
 ): View<Props, never>;
 export function component(definition: object, view: unknown): View<unknown, never> {
   const shape = definition as {
-    readonly identity?: (props: Snapshot<unknown>) => unknown;
+    readonly identity?: (props: unknown) => unknown;
     readonly init: (props: never) => object;
     readonly update?: unknown;
   };
@@ -104,7 +107,7 @@ export function component(definition: object, view: unknown): View<unknown, neve
 }
 
 function fieldsComponent(
-  definition: Identity<unknown> & { readonly init: (props: Snapshot<unknown>) => object },
+  definition: Identity<unknown> & { readonly init: (props: unknown) => object },
   view:
     | View<{ readonly props: unknown }, Partial<object>>
     | ((owner: ComponentOwner<object>) => View<{ readonly props: unknown }, Partial<object>>),
@@ -195,12 +198,9 @@ function fieldsComponent(
 
 function messageComponent<Props, Model extends { readonly props: Props }, Message, R>(
   definition: Identity<Props> & {
-    readonly init: (props: Snapshot<Props>) => Model | Snapshot<Model>;
-    readonly receive?: (
-      model: Snapshot<Model>,
-      previous: Snapshot<Props>,
-    ) => Transition<Model, Message, R>;
-    readonly update: (model: Snapshot<Model>, message: Message) => Transition<Model, Message, R>;
+    readonly init: (props: Props) => Model;
+    readonly receive?: (model: Model, previous: Props) => Transition<Model, Message, R>;
+    readonly update: (model: Model, message: Message) => Transition<Model, Message, R>;
     readonly context?: Context.Context<R>;
   },
   view: View<Model, Message>,
@@ -226,19 +226,14 @@ function messageComponent<Props, Model extends { readonly props: Props }, Messag
           : {}),
       });
       const source = createProgram<Model, Envelope>({
-        initial: {
-          ...definition.init(scope.value as Snapshot<Props>),
-          props: scope.value,
-        } as Model,
+        initial: { ...definition.init(scope.value as Props), props: scope.value } as Model,
         onDefect: scope.report,
         runtime: ownerRuntime,
         update: (model, envelope) => {
           if (envelope.type === 'Message') return wrap(definition.update(model, envelope.message));
           if (Object.is(model.props, envelope.props)) return { model };
-          const next = { ...model, props: envelope.props } as Snapshot<Model>;
-          return wrap(
-            definition.receive?.(next, model.props as Snapshot<Props>) ?? { model: next },
-          );
+          const next = { ...model, props: envelope.props } as Model;
+          return wrap(definition.receive?.(next, model.props as Props) ?? { model: next });
         },
       });
       if (scope.disposed) {
@@ -287,7 +282,7 @@ export interface ControllerLifetime {
 export type ViewController<Props, Model> = {
   readonly source: Source<Model>;
   /** New props from the parent; called after every publication that changes them. */
-  readonly receive?: (props: Snapshot<Props>) => void;
+  readonly receive?: (props: Props) => void;
   /** Capture DOM state before the view is torn down. */
   readonly beforeDispose?: () => void;
   readonly lifetime: ControllerLifetime;
@@ -304,7 +299,7 @@ export function controllerView<Props, Model extends object, Controller extends o
     readonly init?: never;
     readonly update?: never;
     readonly controller: (
-      props: Snapshot<Props>,
+      props: Props,
     ) => Controller &
       ViewController<Props, Model> & {
         readonly actions?: 'Return actions directly: { source, save, dispose }; they reach the view as model.actions';
@@ -344,20 +339,16 @@ export function controllerView<Props, Model extends object, Controller extends o
 
 /** Mount an existing program without introducing a second state owner. Internal. */
 export function programView<Props, Model, Message>(definition: {
-  identity?: (props: Snapshot<Props>) => unknown;
-  create: (
-    props: Snapshot<Props>,
-    runtime: UiRuntime<never>,
-    report: ReportError,
-  ) => Program<Model, Message>;
-  receive: (source: Program<Model, Message>, props: Snapshot<Props>) => void;
+  identity?: (props: Props) => unknown;
+  create: (props: Props, runtime: UiRuntime<never>, report: ReportError) => Program<Model, Message>;
+  receive: (source: Program<Model, Message>, props: Props) => void;
   /** Capture DOM state before child disposal, on unmount or identity replacement. */
   beforeDispose?: (source: Program<Model, Message>) => void;
   view: View<Model, Message> | ((source: Program<Model, Message>) => View<Model, Message>);
 }): View<Props, never> {
   return identify(
     compiled<Props, never>((scope, parent, before) => {
-      const initialProps = scope.value as Snapshot<Props>;
+      const initialProps = scope.value as Props;
       const source = definition.create(
         initialProps,
         scope.settlement.runtime ?? defaultUiRuntime,
@@ -382,7 +373,7 @@ export function programView<Props, Model, Message>(definition: {
       }
       unsubscribe = release;
       try {
-        const receive = () => definition.receive(source, scope.value as Snapshot<Props>);
+        const receive = () => definition.receive(source, scope.value as Props);
         scope.jobs.push(receive);
         if (scope.value !== initialProps) receive();
         if (scope.disposed) return;
@@ -424,7 +415,7 @@ function closeProgram<M, E>(scope: RenderScope<unknown, never>, source: Program<
 
 function identify<Props>(
   definition: View<Props, never>,
-  identity?: (props: Snapshot<Props>) => unknown,
+  identity?: (props: Props) => unknown,
 ): View<Props, never> {
   if (!identity) return definition;
   return compiled((scope, parent, before) => {
@@ -432,7 +423,7 @@ function identify<Props>(
     let current: unknown;
     let active: View<Props, never> | undefined;
     const update = () => {
-      const next = identity(scope.value as Snapshot<Props>);
+      const next = identity(scope.value as Props);
       if (!active || !Object.is(current, next)) {
         current = next;
         active = compiled(definition.build);

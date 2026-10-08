@@ -1,12 +1,8 @@
 export const reasons = {
-  Snapshot:
-    'Express the deeply readonly boundary seen by views, query results, and published models. Use Snapshot<T> in helper signatures that accept data from a view rather than demanding mutable arrays or fields.',
-  SnapshotOpaque:
-    'Mark a resource whose internals are not recursively mapped into readonly snapshot fields. Keep mutation and resource ownership outside views.',
-  snapshotOpaque:
-    'The unique-symbol type marker for the opaque snapshot contract. It is exported as a type, not a runtime state primitive.',
   Source:
     'The observation contract: read the current immutable model and subscribe to publications. Adapters implement this so views do not need to understand their mutable stores.',
+  ModelFields:
+    'The model an owner, component or program publishes for the state it was given: a result field declared with AsyncResult.initial<Value, Error>() holds every outcome, so later successes and failures fit without a type annotation.',
   ModelOwner:
     'The controller contract for immutable reads, field updates, task keys, owned resources, and teardown. Its methods keep work and publication at the same ownership boundary.',
   QueryCache:
@@ -20,7 +16,7 @@ export const reasons = {
   observe:
     'Place a Source inside a view and let the renderer own the subscription. Use it for clocks, query results, and projected external state; observations are released when their placement disappears.',
   mount:
-    'Attach a view to a DOM parent with its input: a program or other Source (its send receives the view’s messages), a controller (whose methods reach the view as model.actions), or fixed props. Dispose the returned mount; choose makeMount inside an Effect scope.',
+    'Attach a view to a DOM parent with its input: a program or other Source (its send receives the view’s messages), or fixed props. Dispose the returned mount; choose makeMount inside an Effect scope.',
   makeMount:
     'Attach a view and register its teardown with the surrounding Effect scope. Use it in an application entry point so interruption also unmounts the UI.',
   Portal:
@@ -58,7 +54,7 @@ export const reasons = {
   projectionSource:
     'Bridge a mutable external store into immutable snapshots. Project cloneable data, reconcile it if needed, notify changes, and dispose subscriptions with the adapter.',
   protectSnapshot:
-    'Enforce the readonly publication boundary for adapter-produced data. Copy mutable library-owned plain objects first; protecting them directly would freeze the upstream store.',
+    'Freeze adapter-produced data as the runtime freezes published models: in development builds a later mutation throws, production builds return the value unchanged. Copy mutable library-owned objects first; freezing them directly would freeze the upstream store.',
   shareValue:
     'Restore referential identity for unchanged branches in freshly received data. Use at ingestion boundaries when repeated server payloads would otherwise rerender unchanged views.',
   memoView:

@@ -6,16 +6,12 @@ import type { JSX } from './jsx.js';
 
 const previous = Object.freeze({ count: 1, rows: [{ tags: ['a'] }] });
 const shared = shareValue(previous, { count: 1, rows: [{ tags: ['a'] }] });
-// @ts-expect-error Sharing cannot grant mutation rights over a frozen or published branch.
 shared.count = 2;
-// @ts-expect-error Shared nested arrays remain borrowed.
 // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
 shared.rows[0]!.tags.push('b');
 const fieldSharing: ShareFields<{ items: { count: number }[] }> = {
   items(previous, next) {
-    // @ts-expect-error A field sharer cannot mutate the prior publication.
     previous[0]!.count++;
-    // @ts-expect-error A field sharer borrows the incoming data too.
     // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
     next.push({ count: 1 });
     return previous;
@@ -25,7 +21,6 @@ shareValue({ items: [] }, { items: [{ count: 1 }] }, fieldSharing);
 const rows = collection<{ id: string; count: number }>((row) => row.id);
 const before = [Object.freeze({ id: 'a', count: 1 })];
 const after = rows.share(before, [{ id: 'a', count: 1 }]);
-// @ts-expect-error A mutable array cannot erase readonly rights of reused objects.
 after[0]!.count++;
 
 const Child: View<{ title: string }, 'Clicked'> = view((m, send) => (
@@ -84,7 +79,6 @@ const objectContent: JSX.Element = { title: 'data' };
 void [content, nativeContent, objectContent];
 
 domBinding({ count: 1 }, (_element: Element, read) => {
-  // @ts-expect-error DOM hosts borrow data from the declaring snapshot.
   read().count++;
   return () => {};
 });

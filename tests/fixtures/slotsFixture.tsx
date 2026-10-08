@@ -1,4 +1,4 @@
-import { domMount, component, mount, program, view, type JSX, type Snapshot } from 'effectweb';
+import { domMount, component, mount, program, view, type JSX } from 'effectweb';
 
 export function mountSlots(parent: HTMLElement) {
   const lifetime = { mounted: 0, disposed: 0 };
@@ -117,7 +117,7 @@ export function mountChangingSlots(parent: HTMLElement) {
     value: { title: string; stable: { n: number } };
   };
   const View = view<State, never>((model, _send) => {
-    const first = (value: Snapshot<State['value']>) => (
+    const first = (value: State['value']) => (
       <input aria-label={value.title} data-stable={value.stable.n} />
     );
     const second = () => <button>{model.value.title}</button>;

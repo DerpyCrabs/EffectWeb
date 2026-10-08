@@ -16,7 +16,6 @@ describe('published snapshot protection', () => {
       const seen: string[] = [];
       app.source.subscribe((model) => {
         expect(() => {
-          // @ts-expect-error Runtime guard also catches untyped mutations.
           model.items[0]!.text = 'bad';
         }).toThrow(TypeError);
         seen.push(model.items[0]!.text);
@@ -33,7 +32,6 @@ describe('published snapshot protection', () => {
     const app = program({
       initial: { values: [1] },
       update(model, _message: void) {
-        // @ts-expect-error Runtime guard also catches untyped mutations.
         // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
         model.values.push(2);
         return { model };
@@ -52,7 +50,6 @@ describe('published snapshot protection', () => {
     try {
       app.patch({ record: { count: 1 } });
       expect(() => {
-        // @ts-expect-error Runtime guard also catches untyped mutations.
         app.read().record.count++;
       }).toThrow(TypeError);
       expect(app.read().record.count).toBe(1);

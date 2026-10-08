@@ -2,7 +2,7 @@ import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
 import type { Send } from './program.js';
 import { mount, type Mounted, type View } from './dom.js';
-import { protectSnapshot, type Snapshot } from './snapshot.js';
+import { protectSnapshot } from './snapshot.js';
 import type { ReportError } from './errors.js';
 
 /** A reusable controlled request, with cancellation visible to tests. No renderer or private messages. */
@@ -34,7 +34,7 @@ export function controlledEffect<A, E = never>() {
 
 export interface RenderedView<M, E> extends Mounted {
   /** Publish new props or model, as a parent or program would. */
-  readonly update: (next: M | Snapshot<M>) => void;
+  readonly update: (next: M) => void;
   /** Messages sent by the view, in order. */
   readonly sent: readonly E[];
 }
@@ -46,11 +46,11 @@ export interface RenderedView<M, E> extends Mounted {
 export function renderView<M, E = never>(
   parent: Node,
   definition: View<M, E>,
-  model: M | Snapshot<M>,
+  model: M,
   options: { readonly send?: Send<E>; readonly onError?: ReportError } = {},
 ): RenderedView<M, E> {
-  let current = protectSnapshot(model) as Snapshot<M>;
-  const listeners = new Set<(value: Snapshot<M>) => void>();
+  let current = protectSnapshot(model) as M;
+  const listeners = new Set<(value: M) => void>();
   const sent: E[] = [];
   const mounted = mount(
     parent,
@@ -72,8 +72,8 @@ export function renderView<M, E = never>(
     dispose: mounted.dispose,
     close: mounted.close,
     sent,
-    update: (next: M | Snapshot<M>) => {
-      current = protectSnapshot(next) as Snapshot<M>;
+    update: (next: M) => {
+      current = protectSnapshot(next) as M;
       for (const listener of listeners) listener(current);
     },
   };

@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 import { block, list, markup, mount, still, view, type SiteNode } from './dom.js';
 import { entities } from './collection.js';
 import { jsx } from './jsx-runtime.js';
-import { modelOwner } from './owner.js';
+import { createModelOwner, modelOwner } from './owner.js';
 
 const mounted = <Model extends object>(
   initial: Model,
@@ -11,7 +11,8 @@ const mounted = <Model extends object>(
 ) => {
   const host = document.createElement('div');
   const errors: unknown[] = [];
-  const owner = modelOwner(initial);
+  // Generic over the model: the unwidened owner keeps `Model` as the published type.
+  const owner = createModelOwner<Model, never>(initial);
   const stop = mount(
     host,
     view<Model>((model) => render(model as Model)),

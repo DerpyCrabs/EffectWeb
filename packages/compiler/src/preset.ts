@@ -3,7 +3,6 @@ export interface EffectwebLint {
   jsPlugins: string[];
   rules: {
     'effectweb/valid-view': Severity;
-    'effectweb/query-key': Severity;
     'effectweb/identity': Severity;
     'effectweb/render-safety': Severity;
     'effectweb/no-hook-names': Severity;
@@ -21,7 +20,6 @@ export const effectwebLint: EffectwebLint = {
   jsPlugins: ['@effectweb/compiler/oxlint'],
   rules: {
     'effectweb/valid-view': 'error',
-    'effectweb/query-key': 'error',
     'effectweb/identity': 'error',
     'effectweb/render-safety': 'error',
     'effectweb/no-hook-names': 'error',

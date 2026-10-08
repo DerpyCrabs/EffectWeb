@@ -4,6 +4,7 @@ import interUrl from '@fontsource-variable/inter/files/inter-latin-wght-normal.w
 import monoUrl from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url';
 import '../styles/style.css';
 import { repo } from '../lib/data.mjs';
+import Icon from '../components/Icon.astro';
 
 interface Props {
   title: string;
@@ -38,9 +39,17 @@ const { title, description, section = 'docs' } = Astro.props;
     <a class="skip-link" href="#main">Skip to content</a>
     <header class="site-header">
       <div class="header-inner">
-        <a class="brand" href="/" aria-label="EffectWeb home"
-          ><span class="brand-mark" aria-hidden="true">≋</span>EffectWeb</a
-        >
+        <a class="brand" href="/" aria-label="EffectWeb home">
+          <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+            <rect width="40" height="40" rx="10" fill="currentColor" />
+            <path
+              d="M11 12h20l-4 5H7zm0 9h16l-4 5H7zm0 9h12l-4 5H7z"
+              transform="translate(2 -4)"
+              fill="var(--bg)"
+            />
+          </svg>
+          EffectWeb
+        </a>
         <nav class="top-nav" aria-label="Main navigation">
           <a aria-current={section === 'docs' ? 'page' : undefined} href="/docs/getting-started/"
             >Docs</a
@@ -51,25 +60,37 @@ const { title, description, section = 'docs' } = Astro.props;
         </nav>
         <div class="header-actions">
           <button class="search-trigger" type="button" aria-label="Search documentation"
-            ><span>⌕</span> <span class="search-label">Search docs</span><kbd>⌘ K</kbd></button
+            ><Icon name="search" /> <span class="search-label">Search docs</span><kbd
+              >Ctrl K</kbd
+            ></button
           >
-          <a class="github-link" href={repo}>GitHub <span aria-hidden="true">↗</span></a>
+          <a class="github-link" href={repo}>GitHub <Icon name="arrow-up-right" size={13} /></a>
           <button
             class="theme-toggle icon-button"
             aria-label="Toggle color theme"
-            title="Toggle color theme">◐</button
+            title="Toggle color theme"><Icon name="theme" size={18} /></button
           >
           <button class="menu-toggle icon-button" aria-label="Open navigation" aria-expanded="false"
-            >☰</button
+            ><Icon name="menu" size={20} /></button
           >
         </div>
       </div>
     </header>
     <slot />
     <footer class="site-footer">
-      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">≋</span>EffectWeb</a>
+      <a class="brand" href="/">
+        <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+          <rect width="40" height="40" rx="10" fill="currentColor" />
+          <path
+            d="M11 12h20l-4 5H7zm0 9h16l-4 5H7zm0 9h12l-4 5H7z"
+            transform="translate(2 -4)"
+            fill="var(--bg)"
+          />
+        </svg>
+        EffectWeb
+      </a>
       <div>
-        <a href={repo}>GitHub <span aria-hidden="true">↗</span></a>
+        <a href={repo}>GitHub <Icon name="arrow-up-right" size={13} /></a>
         <a href={`${repo}/blob/main/LICENSE`}>MIT License</a>
       </div>
     </footer>

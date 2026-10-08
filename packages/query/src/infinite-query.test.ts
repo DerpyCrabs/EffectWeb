@@ -5,12 +5,11 @@ import { fetchNextPage, infiniteQuery, infiniteResource } from './infinite-query
 import { querySource } from './observe.js';
 import { queryCache } from './cache.js';
 
-it('shares initial and next loads, seeds, bounds pages and refreshes retained parameters', async () => {
+it('shares initial and next loads, seeds pages and refreshes retained parameters', async () => {
   const loads: number[] = [];
   const definition = infiniteQuery({
     name: 'files',
     initial: 0,
-    maxPages: 2,
     load: (_path: string, page: number) =>
       Effect.promise(async () => {
         loads.push(page);
@@ -32,11 +31,11 @@ it('shares initial and next loads, seeds, bounds pages and refreshes retained pa
   ]);
   await Effect.runPromise(a.fetchNextPage());
   expect(cache.getQueryData(definition.query, 'root')?.pages.map((page) => page.param)).toEqual([
-    1, 2,
+    0, 1, 2,
   ]);
   a.refresh();
   await Effect.runPromise(cache.prefetch(definition.query, 'root'));
-  expect(loads).toEqual([1, 2, 1, 2]);
+  expect(loads).toEqual([1, 2, 0, 1, 2]);
   expect(a.read()).toBe(b.read());
   a.dispose();
   b.dispose();
@@ -126,13 +125,12 @@ it('does not append an older page after an external refresh or after reset and r
   await Effect.runPromise(cache.close());
 });
 
-it('supports first-page refresh explicitly and validates seed ranges and cursors', async () => {
+it('supports first-page refresh explicitly and validates seeds', async () => {
   let version = 0;
   const definition = infiniteQuery({
     name: 'first-page',
     initial: 0,
     refresh: 'first',
-    maxPages: 2,
     load: (_path: string, page: number) => Effect.succeed([page, version]),
     next: (_value, page) => page + 1,
   });
@@ -145,7 +143,7 @@ it('supports first-page refresh explicitly and validates seed ranges and cursors
   expect(cache.getQueryData(definition.query, '/')?.pages.length).toBe(1);
   await Effect.runPromise(observer.fetchNextPage());
   expect(cache.getQueryData(definition.query, '/')?.pages[1]?.value).toEqual([1, 1]);
-  expect(() => observer.seed('/', { pages: [], next: 0 })).toThrow('Seed pages');
+  expect(() => observer.seed('/', { pages: [], next: 0 })).toThrow('Seed at least one page');
   expect(() =>
     observer.seed('/', {
       pages: [

@@ -26,7 +26,7 @@ it('reports JSX errors in JavaScript files supported by the compiler', () => {
 
 it('accepts ordinary helper imports with the default lint and compiler options', () => {
   const text = `import {view} from 'effectweb';import {format} from './format';view(m=><p>{format(m.value)}</p>);`;
-  for (const rule of ['valid-view', 'query-key'] as const) {
+  for (const rule of ['valid-view'] as const) {
     const reports: unknown[] = [];
     plugin.rules[rule]
       .create({
@@ -183,75 +183,12 @@ it('reports mutable captures without inferring render dependencies', () => {
   ]);
 });
 
-it.each([
-  `key: ({account, page}) => [account], load: ({account, page}) => api(account, page)`,
-  `key: args => args.account, load: args => api(args.account, args.page)`,
-  `key: () => 'fixed', load: args => api(args.page)`,
-  `key: ({account: owner}) => [owner], load: ({page: cursor}) => api(cursor)`,
-])('reports legacy query projections through optional lint', (definition) => {
-  const text = `import {query as defineQuery} from '@effectweb/query'; const q = defineQuery({name: 'page', ${definition}});`;
-  expect(lint(text, 'queries.ts')[0]).toMatchObject({
-    code: 'EW2002',
-    severity: 'error',
-    remedy: expect.stringContaining('every request argument') as unknown,
-  });
-  const reports: unknown[] = [];
-  plugin.rules['query-key']
-    .create({
-      filename: 'queries.ts',
-      sourceCode: { text },
-      options: [],
-      report: (report) => reports.push(report),
-    })
-    .Program();
-  expect(reports).toHaveLength(1);
-});
-
-it.each([
-  `key: args => [args.account, args.page], load: args => api(args.account, args.page)`,
-  `key: args => makeKey(args), load: args => api(args.page)`,
-  `key: buildKey, load: args => api(args.page)`,
-  `key: ({account, ...rest}) => [account, rest], load: args => api(args.page)`,
-])('rejects projections even when their completeness is unprovable: %s', (definition) => {
-  expect(
-    lint(
-      `import {query} from '@effectweb/query'; const q = query({${definition}});`,
-      'queries.ts',
-    )[0],
-  ).toMatchObject({ code: 'EW2002', severity: 'error' });
-});
-
-it('accepts complete automatic request identity', () => {
-  expect(
-    lint(
-      `import {query} from '@effectweb/query'; const q = query({load: args => api(args.filter.status)});`,
-      'queries.ts',
-    ),
-  ).toEqual([]);
-});
-
-it('recognizes the query package without treating unrelated query functions as framework calls', () => {
-  const definition = `{key: args => args.account, load: args => api(args.page)}`;
-  expect(
-    lint(
-      `import {query as q} from '@effectweb/query'; const d = q(${definition});`,
-      'queries.ts',
-    )[0]?.code,
-  ).toBe('EW2002');
-  expect(
-    lint(`import {query} from 'effectweb'; const q = query(${definition});`, 'queries.ts'),
-  ).toEqual([]);
-  expect(
-    lint(`import {query} from './other'; const q = query(${definition});`, 'queries.ts'),
-  ).toEqual([]);
-});
-
-it('surfaces parser or native-analysis failures when query-key is used on TypeScript', () => {
+it('surfaces parser or native-analysis failures through the correctness rule', () => {
   const reports: { message: string }[] = [];
-  plugin.rules['query-key']
+  plugin.rules['valid-view']
     .create({
       filename: 'queries.ts',
-      sourceCode: { text: `import {query} from '@effectweb/query'; const q = query({` },
+      sourceCode: { text: `import {view} from 'effectweb'; const q = view({` },
       options: [],
       report: (report) => reports.push(report),
     })

@@ -1,7 +1,6 @@
 import type * as Effect from 'effect/Effect';
 import type * as Scope from 'effect/Scope';
 import { registerQuery, queryDefinition, type QueryDefinition } from './query-internals.js';
-import { type Snapshot } from 'effectweb';
 
 /** Canonical data identity: plain objects, dense arrays, and finite scalar values. */
 export type QueryKey =
@@ -81,26 +80,26 @@ export interface Query<Args, A, E = never, R = never> {
 
 type Definition<Args, A, E, R> = Omit<QueryDefinition<Args, A, E, R>, 'staleTime'> & {
   readonly staleTime?: number;
-  /** Custom projections can silently reuse a different request's result. */
-  readonly key?: never;
+  /** A query is identified by its name and every argument; a custom key could reuse another request's result. */
+  readonly key?: 'Remove key: a query is identified by its name and every argument';
 };
 
 /** Encode the complete argument value explicitly when its representation is not plain data. */
 export type QueryEncoding<Args> = [Args] extends [QueryArgs<Args>]
-  ? { readonly encode?: (args: Snapshot<Args>) => QueryKey }
-  : { readonly encode: (args: Snapshot<Args>) => QueryKey };
+  ? { readonly encode?: (args: Args) => QueryKey }
+  : { readonly encode: (args: Args) => QueryKey };
 
 /** Shared identity contract for lookup, selection, writes, invalidation and pagination. */
 export function encodeQueryArguments<Args, A, E, R>(
   definition: Query<Args, A, E, R>,
-  args: Args | Snapshot<Args>,
+  args: Args,
 ): string {
   const config = queryDefinition(definition);
-  return encodeQueryKey(config.encode ? config.encode(args as Snapshot<Args>) : (args as QueryKey));
+  return encodeQueryKey(config.encode ? config.encode(args as Args) : (args as QueryKey));
 }
 
 export function query<Args, A, E = never, R = never>(
-  definition: Definition<Args, A, E, R> & { readonly encode: (args: Snapshot<Args>) => QueryKey },
+  definition: Definition<Args, A, E, R> & { readonly encode: (args: Args) => QueryKey },
 ): Query<Args, A, E, R>;
 export function query<Args, A, E = never, R = never>(
   definition: Definition<Args, A, E, R> & QueryEncoding<Args>,

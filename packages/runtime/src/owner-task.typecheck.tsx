@@ -34,7 +34,7 @@ export function taskKeys() {
   owner.task('sending', Effect.succeed(1), 'drop');
 
   const untyped = modelOwner({ saved: AsyncResult.initial() });
-  // @ts-expect-error `AsyncResult.initial()` alone is the narrower Initial type.
+  // @ts-expect-error `AsyncResult.initial()` without type arguments holds no value.
   untyped.task('saved', Effect.succeed(1), 'drop');
   const strictRows = modelOwner({
     rows: {} as Record<string, AsyncResult.AsyncResult<number, never>>,
@@ -47,7 +47,7 @@ export const Form = component(
   {
     init: (_props: { readonly id: string }) => ({
       draft: '',
-      saved: AsyncResult.initial() as AsyncResult.AsyncResult<number, string>,
+      saved: AsyncResult.initial<number, string>(),
     }),
   },
   (owner) =>

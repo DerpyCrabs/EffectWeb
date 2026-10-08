@@ -29,7 +29,7 @@ Every JSX file is compiled for EffectWeb, unless a comment before its first stat
 
 ## Lint setup
 
-The preset enables five rules (`valid-view`, `query-key`, `identity`, `render-safety`, `no-hook-names`) as errors.
+The preset enables four rules (`valid-view`, `identity`, `render-safety`, `no-hook-names`) as errors.
 
 `.oxlintrc.json`:
 
@@ -56,7 +56,6 @@ EW1005 follows immutable local Effect bindings and same-file helper calls, inclu
 | EW1005 | `owner.patch` in `Effect.ensuring` of work run under `replace`        | `owner.task(field, effect, 'replace')`, or `Effect.tap` + `Effect.tapCause`               |
 | EW1006 | `makeMount(…)` called as a statement                                  | `yield* makeMount(…)` inside your app's Effect, or `mount(…)` outside Effect              |
 | EW2001 | Reading a changing module variable or unknown global in a view        | Put the value in the model                                                                |
-| EW2002 | `query({ key: [...], load })`                                         | Remove `key`; every argument is already part of the identity                              |
 | EW3001 | Any `.map` callback returning JSX                                     | `list(scalars, render)`, `list(entities(rows), render)` or `list(rows, identity, render)` |
 | EW3002 | `domMount(…)` created inside a view                                   | Declare it at module scope                                                                |
 | EW3004 | `mapSource`, `clock` or `collection` created inside a view            | Declare it once outside the view                                                          |

@@ -19,8 +19,7 @@ const results = new WeakMap<
   { text: string; diagnostics: Map<string, readonly Diagnostic[]> }
 >();
 function rule(category: Diagnostic['category'] | 'errors' | 'render-safety' | 'bindings') {
-  const heuristic =
-    category === 'render-safety' || category === 'unprovable-dependency' || category === 'identity';
+  const heuristic = category === 'render-safety' || category === 'identity';
   return {
     meta: {
       type:
@@ -78,13 +77,11 @@ function rule(category: Diagnostic['category'] | 'errors' | 'render-safety' | 'b
                 ? ['EW1000', 'EW1003', 'EW1004', 'EW1005', 'EW1006', 'EW2001'].includes(
                     diagnostic.code,
                   )
-                : category === 'unprovable-dependency'
-                  ? diagnostic.code === 'EW2002' || diagnostic.code === 'EW1000'
-                  : category === 'identity'
-                    ? diagnostic.category === 'identity' || diagnostic.code === 'EW1000'
-                    : category === 'errors'
-                      ? diagnostic.severity === 'error'
-                      : diagnostic.category === category;
+                : category === 'identity'
+                  ? diagnostic.category === 'identity' || diagnostic.code === 'EW1000'
+                  : category === 'errors'
+                    ? diagnostic.severity === 'error'
+                    : diagnostic.category === category;
             if (!selected) continue;
             context.report({
               loc: { line: diagnostic.line, column: diagnostic.column - 1 },
@@ -126,7 +123,6 @@ export default {
   rules: {
     'valid-view': rule('errors'),
     'render-safety': rule('render-safety'),
-    'query-key': rule('unprovable-dependency'),
     identity: rule('identity'),
     'no-hook-names': noHookNames,
   },

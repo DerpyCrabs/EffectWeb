@@ -2,7 +2,7 @@ import { Cause, Context, Effect, Schema } from 'effect';
 import * as HttpClientRequest from 'effect/http/HttpClientRequest';
 import * as HttpClient from 'effect/http/HttpClient';
 import * as HttpClientResponse from 'effect/http/HttpClientResponse';
-import { modelOwner, program, view, type Snapshot, type Transition } from 'effectweb';
+import { modelOwner, program, view, type Transition } from 'effectweb';
 import { queryCache, query } from '@effectweb/query';
 
 // The decoder determines the response type. HTTP and decoding failures stay typed.
@@ -37,7 +37,7 @@ type Message =
   | { type: 'Save' }
   | { type: 'Failed'; error: string }
   | { type: 'Saved' };
-const update = (model: Snapshot<Model>, message: Message): Transition<Model, Message, Storage> => {
+const update = (model: Model, message: Message): Transition<Model, Message, Storage> => {
   switch (message.type) {
     case 'Edit':
       return { model: { ...model, draft: message.draft, saved: false, error: '' } };

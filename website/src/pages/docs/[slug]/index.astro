@@ -1,6 +1,7 @@
 ---
 import Site from '../../../layouts/Site.astro';
 import { repo, site } from '../../../lib/data.mjs';
+import Icon from '../../../components/Icon.astro';
 
 export async function getStaticPaths() {
   const { pages } = await site();
@@ -44,7 +45,9 @@ const { pages, groups, version } = await site();
         {
           page.previous ? (
             <a href={page.previous.url}>
-              <span>← Previous</span>
+              <span>
+                <Icon name="arrow-left" size={12} /> Previous
+              </span>
               {page.previous.title}
             </a>
           ) : (
@@ -54,7 +57,9 @@ const { pages, groups, version } = await site();
         {
           page.next && (
             <a href={page.next.url}>
-              <span>Next →</span>
+              <span>
+                Next <Icon name="arrow-right" size={12} />
+              </span>
               {page.next.title}
             </a>
           )
@@ -62,7 +67,7 @@ const { pages, groups, version } = await site();
       </nav>
       <div class="doc-meta">
         <a href={`${repo}/blob/main/${page.source ?? 'website/content'}`}
-          >View source <span aria-hidden="true">↗</span></a
+          >View source <Icon name="arrow-up-right" size={12} /></a
         >
       </div>
     </main>

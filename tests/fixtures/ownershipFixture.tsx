@@ -1,5 +1,13 @@
 import { Effect } from 'effect';
-import { view, program, mount as mountView, domMount, type JSX, type View } from 'effectweb';
+import {
+  view,
+  program,
+  mount as mountView,
+  domMount,
+  type JSX,
+  type ModelFields,
+  type View,
+} from 'effectweb';
 
 const MountPublication = view<{ count: number }, number>((model, send) => (
   <section>
@@ -131,8 +139,8 @@ const BlurDraft = view<{ settings: { text: string; other: number } }>((model) =>
 export async function ownershipContracts() {
   records.length = 0;
   released.length = 0;
-  const mount = <M,>(initial: M, definition: import('effectweb').View<M, never>) => {
-    const source = program<M, M>({ initial, update: (_, model) => ({ model }) });
+  const mount = <M,>(initial: M, definition: View<ModelFields<M>, never>) => {
+    const source = program<M, ModelFields<M>>({ initial, update: (_, model) => ({ model }) });
     const errors: string[] = [];
     const host = document.createElement('div');
     document.body.append(host);

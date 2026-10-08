@@ -1,4 +1,4 @@
-import { protectSnapshot, type Snapshot } from './snapshot.js';
+import { protectSnapshot } from './snapshot.js';
 import type { Source } from './source.js';
 
 /** Members a controller uses for its own lifecycle; everything else it returns is an action. */
@@ -29,8 +29,6 @@ export const isSource = (value: unknown): value is Source<unknown> =>
   value !== null &&
   typeof (value as Source<unknown>).model === 'function' &&
   typeof (value as Source<unknown>).subscribe === 'function';
-export const isController = (value: unknown): value is { readonly source: Source<object> } =>
-  typeof value === 'object' && value !== null && isSource((value as { source?: unknown }).source);
 
 /**
  * The source a view renders for a controller: its model plus its actions. The rendered model
@@ -47,11 +45,11 @@ export function controllerSource(controller: { readonly source: Source<object> }
   const published = controller.source;
   if (!named) return published;
   let lastModel: object | undefined;
-  let lastRendered: Snapshot<object> | undefined;
-  const rendered = (model: object): Snapshot<object> => {
+  let lastRendered: object | undefined;
+  const rendered = (model: object): object => {
     if (model !== lastModel) {
       lastModel = model;
-      lastRendered = protectSnapshot({ ...model, actions }) as Snapshot<object>;
+      lastRendered = protectSnapshot({ ...model, actions }) as object;
     }
     return lastRendered!;
   };
@@ -63,13 +61,11 @@ export function controllerSource(controller: { readonly source: Source<object> }
 
 /** A source for input that never changes. */
 export function constantSource<A>(value: A): Source<A> {
-  const model = protectSnapshot(value) as Snapshot<A>;
+  const model = protectSnapshot(value) as A;
   return { model: () => model, subscribe: () => () => {} };
 }
 
-/** What a mount renders: a source as is, a controller with its actions, or a fixed value. */
+/** What a mount renders: a source as is, or a fixed value. */
 export function mountSource(input: unknown): Source<unknown> {
-  if (isSource(input)) return input;
-  if (isController(input)) return controllerSource(input) as Source<unknown>;
-  return constantSource(input);
+  return isSource(input) ? input : constantSource(input);
 }

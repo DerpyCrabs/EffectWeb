@@ -1,6 +1,6 @@
 import { child, compiled, viewRegion, type View } from './dom.js';
 import { reportError, reportSafely, type ReportError } from './errors.js';
-import { protectSnapshot, type Snapshot } from './snapshot.js';
+import { protectSnapshot } from './snapshot.js';
 
 export function errorBoundary<Model, Message>(
   content: View<Model, Message>,
@@ -9,7 +9,7 @@ export function errorBoundary<Model, Message>(
       { readonly model: NoInfer<Model>; readonly error: unknown },
       NoInfer<Message>
     >;
-    readonly reset?: (model: Snapshot<NoInfer<Model>>) => unknown;
+    readonly reset?: (model: NoInfer<Model>) => unknown;
     readonly onError?: ReportError;
   },
 ): View<Model, Message> {
@@ -17,7 +17,7 @@ export function errorBoundary<Model, Message>(
     let failed = false;
     let error: unknown;
     let generation = 0;
-    let reset = options.reset?.(scope.value as Snapshot<Model>);
+    let reset = options.reset?.(scope.value as Model);
     const fallback = compiled<Model, Message>((scope, parent, before) => {
       child(
         scope,
@@ -55,7 +55,7 @@ export function errorBoundary<Model, Message>(
       });
     }
     const update = () => {
-      const next = options.reset?.(scope.value as Snapshot<Model>);
+      const next = options.reset?.(scope.value as Model);
       if (!Object.is(reset, next)) {
         reset = next;
         generation++;

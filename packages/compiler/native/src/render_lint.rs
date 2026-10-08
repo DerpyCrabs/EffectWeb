@@ -1488,6 +1488,7 @@ fn known_global(root: &str, path: &[String]) -> bool {
             | "isNaN"
             | "isFinite"
             | "structuredClone"
+            | "console"
             | "<dispatch>"
     ) || (root == "Date" && matches!(path.last().map(String::as_str), Some("UTC" | "parse")))
 }

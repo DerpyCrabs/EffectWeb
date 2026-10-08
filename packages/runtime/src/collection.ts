@@ -1,5 +1,4 @@
 import { shareData } from './sharing.js';
-import type { Snapshot } from './snapshot.js';
 export type Identity = string | number;
 
 export interface Rows<A> {
@@ -105,17 +104,13 @@ function makeCollection<A>(identity: (item: A, index: number) => Identity) {
 
 export interface Collection<A> {
   /** Identity reads `A`; rows keep the full type of the items supplied. */
-  from<B extends A | Snapshot<A> = A>(this: void, items: readonly B[]): Rows<Snapshot<B>>;
-  share<B extends A | Snapshot<A>>(
-    this: void,
-    previous: readonly B[],
-    next: readonly B[],
-  ): readonly Snapshot<B>[];
+  from<B extends A = A>(this: void, items: readonly B[]): Rows<B>;
+  /** Reuse the previous row objects whose identity and data are unchanged. */
+  share<B extends A>(this: void, previous: readonly B[], next: B[]): B[];
+  share<B extends A>(this: void, previous: readonly B[], next: readonly B[]): readonly B[];
 }
 
-export function collection<A>(
-  identity: (item: Snapshot<A>, index: number) => Identity,
-): Collection<A> {
+export function collection<A>(identity: (item: A, index: number) => Identity): Collection<A> {
   // Snapshot changes access permissions, not runtime representation. The implementation
   // only borrows supplied items, and never inserts values of a wider type.
   return makeCollection(identity) as unknown as Collection<A>;
@@ -137,8 +132,8 @@ export function keyed<A>(
 
 const positions = /* @__PURE__ */ keyedRows<unknown>((_item, index) => index);
 /** Use positional identity for ordered values without stable entity IDs. */
-export function sequence<A>(items: readonly A[]): Rows<Snapshot<A>> {
-  return positions(items) as Rows<Snapshot<A>>;
+export function sequence<A>(items: readonly A[]): Rows<A> {
+  return positions(items) as Rows<A>;
 }
 
 const empty: readonly never[] = [];
@@ -152,7 +147,7 @@ const identified = /* @__PURE__ */ keyedRows<{ readonly id: Identity }>((item, i
 /** Rows keyed by their domain IDs. Reuses the wrapper for the same immutable array. */
 export function entities<A extends { readonly id: Identity }>(
   items: readonly A[] | undefined,
-): Rows<Snapshot<A>> {
+): Rows<A> {
   // The collection retains, filters and slices supplied items; it never inserts wider values.
-  return identified(items ?? empty) as unknown as Rows<Snapshot<A>>;
+  return identified(items ?? empty) as unknown as Rows<A>;
 }

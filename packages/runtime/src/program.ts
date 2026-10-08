@@ -1,4 +1,4 @@
-import { protectSnapshot, type Snapshot } from './snapshot.js';
+import { protectSnapshot } from './snapshot.js';
 import { reportError, reportSafely } from './errors.js';
 import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
@@ -8,6 +8,7 @@ import * as Option from 'effect/Option';
 import * as Stream from 'effect/Stream';
 import type * as Scope from 'effect/Scope';
 import { KeyMap, equalKeys, copyKey } from './command-key.js';
+import type { ModelFields } from './owner.js';
 import * as Context from 'effect/Context';
 import type { UiRuntime } from './runtime.js';
 
@@ -90,20 +91,20 @@ export function mapCommand<A, B, R = never>(
       };
 }
 export interface Transition<Model, Message, R = never> {
-  readonly model: Model | Snapshot<Model>;
+  readonly model: Model;
   readonly commands?: readonly Command<Message, R>[];
   readonly cancel?: readonly RunKey[];
 }
 /** A transition whose commands may include owner actions. Internal. */
 export interface OwnedTransition<Model, Message> {
-  readonly model: Model | Snapshot<Model>;
+  readonly model: Model;
   readonly commands?: readonly OwnedCommand<Message>[];
   readonly cancel?: readonly RunKey[];
 }
 export interface Program<Model, Message> {
-  readonly model: () => Snapshot<Model>;
+  readonly model: () => Model;
   readonly send: Send<Message>;
-  readonly subscribe: (listener: (model: Snapshot<Model>) => void) => () => void;
+  readonly subscribe: (listener: (model: Model) => void) => () => void;
   readonly dispose: () => void;
   readonly close?: () => Effect.Effect<void, unknown>;
 }
@@ -125,21 +126,26 @@ export interface ProgramHandle<Model, Message> extends RunningProgram<Model, Mes
  * A reducer with owned commands. `context` supplies the services its commands require; scope a
  * program in an Effect with `Effect.acquireRelease(Effect.sync(() => program(…)), (p) => p.close())`.
  */
-export function program<Model, Message, R = never>(
+export function program<State, Message, R = never>(
   options: {
-    initial: Model | Snapshot<Model>;
-    update: (model: Snapshot<Model>, message: Message) => Transition<Model, Message, NoInfer<R>>;
+    initial: State;
+    // The model comes from `initial` alone; a result field holds every outcome.
+    update: (
+      model: ModelFields<NoInfer<State>>,
+      message: Message,
+    ) => Transition<ModelFields<NoInfer<State>>, Message, NoInfer<R>>;
     onDefect?: (cause: unknown) => void;
   } & ([R] extends [never]
     ? { readonly context?: Context.Context<never> }
     : { readonly context: Context.Context<R> }),
-): RunningProgram<Model, Message> {
+): RunningProgram<ModelFields<State>, Message> {
+  type Model = ModelFields<State>;
   if (!options.context)
     return createProgram(options as Parameters<typeof createProgram<Model, Message>>[0]);
   const context = options.context as Context.Context<R>;
   const provide = (command: Command<Message, R>) => provideCommand(command, context);
   return createProgram<Model, Message>({
-    initial: options.initial,
+    initial: options.initial as Model,
     ...(options.onDefect ? { onDefect: options.onDefect } : {}),
     update: (model, message) => provideTransition(provide, options.update(model, message)),
   });
@@ -176,8 +182,8 @@ function provideTransition<Model, Message, R>(
 
 /** The program scheduler. `runtime` forks command fibers in a mount's or owner's scope. Internal. */
 export function createProgram<Model, Message>(options: {
-  initial: Model | Snapshot<Model>;
-  update: (model: Snapshot<Model>, message: Message) => OwnedTransition<Model, Message>;
+  initial: Model;
+  update: (model: Model, message: Message) => OwnedTransition<Model, Message>;
   onDefect?: (cause: unknown) => void;
   runtime?: Pick<UiRuntime<never>, 'runFork'>;
 }): ProgramHandle<Model, Message> {
@@ -197,7 +203,7 @@ export function createProgram<Model, Message>(options: {
   // A program publishes one immutable value. It needs no reactive dependency graph;
   // Effect still owns all command fibers, streams, and cancellation below.
   let current = protectSnapshot(options.initial) as Model;
-  const listeners = new Set<(model: Snapshot<Model>) => void>();
+  const listeners = new Set<(model: Model) => void>();
   type Running = {
     fiber?: Fiber.Fiber<Option.Option<Message>, unknown>;
     command?: OwnedCommand<Message>;
@@ -353,12 +359,12 @@ export function createProgram<Model, Message>(options: {
           continue;
         }
         const { message } = queue.shift()!;
-        const transition = options.update(current as Snapshot<Model>, message);
+        const transition = options.update(current as Model, message);
         for (const key of transition.cancel ?? []) cancel(key);
         const next = protectSnapshot(transition.model) as Model;
         if (!Object.is(current, next)) {
           current = next;
-          for (const listener of listeners) listener(current as Snapshot<Model>);
+          for (const listener of listeners) listener(current as Model);
         }
         const starts: Array<() => void> = [];
         // Admit the entire transition before launching Effects, so a later replacement can
@@ -424,7 +430,7 @@ export function createProgram<Model, Message>(options: {
         dispose();
         return awaitStopped();
       }),
-    model: () => current as Snapshot<Model>,
+    model: () => current as Model,
     activeKeys: () => [...running.keys()],
     isRunning: (key) => running.has(key),
     awaitIdle: (key) =>
@@ -440,7 +446,7 @@ export function createProgram<Model, Message>(options: {
     send,
     subscribe(listener) {
       if (disposed) return () => {};
-      const receive = (model: Snapshot<Model>) => {
+      const receive = (model: Model) => {
         try {
           listener(model);
         } catch (error) {

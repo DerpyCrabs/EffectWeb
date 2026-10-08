@@ -1,6 +1,6 @@
 import type * as Scope from 'effect/Scope';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import type { DisposableOwner, ModelOwner, Snapshot, Source } from 'effectweb';
+import type { DisposableOwner, ModelOwner, Source } from 'effectweb';
 import { reportError, reportSafely } from './errors.js';
 import { encodeQueryArguments, type Query } from './query.js';
 import type { QueryCache } from './cache.js';
@@ -9,12 +9,9 @@ import type { InfiniteData, InfiniteQuery } from './infinite-query.js';
 
 /** One owned selection and immutable observation of a shared query resource. */
 export interface QueryResource<Args, A, E = never> {
-  select(this: void, args: Args | Snapshot<Args> | undefined): void;
-  read(this: void): AsyncResult.AsyncResult<Snapshot<A>, E>;
-  subscribe(
-    this: void,
-    listener: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void,
-  ): () => void;
+  select(this: void, args: Args | undefined): void;
+  read(this: void): AsyncResult.AsyncResult<A, E>;
+  subscribe(this: void, listener: (result: AsyncResult.AsyncResult<A, E>) => void): () => void;
   refresh(this: void): void;
   dispose(this: void): void;
 }
@@ -34,13 +31,13 @@ export function queryResource<Args, A, E, R>(
   let stop: (() => void) | undefined;
   let disposed = false;
   let revision = 0;
-  const initial = AsyncResult.initial<Snapshot<A>, E>();
-  const listeners = new Set<(result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void>();
+  const initial = AsyncResult.initial<A, E>();
+  const listeners = new Set<(result: AsyncResult.AsyncResult<A, E>) => void>();
   const read = () =>
     entry && !disposed && !internal.disposed() && generation === internal.generation()
       ? internal.read(entry)
       : initial;
-  let published: AsyncResult.AsyncResult<Snapshot<A>, E> | undefined;
+  let published: AsyncResult.AsyncResult<A, E> | undefined;
   let notifying = false;
   let pending = false;
   const call = (work: () => void) => {
@@ -89,7 +86,7 @@ export function queryResource<Args, A, E, R>(
     notify();
   });
   return {
-    select(args: Args | Snapshot<Args> | undefined) {
+    select(args: Args | undefined) {
       if (disposed || internal.disposed()) return;
       const nextGeneration = internal.generation();
       const nextKey = args === undefined ? undefined : encodeQueryArguments(definition, args);
@@ -120,7 +117,7 @@ export function queryResource<Args, A, E, R>(
       notify();
     },
     read,
-    subscribe(listener: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void) {
+    subscribe(listener: (result: AsyncResult.AsyncResult<A, E>) => void) {
       if (disposed) return () => {};
       listeners.add(listener);
       return () => {
@@ -151,9 +148,7 @@ export function queryResource<Args, A, E, R>(
 }
 
 type ResultKeys<Model, A, E> = {
-  [K in keyof Model]: AsyncResult.AsyncResult<Snapshot<A>, E> extends Model[K] | Snapshot<Model[K]>
-    ? K
-    : never;
+  [K in keyof Model]: AsyncResult.AsyncResult<A, E> extends Model[K] ? K : never;
 }[keyof Model];
 
 /** Observe a query and publish each result through `changed`. */
@@ -161,7 +156,7 @@ export function observeQuery<Args, A, E, R>(
   owner: DisposableOwner,
   cache: QueryCache<R>,
   definition: Query<Args, A, E, NoInfer<R> | Scope.Scope>,
-  changed: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void,
+  changed: (result: AsyncResult.AsyncResult<A, E>) => void,
 ): QueryResource<Args, A, E>;
 /** Observe a query and patch each result into the owner's model at `key`. */
 export function observeQuery<Model extends object, Args, A, E, R>(
@@ -176,14 +171,14 @@ export function observeQuery<Model extends object, K extends keyof Model, Args, 
   cache: QueryCache<R>,
   definition: Query<Args, A, E, NoInfer<R> | Scope.Scope>,
   key: K,
-  project: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => Model[K] | Snapshot<Model[K]>,
+  project: (result: AsyncResult.AsyncResult<A, E>) => Model[K],
 ): QueryResource<Args, A, E>;
 export function observeQuery<Model extends object, Args, A, E, R>(
   owner: DisposableOwner | ModelOwner<Model>,
   cache: QueryCache<R>,
   definition: Query<Args, A, E, NoInfer<R> | Scope.Scope>,
-  target: ((result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void) | keyof Model,
-  project?: (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => unknown,
+  target: ((result: AsyncResult.AsyncResult<A, E>) => void) | keyof Model,
+  project?: (result: AsyncResult.AsyncResult<A, E>) => unknown,
 ): QueryResource<Args, A, E> {
   const resource = queryResource({ cache }, definition);
   if (typeof target === 'function') resource.subscribe(target);
@@ -207,20 +202,20 @@ const sources = new WeakMap<QueryCache<never>, Map<object, Map<string, SharedSou
 export function querySource<Args, A, Param, E, R>(
   cache: QueryCache<R>,
   definition: InfiniteQuery<Args, A, Param, E, NoInfer<R> | Scope.Scope>,
-  args: Args | Snapshot<Args>,
-): Source<AsyncResult.AsyncResult<Snapshot<InfiniteData<A, Param>>, E>>;
+  args: Args,
+): Source<AsyncResult.AsyncResult<InfiniteData<A, Param>, E>>;
 export function querySource<Args, A, E, R>(
   cache: QueryCache<R>,
   definition: Query<Args, A, E, NoInfer<R> | Scope.Scope>,
-  args: Args | Snapshot<Args>,
-): Source<AsyncResult.AsyncResult<Snapshot<A>, E>>;
+  args: Args,
+): Source<AsyncResult.AsyncResult<A, E>>;
 export function querySource<Args, A, E, R>(
   cache: QueryCache<R>,
   requested:
     | Query<Args, A, E, NoInfer<R> | Scope.Scope>
     | { readonly query: Query<Args, A, E, NoInfer<R> | Scope.Scope> },
-  args: Args | Snapshot<Args>,
-): Source<AsyncResult.AsyncResult<Snapshot<A>, E>> {
+  args: Args,
+): Source<AsyncResult.AsyncResult<A, E>> {
   // An infinite query is read through its aggregate query of retained pages.
   const definition =
     'query' in requested && 'page' in requested
@@ -236,7 +231,7 @@ export function querySource<Args, A, E, R>(
   let byKey = byQuery.get(definition);
   if (!byKey) byQuery.set(definition, (byKey = new Map<string, SharedSource>()));
   const existing = byKey.get(key);
-  if (existing) return existing as Source<AsyncResult.AsyncResult<Snapshot<A>, E>>;
+  if (existing) return existing as Source<AsyncResult.AsyncResult<A, E>>;
   const entries = byKey;
   let resource: QueryResource<Args, A, E> | undefined;
   let observers = 0;
@@ -256,17 +251,15 @@ export function querySource<Args, A, E, R>(
       resource = undefined;
       if (entries.get(key) === source) entries.delete(key);
     });
-  const source: Source<AsyncResult.AsyncResult<Snapshot<A>, E>> = {
+  const source: Source<AsyncResult.AsyncResult<A, E>> = {
     model: () => {
       const read = acquire().read();
       if (!observers) releaseIfUnobserved();
-      return read as Snapshot<AsyncResult.AsyncResult<Snapshot<A>, E>>;
+      return read as AsyncResult.AsyncResult<A, E>;
     },
     subscribe(listener) {
       observers++;
-      const stop = acquire().subscribe(
-        listener as (result: AsyncResult.AsyncResult<Snapshot<A>, E>) => void,
-      );
+      const stop = acquire().subscribe(listener as (result: AsyncResult.AsyncResult<A, E>) => void);
       let active = true;
       return () => {
         if (!active) return;

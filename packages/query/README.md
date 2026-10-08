@@ -20,8 +20,8 @@ const selected = observeQuery(owner, cache, user, 'user');
 selected.select({ id });
 ```
 
-- **One kind of query.** `query` for single values and `infiniteQuery` for pages share the same cache, stale times, retention and invalidation. Views read either through `querySource`; `fetchNextPage` and `retryPage` extend an infinite query, and `infiniteResource` does the same for controllers.
-- **Identity is every argument.** There is no custom key (lint rule `effectweb/query-key`, EW2002). Services come from the cache's context, never from arguments.
-- **Cache operations:** `prefetch`, `getQueryData`, `setQueryData`, `updateQueryData`, `invalidateQuery`, `invalidateGroup` (with `queryGroup`), `invalidateWhere`, `cancelQuery`, `removeQuery`, `resetResources`, `batch`, `close`.
-- **Results** are `AsyncResult`s of deeply readonly snapshots. `available(result)`, `resourceError(result)` and `result.waiting` from `effectweb` read them.
+- **One kind of query.** `query` for single values and `infiniteQuery` for pages share the same cache, stale times, retention and invalidation. Views read either through `querySource`; `fetchNextPage` extends an infinite query, and `infiniteResource` does the same for controllers.
+- **Identity is every argument.** There is no custom key; the types reject a `key` field. Services come from the cache's context, never from arguments.
+- **Cache operations:** `prefetch`, `getQueryData`, `setQueryData`, `updateQueryData`, `invalidateQuery`, `invalidateGroup` (with `queryGroup`), `cancelQuery`, `resetResources`, `batch`, `close`.
+- **Results** are `AsyncResult`s of immutable data. `available(result)`, `resourceError(result)` and `result.waiting` from `effectweb` read them.
 - `queryCache(context?, options?)` takes the Effect `Context` its loaders need. Inside an Effect, pass `yield* Effect.context<Services>()` and scope the cache with `Effect.acquireRelease(…, (cache) => cache.close())`.

@@ -13,6 +13,14 @@ const checkRender = (source: string) => {
   return compileSource(text, 'contract.tsx').code;
 };
 
+it('allows console output while rendering', () => {
+  expect(() =>
+    checkRender(
+      `view(model=>{console.log(model.id);console.warn('slow',model);return <p>{model.id}</p>;});`,
+    ),
+  ).not.toThrow();
+});
+
 it.each([
   `let external='old'; const read=()=>external; view(model=><p>{read()}</p>);`,
   `let external='old'; function read(){return external;} const label=()=>read(); view(model=><p>{label()}</p>);`,

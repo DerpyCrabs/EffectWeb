@@ -84,6 +84,19 @@ code,
 pre,
 kbd {
   font-family: 'JetBrains Mono Variable', monospace;
+  /* `=>` and `->` stay as typed; ligatures would show them as arrows. */
+  font-variant-ligatures: none;
+}
+.icon {
+  flex: none;
+  vertical-align: -0.16em;
+}
+a > .icon,
+button > .icon {
+  transition: transform 0.15s;
+}
+a:hover > .icon {
+  transform: translateX(2px);
 }
 ::selection {
   background: var(--accent-soft);
@@ -123,10 +136,9 @@ summary:focus-visible {
 }
 .brand-mark {
   color: var(--accent);
-  font-size: 37px;
-  line-height: 1;
-  font-family: monospace;
-  transform: rotate(-12deg);
+  width: 28px;
+  height: 28px;
+  flex: none;
 }
 .top-nav {
   display: flex;
@@ -154,9 +166,9 @@ summary:focus-visible {
   border-radius: 6px;
   font-size: 12px;
 }
-.search-trigger > span:first-child {
-  font-size: 20px;
-  line-height: 1;
+.search-trigger > .icon {
+  width: 16px;
+  height: 16px;
 }
 .search-trigger kbd {
   margin-left: auto;
@@ -167,12 +179,18 @@ summary:focus-visible {
   white-space: nowrap;
 }
 .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: 0;
   width: 32px;
   height: 36px;
   padding: 0;
-  font-size: 20px;
+  color: var(--ink);
+}
+.icon-button:hover {
+  color: var(--accent);
 }
 .menu-toggle {
   display: none;
@@ -222,7 +240,7 @@ summary:focus-visible {
 .button {
   display: inline-flex;
   align-items: center;
-  gap: 22px;
+  gap: 10px;
   font-size: 13px;
   font-weight: 550;
   padding: 12px 17px;
@@ -275,7 +293,9 @@ summary:focus-visible {
   line-height: 1.8;
 }
 .principles a {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 13px;
   color: var(--accent);
   margin-top: 16px;
@@ -346,7 +366,8 @@ summary:focus-visible {
   font-size: 17px;
 }
 .site-footer .brand-mark {
-  font-size: 28px;
+  width: 22px;
+  height: 22px;
 }
 .site-footer > div {
   display: flex;
@@ -389,10 +410,29 @@ summary:focus-visible {
   margin: 0 0 18px;
 }
 .nav-group summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   padding: 3px 0 8px;
+  list-style: none;
+}
+.nav-group summary::-webkit-details-marker {
+  display: none;
+}
+.nav-group summary::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  transition: transform 0.15s;
+}
+.nav-group[open] > summary::before {
+  transform: rotate(90deg);
 }
 .nav-group a {
   display: block;
@@ -809,7 +849,7 @@ summary:focus-visible {
     display: none;
   }
   .menu-toggle {
-    display: block;
+    display: inline-flex;
   }
   .header-actions {
     gap: 6px;

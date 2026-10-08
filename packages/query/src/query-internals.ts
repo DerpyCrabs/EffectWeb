@@ -1,19 +1,15 @@
 import type * as Effect from 'effect/Effect';
 import type * as Scope from 'effect/Scope';
 import type { Query, QueryGroup, QueryKey } from './query.js';
-import { type Snapshot } from 'effectweb';
 
 export interface QueryDefinition<Args, A, E, R> {
   readonly name: string;
-  readonly load: (
-    args: Snapshot<Args>,
-    previous?: Snapshot<A>,
-  ) => Effect.Effect<A, E, R | Scope.Scope>;
+  readonly load: (args: Args, previous?: A) => Effect.Effect<A, E, R | Scope.Scope>;
   readonly groups?: readonly QueryGroup[];
   readonly unused?: 'retain' | 'cancel';
   readonly staleTime: number;
-  readonly share?: (previous: Snapshot<A>, next: A | Snapshot<A>) => A | Snapshot<A>;
-  readonly encode?: (args: Snapshot<Args>) => QueryKey;
+  readonly share?: (previous: A, next: A) => A;
+  readonly encode?: (args: Args) => QueryKey;
 }
 const definitions = new WeakMap<object, unknown>();
 export function registerQuery<Args, A, E, R>(

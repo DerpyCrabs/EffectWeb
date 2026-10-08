@@ -95,6 +95,7 @@ const referencePages = [
           'modelOwner',
           'controllerView',
           'ModelOwner',
+          'ModelFields',
           'ViewController',
           'ControllerLifetime',
           'ControllerModel',
@@ -111,7 +112,6 @@ const referencePages = [
       ['Sources', ['observe', 'mapSource', 'clock', 'Source']],
       ['DOM', ['domMount', 'domBinding', 'Portal', 'DomMount', 'PortalProps']],
       ['Mounting and services', ['mount', 'makeMount', 'errorBoundary', 'Mounted']],
-      ['Snapshots', ['Snapshot', 'SnapshotOpaque', 'snapshotOpaque']],
     ],
   },
   {
