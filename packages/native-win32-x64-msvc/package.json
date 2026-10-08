@@ -1,5 +1,5 @@
 {
   "name": "@effectweb/compiler-win32-x64-msvc",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Development workspace placeholder; scripts/stage-native.mjs creates the release package."
 }

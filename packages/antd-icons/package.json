@@ -1,6 +1,6 @@
 {
   "name": "@effectweb/antd-icons",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Ant Design icons as direct DOM views for EffectWeb",
   "license": "MIT",
   "repository": {
@@ -32,7 +32,7 @@
   },
   "peerDependencies": {
     "effect": "^4.0.0",
-    "effectweb": "0.10.0"
+    "effectweb": "0.11.0"
   },
   "engines": {
     "node": ">=22.14"
