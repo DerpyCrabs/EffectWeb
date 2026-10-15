@@ -1,0 +1,20 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "spinner",
+  "type": "registry:ui",
+  "title": "Spinner",
+  "dependencies": [
+    "@effectweb/lucide@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/spinner.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/spinner.tsx",
+      "content": "import { view } from 'effectweb';\nimport LoaderCircle from '@effectweb/lucide/icons/loader-circle';\nimport { cn } from '@/lib/utils';\n\n/** An animated SVG status icon with a configurable accessible label. */\nexport const Spinner = view<{\n  readonly class?: string | undefined;\n  readonly label?: string | undefined;\n}>((props) => (\n  <LoaderCircle\n    data-slot=\"spinner\"\n    role=\"status\"\n    aria-label={props.label ?? 'Loading'}\n    class={cn('size-4 animate-spin', props.class)}\n  />\n));\n"
+    }
+  ]
+}

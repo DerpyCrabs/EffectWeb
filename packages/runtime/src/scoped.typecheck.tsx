@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/missing-effect-context -- Negative service-requirement type contracts. */
 import { Context, Effect, Scope } from 'effect';
 import { domMount } from './mount.js';
 import { makeMount } from './render.js';

@@ -15,3 +15,6 @@ website/.snippets/
 website/dist/
 packages/runtime/docs/
 packages/runtime/docs.next/
+
+# Website staging copy; canonical registry JSON lives in packages/shadcn/registry.
+website/public/r/

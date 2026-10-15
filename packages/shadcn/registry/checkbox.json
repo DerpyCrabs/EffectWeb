@@ -1,0 +1,23 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "checkbox",
+  "type": "registry:ui",
+  "title": "Checkbox",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0",
+    "@effectweb/lucide@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/adapter",
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/checkbox.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/checkbox.tsx",
+      "content": "import { createCheckbox } from '@effectweb/base-ui';\nimport { CheckboxRoot as BaseCheckbox } from '@effectweb/base-ui';\nimport { primitiveAdapter } from '@/lib/adapter';\nimport { controllerView, view } from 'effectweb';\nimport Check from '@effectweb/lucide/icons/check';\nimport Minus from '@effectweb/lucide/icons/minus';\nimport { cn } from '@/lib/utils';\nimport type { Native } from '@/lib/types';\n\nexport type CheckboxProps = Omit<Native<'input'>, 'type' | 'checked'> & {\n  readonly class?: string | undefined;\n  readonly checked: boolean | 'indeterminate';\n  /** Asked for the other state; the input itself stays as the model says. */\n  readonly onCheckedChange?: ((checked: boolean) => void) | undefined;\n};\n\n/** A native checkbox drawn as shadcn's: the box is the input, the mark an icon shown while it is checked. */\nexport const Checkbox = controllerView(\n  {\n    controller: (props: CheckboxProps) =>\n      primitiveAdapter(\n        props,\n        createCheckbox,\n        (read) => ({\n          checked: props.checked === true,\n          disabled: props.disabled ?? false,\n          onCheckedChange: (value) => {\n            const props = read();\n            props.onCheckedChange?.(value);\n          },\n          indeterminate: props.checked === 'indeterminate',\n        }),\n        (next) => ({\n          checked: next.checked === true,\n          disabled: next.disabled ?? false,\n          indeterminate: next.checked === 'indeterminate',\n        }),\n      ),\n  },\n  view((model) => {\n    const { class: className, checked, onCheckedChange: _onCheckedChange, ...rest } = model.props;\n    return (\n      <span\n        data-slot=\"checkbox\"\n        data-state={\n          checked === 'indeterminate' ? 'indeterminate' : checked ? 'checked' : 'unchecked'\n        }\n        class={cn('relative inline-flex size-4 shrink-0 items-center justify-center', className)}\n      >\n        <BaseCheckbox\n          checkbox={model.actions.handle}\n          type=\"checkbox\"\n          data-slot=\"checkbox-input\"\n          aria-checked={checked === 'indeterminate' ? 'mixed' : undefined}\n          class=\"peer absolute inset-0 size-4 cursor-default appearance-none rounded-[4px] border border-input transition-colors outline-none group-has-disabled/field:opacity-50 after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 checked:border-primary checked:bg-primary aria-[checked=mixed]:border-primary aria-[checked=mixed]:bg-primary dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 dark:checked:bg-primary\"\n          {...rest}\n        />\n        {checked === 'indeterminate' ? (\n          <Minus\n            data-slot=\"checkbox-indicator\"\n            class=\"pointer-events-none relative size-3.5 text-primary-foreground\"\n          />\n        ) : (\n          <Check\n            data-slot=\"checkbox-indicator\"\n            class=\"pointer-events-none relative size-3.5 text-primary-foreground opacity-0 transition-none peer-checked:opacity-100\"\n          />\n        )}\n      </span>\n    );\n  }),\n);\n"
+    }
+  ]
+}

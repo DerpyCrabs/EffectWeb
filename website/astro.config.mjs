@@ -7,7 +7,7 @@ const root = fileURLToPath(new URL('.', import.meta.url));
 // Static documentation site. Pages are prerendered; the client router swaps pages in place and
 // prefetches links on hover, so navigation does not reload the document.
 export default defineConfig({
-  site: 'https://effectweb.dev',
+  site: 'https://effectweb.netlify.app',
   output: 'static',
   trailingSlash: 'always',
   build: { format: 'directory', inlineStylesheets: 'never' },

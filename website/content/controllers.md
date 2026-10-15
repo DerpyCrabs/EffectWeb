@@ -26,6 +26,7 @@ export function documentController() {
 - `owner.patch` publishes new fields. Views reading `owner.source` update.
 - `owner.task('saved', effect, 'drop')` starts the save and publishes its [status](/docs/tasks/#show-the-status-of-work) into `model.saved`: waiting while it runs, then the value or the error. The [policy](/docs/tasks/#policies) `drop` ignores a second save while one is running. Use `owner.run` for work whose progress nothing shows.
 - `lifetime: owner` identifies the resource that owns cleanup. A placement calls its `dispose()` on removal and waits for `close()` during awaited teardown. Outside a placement, close the lifetime when the feature ends.
+- A lifetime only releases; it does not collect other resources. To tie a resource to the controller, give it to the owner with `owner.own(resource)`, for example `owner.own(dialog.lifetime)` for a base-ui handle. The owner then releases it with everything else.
 
 In a view, read `model.saved.waiting` and `resourceError(model.saved)`.
 
@@ -73,3 +74,31 @@ export const Chat = controllerView(
 Inside an Effect scope, `Effect.acquireRelease(Effect.sync(() => modelOwner(initial)), (owner) => owner.close())` creates an owner that closes with the scope. `close()` never fails; cleanup errors go to the `onDefect` option.
 
 A controller with no state of its own, such as one that combines other sources, uses `modelOwner({})` for its resources and work.
+
+## Keep frequent updates small
+
+`patch` shallow-copies the model when a field changes. Keep a large, mostly unchanged payload under its own field instead of spreading thousands of fields into the model. Retain unchanged objects and arrays: copying every row for a pointer move increases allocation, downstream rendering, and development snapshot-freezing work. Production skips freezing, but still pays for the copies.
+
+Select a stable branch before doing expensive work. Create these sources once in the controller, outside the view:
+
+```ts check
+import { mapSource, modelOwner } from 'effectweb';
+
+type File = { readonly name: string };
+export function fileController(files: readonly File[]) {
+  const owner = modelOwner({ files, pointerX: 0 });
+  const fileSource = mapSource(owner.source, (model) => model.files);
+  const sortedFiles = mapSource(fileSource, (items) =>
+    [...items].sort((a, b) => a.name.localeCompare(b.name)),
+  );
+  return {
+    source: sortedFiles,
+    move: (pointerX: number) => owner.patch({ pointerX }),
+    lifetime: owner,
+  };
+}
+```
+
+Here a pointer update checks the branch identity but does not sort again. Putting the sort directly in the root selector would sort on every root publication, even if an equality function later suppressed the result. Returning `{ files: model.files }` or a copied array from the first selector also defeats its default `Object.is` comparison.
+
+Each selector still checks its input on root publications. For independently changing windows or editors, use owners scoped to those features so unrelated updates do not reach every subscriber. Avoid subscribing an expensive view to the whole workspace when it only needs one window. Keyed lists preserve row identity; they do not make expensive render callbacks or broad captured inputs free.

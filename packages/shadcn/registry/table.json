@@ -1,0 +1,18 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "table",
+  "type": "registry:ui",
+  "title": "Table",
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/table.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/table.tsx",
+      "content": "import { view } from 'effectweb';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\n\n/** A native table inside a horizontal overflow container. */\nexport const Table = view<Native<'table'> & Styled>(({ class: className, children, ...rest }) => (\n  <div data-slot=\"table-container\" class=\"relative w-full overflow-x-auto\">\n    <table data-slot=\"table\" class={cn('w-full caption-bottom text-sm', className)} {...rest}>\n      {children}\n    </table>\n  </div>\n));\n\n/** The thead section of a table. */\nexport const TableHeader = view<Native<'thead'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <thead data-slot=\"table-header\" class={cn('[&_tr]:border-b', className)} {...rest}>\n      {children}\n    </thead>\n  ),\n);\n\n/** The tbody section of a table. */\nexport const TableBody = view<Native<'tbody'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <tbody data-slot=\"table-body\" class={cn('[&_tr:last-child]:border-0', className)} {...rest}>\n      {children}\n    </tbody>\n  ),\n);\n\n/** The tfoot section of a table. */\nexport const TableFooter = view<Native<'tfoot'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <tfoot\n      data-slot=\"table-footer\"\n      class={cn('border-t bg-muted/50 font-medium [&>tr]:last:border-b-0', className)}\n      {...rest}\n    >\n      {children}\n    </tfoot>\n  ),\n);\n\n/** A native table row with optional selected styling. */\nexport const TableRow = view<Native<'tr'> & Styled & { readonly selected?: boolean | undefined }>(\n  ({ class: className, selected, children, ...rest }) => (\n    <tr\n      data-slot=\"table-row\"\n      data-state={selected ? 'selected' : undefined}\n      class={cn(\n        'border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted',\n        className,\n      )}\n      {...rest}\n    >\n      {children}\n    </tr>\n  ),\n);\n\n/** A native header cell. Use scope to identify its row or column. */\nexport const TableHead = view<Native<'th'> & Styled>(({ class: className, children, ...rest }) => (\n  <th\n    data-slot=\"table-head\"\n    class={cn(\n      'h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0',\n      className,\n    )}\n    {...rest}\n  >\n    {children}\n  </th>\n));\n\n/** A native data cell. */\nexport const TableCell = view<Native<'td'> & Styled>(({ class: className, children, ...rest }) => (\n  <td\n    data-slot=\"table-cell\"\n    class={cn('p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0', className)}\n    {...rest}\n  >\n    {children}\n  </td>\n));\n\n/** A native caption for a table. */\nexport const TableCaption = view<Native<'caption'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <caption\n      data-slot=\"table-caption\"\n      class={cn('mt-4 text-sm text-muted-foreground', className)}\n      {...rest}\n    >\n      {children}\n    </caption>\n  ),\n);\n"
+    }
+  ]
+}

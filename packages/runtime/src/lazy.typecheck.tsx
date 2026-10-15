@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/missing-effect-context -- Negative lazy loader service contracts. */
 import { Cause, Context, Effect } from 'effect';
 import { view, type View } from './index.js';
 import { lazyView } from './advanced.js';

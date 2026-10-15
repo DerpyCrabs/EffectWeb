@@ -15,6 +15,8 @@ use oxc::{
     syntax::symbol::SymbolId,
 };
 
+use std::collections::{HashMap, HashSet};
+
 /// A captured binding and the static member path read from it.
 type Path = (String, Vec<String>);
 
@@ -151,7 +153,115 @@ impl<'a> Visit<'a> for Captures<'_> {
     }
 }
 
+struct NamedGetter {
+    end: u32,
+    name: String,
+    values: Vec<String>,
+}
+
+struct NamedGetters<'s> {
+    factories: Vec<SymbolId>,
+    snapshots: HashSet<SymbolId>,
+    scoping: &'s Scoping,
+    getters: HashMap<SymbolId, NamedGetter>,
+}
+impl<'a> Visit<'a> for NamedGetters<'_> {
+    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        if let Expression::Identifier(id) = &call.callee
+            && let Some(symbol) = id
+                .reference_id
+                .get()
+                .and_then(|id| self.scoping.get_reference(id).symbol_id())
+            && self.factories.contains(&symbol)
+            && let Some(Argument::ArrowFunctionExpression(callback)) = call.arguments.last()
+            && let Some(parameter) = callback.params.items.first()
+            && let BindingPattern::BindingIdentifier(binding) = &parameter.pattern
+            && let Some(symbol) = binding.symbol_id.get()
+        {
+            self.snapshots.insert(symbol);
+        }
+        walk::walk_call_expression(self, call);
+    }
+    fn visit_statement(&mut self, statement: &Statement<'a>) {
+        walk::walk_statement(self, statement);
+        // Only standalone declarations: never insert a statement into a for initializer.
+        let Statement::VariableDeclaration(declaration) = statement else {
+            return;
+        };
+        if declaration.kind != VariableDeclarationKind::Const || declaration.declarations.len() != 1
+        {
+            return;
+        }
+        let declaration_item = &declaration.declarations[0];
+        let BindingPattern::BindingIdentifier(binding) = &declaration_item.id else {
+            return;
+        };
+        let Some(symbol) = binding.symbol_id.get() else {
+            return;
+        };
+        if self.scoping.symbol_scope_id(symbol) == self.scoping.root_scope_id()
+            || self.scoping.symbol_is_mutated(symbol)
+        {
+            return;
+        }
+        let Some(Expression::ArrowFunctionExpression(callback)) = declaration_item.init.as_ref()
+        else {
+            return;
+        };
+        if callback.r#async || !callback.params.items.is_empty() || callback.params.rest.is_some() {
+            return;
+        }
+        let Some(body) = callback.body.as_expression() else {
+            return;
+        };
+        // Direct reads only. Calls, computed access, recursion, mutation and receiver-sensitive
+        // helpers keep their ordinary identity semantics. No getter is invoked to compare it.
+        let input = match body.get_inner_expression() {
+            Expression::Identifier(id) => Some(id.as_ref()),
+            Expression::StaticMemberExpression(member) => Captures::chain(member).map(|(id, _)| id),
+            _ => None,
+        };
+        let Some(input) = input else {
+            return;
+        };
+        let Some(input_symbol) = input
+            .reference_id
+            .get()
+            .and_then(|id| self.scoping.get_reference(id).symbol_id())
+        else {
+            return;
+        };
+        if !self.snapshots.contains(&input_symbol)
+            || input_symbol == symbol
+            || self.scoping.symbol_is_mutated(input_symbol)
+        {
+            return;
+        }
+        let mut captures = Captures {
+            scoping: self.scoping,
+            callback: callback.span,
+            call_start: declaration.span.start,
+            paths: vec![],
+            unknown: false,
+        };
+        captures.visit_arrow_function_expression(callback);
+        if !captures.unknown {
+            self.getters.insert(
+                symbol,
+                NamedGetter {
+                    end: declaration.span.end,
+                    name: binding.name.to_string(),
+                    // Capture the immutable receiver, not its properties: attaching metadata must
+                    // not invoke an accessor or evaluate a guarded property read early.
+                    values: vec![input.name.to_string()],
+                },
+            );
+        }
+    }
+}
+
 struct Lists<'s> {
+    named: HashMap<SymbolId, NamedGetter>,
     scoping: &'s Scoping,
     lists: Vec<SymbolId>,
     /// Where to append the captured values, and their source text.
@@ -226,6 +336,31 @@ impl<'a> Visit<'a> for Lists<'_> {
             let Some(JSXAttributeValue::ExpressionContainer(container)) = &attribute.value else {
                 continue;
             };
+            if let Some(Expression::Identifier(id)) = container.expression.as_expression()
+                && let Some(symbol) = id
+                    .reference_id
+                    .get()
+                    .and_then(|id| self.scoping.get_reference(id).symbol_id())
+                && let Some(getter) = self.named.remove(&symbol)
+            {
+                let site = format!("{}c{}", self.prefix, self.sites.len());
+                self.sites.push(format!("const {site}=Symbol();"));
+                let mut values = getter.values;
+                values.insert(0, site);
+                // Annotate once, at the declaration's lexical scope. This preserves the inferred
+                // function name and identity, avoids shadowed names at use sites, and shares one
+                // site across multiple props without overwriting the function's capture metadata.
+                self.insertions.push((
+                    Span::new(getter.end, getter.end),
+                    format!(
+                        ";{}.captured({},[{}]);",
+                        self.runtime,
+                        getter.name,
+                        values.join(",")
+                    ),
+                ));
+                continue;
+            }
             let Some(Expression::ArrowFunctionExpression(callback)) =
                 container.expression.as_expression()
             else {
@@ -273,6 +408,7 @@ pub fn insertions(
     runtime: &str,
 ) -> (Vec<(Span, String)>, Vec<String>) {
     let mut lists = vec![];
+    let mut factories = vec![];
     for statement in &program.body {
         let Statement::ImportDeclaration(import) = statement else {
             continue;
@@ -282,14 +418,27 @@ pub fn insertions(
         }
         for specifier in import.specifiers.iter().flatten() {
             if let ImportDeclarationSpecifier::ImportSpecifier(specifier) = specifier
-                && specifier.imported.name() == "list"
                 && let Some(symbol) = specifier.local.symbol_id.get()
             {
-                lists.push(symbol);
+                let name = specifier.imported.name();
+                if name == "list" {
+                    lists.push(symbol);
+                }
+                if matches!(name.as_str(), "list" | "view") {
+                    factories.push(symbol);
+                }
             }
         }
     }
+    let mut named = NamedGetters {
+        factories,
+        snapshots: HashSet::new(),
+        scoping,
+        getters: HashMap::new(),
+    };
+    named.visit_program(program);
     let mut visitor = Lists {
+        named: named.getters,
         scoping,
         lists,
         insertions: vec![],

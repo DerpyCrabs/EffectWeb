@@ -44,7 +44,7 @@ Attributes use their HTML names: `class`, `for`, `tabindex`.
 
 ## Events and inputs
 
-Event handlers are ordinary functions. `event.currentTarget` is typed for the element.
+Event handlers are ordinary functions. `event.currentTarget` is typed for the element. A handler may return `null`, `undefined` or a boolean; these are ignored, so conditional handlers need no wrapping.
 
 For a text field, bind `value` and update it in `onInput`. Checkboxes use `checked` and `onChange`.
 

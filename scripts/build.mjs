@@ -16,7 +16,7 @@ for (const { directory: name } of packages) {
   mkdirSync(dist, { recursive: true });
   staged.push(root);
   for (const file of readdirSync(`${root}/src`)) {
-    if (file.endsWith('.json')) {
+    if (file.endsWith('.json') || file.endsWith('.css')) {
       writeFileSync(`${dist}/${file}`, readFileSync(`${root}/src/${file}`));
       continue;
     }
@@ -35,6 +35,8 @@ for (const { directory: name } of packages) {
               'tanstack-form',
               'tanstack-table',
               'keycloak',
+              'shadcn',
+              'base-ui',
             ].includes(name)
               ? { importSource: 'effectweb', runtimeModule: 'effectweb/dom' }
               : { importSource: './index.js', runtimeModule: './dom.js' },
@@ -57,6 +59,11 @@ for (const root of staged) {
   renameSync(`${root}/dist.next`, `${root}/dist`);
 }
 
+// The icon packages are generated into their dist first: @effectweb/shadcn imports them, so its declarations need
+// theirs in place.
+await import('./build-lucide.mjs');
+await import('./build-antd-icons.mjs');
+
 // Declarations are the slow step. Packages only read each other's declarations, so after
 // the two packages the others depend on, the rest are checked together.
 const declarations = (name) =>
@@ -71,7 +78,7 @@ const declarations = (name) =>
       status === 0 ? done() : fail(new Error(`Declarations failed for ${name} (${status}).`)),
     );
   });
-const foundations = ['compiler', 'runtime', 'query'];
+const foundations = ['compiler', 'runtime', 'query', 'base-ui'];
 for (const name of foundations) await declarations(name);
 await Promise.all(
   packages
@@ -79,8 +86,6 @@ await Promise.all(
     .filter((name) => !foundations.includes(name))
     .map(declarations),
 );
-await import('./build-lucide.mjs');
-await import('./build-antd-icons.mjs');
 
 // The site's guides and reference ship in the runtime package as Markdown (`effectweb/docs`).
 const { writePackageDocs } = await import('../website/lib/package-docs.mjs');

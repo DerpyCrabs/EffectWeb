@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "empty",
+  "type": "registry:ui",
+  "title": "Empty",
+  "dependencies": [
+    "class-variance-authority"
+  ],
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/empty.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/empty.tsx",
+      "content": "import { view } from 'effectweb';\nimport { cn } from '@/lib/utils';\nimport { cva, type VariantProps } from 'class-variance-authority';\nimport type { Native, Styled } from '@/lib/types';\n\ntype DivProps = Native<'div'> & Styled;\n\n/** A container for an empty state. */\nexport const Empty = view<DivProps>(({ class: className, children, ...rest }) => (\n  <div\n    data-slot=\"empty\"\n    class={cn(\n      'flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-xl border-dashed p-6 text-center text-balance',\n      className,\n    )}\n    {...rest}\n  >\n    {children}\n  </div>\n));\n\n/** The media, title and description area of an empty state. */\nexport const EmptyHeader = view<DivProps>(({ class: className, children, ...rest }) => (\n  <div\n    data-slot=\"empty-header\"\n    class={cn('flex max-w-sm flex-col items-center gap-2', className)}\n    {...rest}\n  >\n    {children}\n  </div>\n));\n\n/** Classes for plain or icon media in an empty state. */\nexport const emptyMediaVariants = cva(\n  'mb-2 flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0',\n  {\n    variants: {\n      variant: {\n        default: 'bg-transparent',\n        icon: \"flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground [&_svg:not([class*='size-'])]:size-4\",\n      },\n    },\n    defaultVariants: { variant: 'default' },\n  },\n);\n\n/** The visual shown above an empty-state title. */\nexport const EmptyMedia = view<DivProps & VariantProps<typeof emptyMediaVariants>>(\n  ({ class: className, variant, children, ...rest }) => (\n    <div\n      data-slot=\"empty-icon\"\n      data-variant={variant ?? 'default'}\n      class={cn(emptyMediaVariants({ variant }), className)}\n      {...rest}\n    >\n      {children}\n    </div>\n  ),\n);\n\n/** The title text of an empty state. */\nexport const EmptyTitle = view<DivProps>(({ class: className, children, ...rest }) => (\n  <div\n    data-slot=\"empty-title\"\n    class={cn('cn-font-heading text-sm font-medium tracking-tight', className)}\n    {...rest}\n  >\n    {children}\n  </div>\n));\n\n/** Supporting text for an empty state. */\nexport const EmptyDescription = view<DivProps>(({ class: className, children, ...rest }) => (\n  <div\n    data-slot=\"empty-description\"\n    class={cn(\n      'text-sm/relaxed text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary',\n      className,\n    )}\n    {...rest}\n  >\n    {children}\n  </div>\n));\n\n/** The content or actions beneath an empty-state header. */\nexport const EmptyContent = view<DivProps>(({ class: className, children, ...rest }) => (\n  <div\n    data-slot=\"empty-content\"\n    class={cn(\n      'flex w-full max-w-sm min-w-0 flex-col items-center gap-2.5 text-sm text-balance',\n      className,\n    )}\n    {...rest}\n  >\n    {children}\n  </div>\n));\n"
+    }
+  ]
+}

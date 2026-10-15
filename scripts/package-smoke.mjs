@@ -108,6 +108,11 @@ assert.ok(
 for (const name of packages.map(({ metadata }) => metadata.name)) {
   const directory = join(temp, 'node_modules', name);
   const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
+  assert.equal(
+    manifest.repository?.url?.replace(/^git\+/, '').replace(/\.git$/, ''),
+    'https://github.com/DerpyCrabs/EffectWeb',
+    `${name} must pass the release publisher's repository preflight`,
+  );
   if (name === '@effectweb/compiler') {
     assert.equal(manifest.bin, undefined, 'The compiler must not ship a project-check CLI');
     for (const name of ['./project', './tsconfig.json', './oxlint.json'])
@@ -127,6 +132,30 @@ for (const name of packages.map(({ metadata }) => metadata.name)) {
       assert.ok(existsSync(join(directory, target)), `${name}: missing export ${target}`);
   }
 }
+// Verify the new headless package and every styled family subpath in a clean installed consumer.
+writeFileSync(
+  join(temp, 'base-ui-smoke.mjs'),
+  `
+import assert from 'node:assert/strict';
+import { createMenu, MenuTrigger, createCheckbox } from '@effectweb/base-ui';
+
+const menu = createMenu(); menu.setOpen(true);
+assert.equal(menu.source.model().open, true);
+assert.equal(typeof MenuTrigger.build, 'function');
+const checkbox = createCheckbox({ defaultChecked: true });
+assert.equal(checkbox.source.model().checked, true);
+for (const name of ${JSON.stringify(
+    readdirSync('packages/shadcn/src')
+      .filter((file) => file.endsWith('.tsx'))
+      .map((file) => file.slice(0, -4)),
+  )}) {
+  const family = await import('@effectweb/shadcn/' + name);
+  assert.ok(Object.keys(family).length > 0, name);
+}
+menu.lifetime.dispose(); checkbox.lifetime.dispose();
+`,
+);
+run(process.execPath, ['base-ui-smoke.mjs'], temp);
 const { collection } = await import(
   pathToFileURL(join(temp, 'node_modules/effectweb/dist/collection.js')).href
 );

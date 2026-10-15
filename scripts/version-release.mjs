@@ -2,20 +2,20 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { platforms } from './platforms.mjs';
 import { packages } from './packages.mjs';
+import { releaseManifest } from './release-manifest.mjs';
 const version = process.argv[2];
 if (!version || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(version))
   throw new Error('Usage: npm run version:release -- 0.2.0');
+const releaseNames = new Set([
+  ...packages.map(({ metadata }) => metadata.name),
+  ...platforms.map(({ suffix }) => `@effectweb/compiler-${suffix}`),
+]);
 for (const file of [
   'package.json',
   ...packages.map(({ path }) => `${path}/package.json`),
   ...platforms.map(({ suffix }) => `packages/native-${suffix}/package.json`),
 ]) {
-  const data = JSON.parse(readFileSync(file, 'utf8'));
-  data.version = version;
-  if (data.peerDependencies?.effectweb) data.peerDependencies.effectweb = version;
-  if (data.optionalDependencies)
-    for (const name of Object.keys(data.optionalDependencies))
-      data.optionalDependencies[name] = version;
+  const data = releaseManifest(JSON.parse(readFileSync(file, 'utf8')), version, releaseNames);
   writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
 }
 const manifest = 'packages/compiler/native/Cargo.toml';
@@ -36,4 +36,9 @@ const result = spawnSync(
   ['install', '--package-lock-only', '--ignore-scripts'],
   { stdio: 'inherit', shell: process.platform === 'win32' },
 );
-process.exitCode = result.status ?? 1;
+// Registry items pin the EffectWeb packages they install, so regenerate them for the new version.
+const registry =
+  result.status === 0
+    ? spawnSync(process.execPath, ['scripts/shadcn-registry.mjs'], { stdio: 'inherit' })
+    : result;
+process.exitCode = registry.status ?? 1;

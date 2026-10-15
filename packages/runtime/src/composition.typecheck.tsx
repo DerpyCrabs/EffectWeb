@@ -1,5 +1,4 @@
 import { Effect } from 'effect';
-/* oxlint-disable effecttsgo/missing-effect-context -- Negative service-requirement type contracts. */
 import { Context } from 'effect';
 import { component, errorBoundary, program, view } from './index.js';
 import type { Command, Transition } from './program.js';

@@ -7,12 +7,10 @@ import type { JSX } from './jsx.js';
 const previous = Object.freeze({ count: 1, rows: [{ tags: ['a'] }] });
 const shared = shareValue(previous, { count: 1, rows: [{ tags: ['a'] }] });
 shared.count = 2;
-// oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
 shared.rows[0]!.tags.push('b');
 const fieldSharing: ShareFields<{ items: { count: number }[] }> = {
   items(previous, next) {
     previous[0]!.count++;
-    // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
     next.push({ count: 1 });
     return previous;
   },

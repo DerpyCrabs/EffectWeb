@@ -1,7 +1,52 @@
 import { defineConfig } from 'vite-plus';
+import tailwindcss from '@tailwindcss/vite';
+import { readFileSync } from 'node:fs';
 import { effectweb } from './packages/compiler/src/vite';
+
+// The dev server behind the browser tests resolves workspace packages to their sources, so a test
+// never runs against a stale dist. Generated packages (icons) and the compiler keep their builds.
+const sourcePackages = [
+  'runtime',
+  'query',
+  'json-render',
+  'tanstack-router',
+  'tanstack-form',
+  'tanstack-table',
+  'keycloak',
+  'base-ui',
+  'shadcn',
+];
+const sourceAliases = sourcePackages.flatMap((directory) => {
+  const root = new URL(`./packages/${directory}/`, import.meta.url).pathname;
+  const manifest = JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as {
+    name: string;
+    exports: Record<string, string | { import?: string }>;
+  };
+  return Object.entries(manifest.exports).flatMap(([entry, target]) => {
+    const file = typeof target === 'string' ? target : target.import;
+    if (!file?.endsWith('.js')) return [];
+    const subpath = entry === '.' ? '' : entry.slice(1);
+    const source = file.replace(/^\.\/dist\//, `${root}src/`).replace(/\.js$/, '');
+    if (!subpath.includes('*'))
+      return [
+        {
+          find: new RegExp(`^${(manifest.name + subpath).replace(/[/.]/g, '\\$&')}$`),
+          replacement: source,
+        },
+      ];
+    const [before] = subpath.split('*');
+    return [
+      {
+        find: new RegExp(`^${(manifest.name + before).replace(/[/.]/g, '\\$&')}([a-z0-9-]+)$`),
+        replacement: source.replace('*', '$1'),
+      },
+    ];
+  });
+});
 export default defineConfig({
-  plugins: [effectweb()],
+  resolve: { alias: sourceAliases },
+  // Tailwind serves the shadcn fixture's CSS; it touches nothing that does not import it.
+  plugins: [effectweb(), tailwindcss()],
   // Scan dynamically imported browser fixtures and the excluded linked runtime's dependencies.
   // Foreign .jsx fixtures use stubs supplied only by the package smoke test.
   optimizeDeps: {
@@ -20,7 +65,7 @@ export default defineConfig({
     ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**', 'vendor/**', 'website/**'],
     plugins: ['typescript', 'unicorn', 'oxc', 'effecttsgo'],
     jsPlugins: ['./packages/compiler/dist/oxlint.js'],
-    options: { typeAware: true, typeCheck: true },
+    options: { typeAware: true, typeCheck: true, reportUnusedDisableDirectives: 'error' },
     rules: {
       'effecttsgo/missing-effect-context': 'error',
       'effecttsgo/missing-effect-error': 'error',
@@ -73,6 +118,15 @@ export default defineConfig({
     },
     overrides: [
       {
+        // Negative type contracts pass Effects that deliberately miss services or errors. The
+        // type-aware Effect rules report them inconsistently between runs, so they are off here.
+        files: ['**/*.typecheck.ts', '**/*.typecheck.tsx'],
+        rules: {
+          'effecttsgo/missing-effect-context': 'off',
+          'effecttsgo/missing-effect-error': 'off',
+        },
+      },
+      {
         files: ['packages/runtime/src/**'],
         rules: { 'effectweb/valid-view': ['error', { importSource: './index.js' }] },
       },
@@ -96,6 +150,8 @@ export default defineConfig({
       'vendor/**',
       'website/node_modules/**',
       'website/.astro/**',
+      'packages/shadcn/registry/**',
+      'website/public/r/**',
     ],
     semi: true,
     singleQuote: true,

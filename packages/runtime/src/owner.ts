@@ -1,5 +1,5 @@
 import { equalKeys, copyKey, KeyMap } from './command-key.js';
-import { protectSnapshot } from './snapshot.js';
+import { patchSnapshot, protectSnapshot } from './snapshot.js';
 import * as Cause from 'effect/Cause';
 import * as Deferred from 'effect/Deferred';
 import * as Effect from 'effect/Effect';
@@ -179,7 +179,7 @@ export function createModelOwner<Model extends object, R>(
   options: Options & { runtime?: OwnerRuntime<R> } = {},
 ): ModelOwner<Model, R> {
   type Operation =
-    | { type: 'Patch'; changes: Partial<Model> }
+    | { type: 'Patch'; changes: Partial<Model>; model?: Model }
     | {
         type: 'Run';
         key: RunKey;
@@ -192,6 +192,7 @@ export function createModelOwner<Model extends object, R>(
     | { type: 'Cancel'; key: RunKey };
   type Batch = readonly Operation[];
   let disposed = false;
+  let sending = false;
   const notStarted = new Set<() => void>();
   const discardUnstarted = () => {
     for (const discard of notStarted) discard();
@@ -213,12 +214,12 @@ export function createModelOwner<Model extends object, R>(
       let model = snapshot as Model;
       const single = operations.length === 1 ? operations[0] : undefined;
       if (single?.type === 'Patch')
-        return { model: patchModel(model, single.changes as Partial<Model>) };
+        return { model: single.model ?? patchModel(model, single.changes) };
       const commands: OwnedCommand<Batch, R>[] = [];
       const cancel = new Set<RunKey>();
       for (const operation of operations) {
         if (operation.type === 'Patch')
-          model = patchModel(model, operation.changes as Partial<Model>);
+          model = operation.model ?? patchModel(model, operation.changes);
         else if (operation.type === 'Cancel') {
           cancel.add(operation.key);
           for (let index = commands.length - 1; index >= 0; index--)
@@ -256,15 +257,32 @@ export function createModelOwner<Model extends object, R>(
     }
     submitBatch([operation]);
   };
-  const patch = (changes: Partial<Model>) => submit({ type: 'Patch', changes });
+  const patch = (changes: Partial<Model>) => {
+    if (!disposed) submit({ type: 'Patch', changes: sending ? { ...changes } : changes });
+  };
   const submitBatch = (operations: Batch) => {
     let next = accepted;
     for (const operation of operations)
-      if (operation.type === 'Patch') next = patchModel(next, operation.changes as Partial<Model>);
+      if (operation.type === 'Patch') {
+        next =
+          operations.length === 1
+            ? patchSnapshot(next, operation.changes)
+            : patchModel(next, operation.changes);
+        // Reuse the immediate publication, but keep queued writes as compact patches:
+        // retaining a wide snapshot for every reentrant write multiplies peak memory.
+        if (!sending) operation.model = next;
+      }
     // Commands and publication callbacks can enqueue patches while the program is draining.
     // Reads observe accepted writes immediately; views still receive committed publications.
     accepted = protectSnapshot(next) as Model;
-    source.send(operations);
+    const previous = sending;
+    sending = true;
+    try {
+      source.send(operations);
+      if (!previous && !disposed) accepted = source.model();
+    } finally {
+      sending = previous;
+    }
   };
   const dispose = () => {
     if (disposed) return;

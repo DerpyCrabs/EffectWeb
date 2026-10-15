@@ -1,0 +1,20 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "aspect-ratio",
+  "type": "registry:ui",
+  "title": "Aspect Ratio",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/types"
+  ],
+  "files": [
+    {
+      "path": "ui/aspect-ratio.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/aspect-ratio.tsx",
+      "content": "import { controlStyle } from '@effectweb/base-ui/control-style';\nimport { view } from 'effectweb';\nimport type { Native, Styled } from '@/lib/types';\n/** Intrinsic CSS aspect ratio; children may use size-full/object-cover. */\nexport const AspectRatio = view<Native<'div'> & Styled & { readonly ratio?: number | undefined }>(\n  ({ ratio = 1, style, ...rest }) => (\n    <div\n      data-slot=\"aspect-ratio\"\n      {...rest}\n      style={controlStyle(\n        { position: 'relative', width: '100%', aspectRatio: String(ratio > 0 ? ratio : 1) },\n        style,\n      )}\n    />\n  ),\n);\n"
+    }
+  ]
+}

@@ -364,6 +364,13 @@ fn children_stateful(children: &[JSXChild<'_>]) -> bool {
 pub struct InlineBindings {
     pub spans: Vec<Span>,
     pub sources_inline: Vec<Span>,
+    /// `domBinding(data, setup)` whose setup reads its data once and returns no `update`.
+    pub stale_reads: Vec<Span>,
+    /// Module-level setups that read `input()` while acquiring and keep no `update`.
+    once_readers: Vec<String>,
+    /// Bindings spread into `{ ...domBinding(data, setup), identity }`: a new identity acquires
+    /// again, so reading the data once is intended.
+    keyed: Vec<Span>,
     views: Vec<String>,
     mounts: Vec<String>,
     bindings: Vec<String>,
@@ -376,6 +383,9 @@ impl InlineBindings {
         let mut found = Self {
             spans: vec![],
             sources_inline: vec![],
+            stale_reads: vec![],
+            once_readers: once_readers(program),
+            keyed: vec![],
             views: vec![],
             mounts: vec![],
             bindings: vec![],
@@ -424,6 +434,17 @@ fn inline_function(argument: Option<&Argument<'_>>) -> bool {
 impl<'a> Visit<'a> for InlineBindings {
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
         let name = Self::callee(call);
+        if name.is_some_and(|name| self.bindings.iter().any(|b| b == name))
+            && let Some(Expression::Identifier(setup)) = call
+                .arguments
+                .get(1)
+                .and_then(Argument::as_expression)
+                .map(Expression::without_parentheses)
+            && self.once_readers.iter().any(|r| r == setup.name.as_str())
+            && !self.keyed.contains(&call.span)
+        {
+            self.stale_reads.push(call.span);
+        }
         let is_view = name.is_some_and(|name| self.views.iter().any(|v| v == name));
         if self.depth > 0
             && let Some(name) = name
@@ -452,10 +473,162 @@ impl<'a> Visit<'a> for InlineBindings {
             self.depth -= 1;
         }
     }
+    fn visit_object_expression(&mut self, object: &ObjectExpression<'a>) {
+        let has_identity = object.properties.iter().any(|property| {
+            matches!(property, ObjectPropertyKind::ObjectProperty(property)
+                if property.key.static_name().is_some_and(|name| name == "identity"))
+        });
+        if has_identity {
+            for property in &object.properties {
+                if let ObjectPropertyKind::SpreadProperty(spread) = property
+                    && let Expression::CallExpression(call) = spread.argument.without_parentheses()
+                {
+                    self.keyed.push(call.span);
+                }
+            }
+        }
+        walk::walk_object_expression(self, object);
+    }
     fn visit_jsx_attribute(&mut self, attribute: &JSXAttribute<'a>) {
         // Attribute expressions are evaluated on every render, even outside view(...).
         self.depth += 1;
         walk::walk_jsx_attribute(self, attribute);
         self.depth -= 1;
     }
+}
+
+/// Module-level functions used as `domBinding` setups that call their `input` parameter while
+/// acquiring and return no object with `update`: later data never reaches the element. A setup
+/// that reads `input()` inside an event handler or in `update` sees current data and is fine.
+fn once_readers(program: &Program<'_>) -> Vec<String> {
+    let mut found = vec![];
+    for statement in &program.body {
+        let declaration = match statement {
+            Statement::ExportDeclaration(export) => Some(&export.declaration),
+            other => other.as_declaration(),
+        };
+        match declaration {
+            Some(Declaration::FunctionDeclaration(function)) => {
+                if let (Some(id), Some(body)) = (&function.id, &function.body)
+                    && let Some(input) = input_parameter(&function.params)
+                    && reads_once(&body.statements, None, &input)
+                {
+                    found.push(id.name.to_string());
+                }
+            }
+            Some(Declaration::VariableDeclaration(variables)) => {
+                for declarator in &variables.declarations {
+                    let (BindingPattern::BindingIdentifier(id), Some(init)) =
+                        (&declarator.id, &declarator.init)
+                    else {
+                        continue;
+                    };
+                    let stale = match init.without_parentheses() {
+                        Expression::ArrowFunctionExpression(arrow) => {
+                            input_parameter(&arrow.params).is_some_and(|input| match &arrow.body {
+                                ArrowFunctionBody::FunctionBody(body) => {
+                                    reads_once(&body.statements, None, &input)
+                                }
+                                body => body.as_expression().is_some_and(|expression| {
+                                    reads_once(&[], Some(expression), &input)
+                                }),
+                            })
+                        }
+                        Expression::FunctionExpression(function) => {
+                            function.body.as_ref().is_some_and(|body| {
+                                input_parameter(&function.params)
+                                    .is_some_and(|input| reads_once(&body.statements, None, &input))
+                            })
+                        }
+                        _ => false,
+                    };
+                    if stale {
+                        found.push(id.name.to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    found
+}
+
+fn input_parameter(params: &FormalParameters<'_>) -> Option<String> {
+    match &params.items.get(1)?.pattern {
+        BindingPattern::BindingIdentifier(id) => Some(id.name.to_string()),
+        _ => None,
+    }
+}
+
+/// True when the body calls `input()` outside nested functions and every result it returns is
+/// known to lack `update`: nothing, a cleanup function, or an object literal without `update`.
+fn reads_once(
+    statements: &[Statement<'_>],
+    expression_body: Option<&Expression<'_>>,
+    input: &str,
+) -> bool {
+    let mut scan = SetupScan {
+        input,
+        reads: false,
+        unknown_result: false,
+        returns: 0,
+    };
+    if let Some(expression) = expression_body {
+        scan.visit_expression(expression);
+        scan.result(Some(expression));
+    } else {
+        for statement in statements {
+            scan.visit_statement(statement);
+        }
+    }
+    scan.reads && !scan.unknown_result
+}
+
+struct SetupScan<'s> {
+    input: &'s str,
+    reads: bool,
+    unknown_result: bool,
+    returns: usize,
+}
+impl SetupScan<'_> {
+    fn result(&mut self, value: Option<&Expression<'_>>) {
+        self.returns += 1;
+        match value.map(Expression::without_parentheses) {
+            None
+            | Some(Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)) => {}
+            Some(Expression::ObjectExpression(object)) => {
+                let has_update = object.properties.iter().any(|property| match property {
+                    ObjectPropertyKind::ObjectProperty(property) => property
+                        .key
+                        .static_name()
+                        .is_some_and(|name| name == "update"),
+                    ObjectPropertyKind::SpreadProperty(_) => true,
+                });
+                if has_update {
+                    self.unknown_result = true;
+                }
+            }
+            // A variable, a call or an Effect may carry `update` or keep reading input.
+            Some(_) => self.unknown_result = true,
+        }
+    }
+}
+impl<'a> Visit<'a> for SetupScan<'_> {
+    fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
+        if let Expression::Identifier(id) = call.callee.without_parentheses()
+            && id.name == self.input
+        {
+            self.reads = true;
+        }
+        walk::walk_call_expression(self, call);
+    }
+    fn visit_return_statement(&mut self, statement: &ReturnStatement<'a>) {
+        if let Some(argument) = &statement.argument {
+            self.visit_expression(argument);
+        }
+        self.result(statement.argument.as_ref());
+    }
+    // Reads inside handlers or `update` see current data; returns there are not the setup's.
+    fn visit_function(&mut self, _: &Function<'a>, _: oxc::syntax::scope::ScopeFlags) {}
+    fn visit_arrow_function_expression(&mut self, _: &ArrowFunctionExpression<'a>) {}
 }

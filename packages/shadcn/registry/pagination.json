@@ -1,0 +1,22 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "pagination",
+  "type": "registry:ui",
+  "title": "Pagination",
+  "dependencies": [
+    "@effectweb/lucide@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/button",
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/pagination.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/pagination.tsx",
+      "content": "import { view } from 'effectweb';\nimport ChevronLeft from '@effectweb/lucide/icons/chevron-left';\nimport ChevronRight from '@effectweb/lucide/icons/chevron-right';\nimport Ellipsis from '@effectweb/lucide/icons/ellipsis';\nimport { buttonVariants } from '@/components/ui/button';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\n\n/** A navigation landmark for page links. */\nexport const Pagination = view<Native<'nav'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <nav\n      role=\"navigation\"\n      aria-label=\"pagination\"\n      data-slot=\"pagination\"\n      class={cn('mx-auto flex w-full justify-center', className)}\n      {...rest}\n    >\n      {children}\n    </nav>\n  ),\n);\n\n/** The list of pagination controls. */\nexport const PaginationContent = view<Native<'ul'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <ul data-slot=\"pagination-content\" class={cn('flex items-center gap-0.5', className)} {...rest}>\n      {children}\n    </ul>\n  ),\n);\n\n/** One pagination list item. */\nexport const PaginationItem = view<Native<'li'> & Styled>(({ children, ...rest }) => (\n  <li data-slot=\"pagination-item\" {...rest}>\n    {children}\n  </li>\n));\n\ntype LinkProps = Native<'a'> &\n  Styled & {\n    readonly active?: boolean | undefined;\n    readonly size?: 'default' | 'icon' | undefined;\n  };\n\n/** A page anchor with an optional active state. */\nexport const PaginationLink = view<LinkProps>(\n  ({ class: className, active, size, children, ...rest }) => (\n    <a\n      aria-current={active ? 'page' : undefined}\n      data-slot=\"pagination-link\"\n      data-active={active ? 'true' : undefined}\n      class={cn(\n        buttonVariants({ variant: active ? 'outline' : 'ghost', size: size ?? 'icon' }),\n        className,\n      )}\n      {...rest}\n    >\n      {children}\n    </a>\n  ),\n);\n\n/** An anchor to the previous page, with an optional text label. */\nexport const PaginationPrevious = view<LinkProps & { readonly text?: string | undefined }>(\n  ({ class: className, text, ...rest }) => (\n    <PaginationLink\n      aria-label=\"Go to previous page\"\n      size=\"default\"\n      class={cn('pl-1.5!', className)}\n      {...rest}\n    >\n      <ChevronLeft data-icon=\"inline-start\" class=\"cn-rtl-flip\" />\n      <span class=\"hidden sm:block\">{text ?? 'Previous'}</span>\n    </PaginationLink>\n  ),\n);\n\n/** An anchor to the next page, with an optional text label. */\nexport const PaginationNext = view<LinkProps & { readonly text?: string | undefined }>(\n  ({ class: className, text, ...rest }) => (\n    <PaginationLink\n      aria-label=\"Go to next page\"\n      size=\"default\"\n      class={cn('pr-1.5!', className)}\n      {...rest}\n    >\n      <span class=\"hidden sm:block\">{text ?? 'Next'}</span>\n      <ChevronRight data-icon=\"inline-end\" class=\"cn-rtl-flip\" />\n    </PaginationLink>\n  ),\n);\n\n/** A decorative indicator for omitted pages. */\nexport const PaginationEllipsis = view<Native<'span'> & { readonly class?: string | undefined }>(\n  ({ class: className, ...rest }) => (\n    <span\n      aria-hidden=\"true\"\n      data-slot=\"pagination-ellipsis\"\n      class={cn(\n        \"flex size-8 items-center justify-center [&_svg:not([class*='size-'])]:size-4\",\n        className,\n      )}\n      {...rest}\n    >\n      <Ellipsis />\n      <span class=\"sr-only\">More pages</span>\n    </span>\n  ),\n);\n"
+    }
+  ]
+}

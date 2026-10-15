@@ -1,7 +1,8 @@
+// @vitest-environment happy-dom
 import { Cause, Effect } from 'effect';
 import { expect, it } from 'vitest';
 import { attach, Scope } from './dom.js';
-import { domMount } from './mount.js';
+import { domBinding, domMount } from './mount.js';
 
 it.each(['callback', 'object', 'effect'] as const)(
   'disposes a %s acquired while its owner removes itself',
@@ -125,4 +126,27 @@ it('settles close for setup that returns no cleanup', async () => {
   await expect.poll(() => started).toBe(1);
   scope.dispose();
   await Effect.runPromise(Effect.timeout(scope.settlement.wait(), 1000));
+});
+
+it('keeps one instance and calls update when setup returns an update method', async () => {
+  const scope = new Scope('first', () => {});
+  const element = document.createElement('div');
+  let acquired = 0;
+  const updates: string[] = [];
+  const keep = (_element: Element, input: () => string) => {
+    acquired++;
+    return { update: () => updates.push(input()), dispose: () => {} };
+  };
+  attach(
+    scope,
+    element,
+    () => [scope.value],
+    () => domBinding(scope.value, keep),
+  );
+  await Promise.resolve();
+  scope.set('second');
+  await Promise.resolve();
+  expect(acquired).toBe(1);
+  expect(updates).toEqual(['second']);
+  scope.dispose();
 });

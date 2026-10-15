@@ -1,0 +1,18 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "kbd",
+  "type": "registry:ui",
+  "title": "Kbd",
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/kbd.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/kbd.tsx",
+      "content": "import { view } from 'effectweb';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\n\n/** A keyboard key or shortcut rendered as kbd. */\nexport const Kbd = view<Native<'kbd'> & Styled>(({ class: className, children, ...rest }) => (\n  <kbd\n    data-slot=\"kbd\"\n    class={cn(\n      \"pointer-events-none inline-flex h-5 w-fit min-w-5 items-center justify-center gap-1 rounded-sm bg-muted px-1 font-sans text-xs font-medium text-muted-foreground select-none in-data-[slot=tooltip-content]:bg-background/20 in-data-[slot=tooltip-content]:text-background dark:in-data-[slot=tooltip-content]:bg-background/10 [&_svg:not([class*='size-'])]:size-3\",\n      className,\n    )}\n    {...rest}\n  >\n    {children}\n  </kbd>\n));\n\n/** A container for a sequence of keyboard keys. */\nexport const KbdGroup = view<Native<'kbd'> & Styled>(({ class: className, children, ...rest }) => (\n  <kbd data-slot=\"kbd-group\" class={cn('inline-flex items-center gap-1', className)} {...rest}>\n    {children}\n  </kbd>\n));\n"
+    }
+  ]
+}

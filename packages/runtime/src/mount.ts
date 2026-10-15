@@ -22,7 +22,11 @@ export interface DomMount<T extends Element = Element> {
 export function domMount<T extends Element>(start: (element: T) => Work): DomMount<T> {
   return { identity: start, data: undefined, acquire: (element) => start(element) };
 }
-/** A stable DOM lifecycle with fresh immutable inputs, for focus, measurements and native events. */
+/**
+ * A DOM lifecycle that follows changing data. Setup runs once; return `{ update, dispose }` and
+ * read the current data through `input()` in `update`, or read `input()` inside the handlers it
+ * adds. A value read into a variable during setup never changes (EW3008).
+ */
 export function domBinding<T extends Element, A>(
   data: A,
   acquire: (element: T, input: () => A) => Work,

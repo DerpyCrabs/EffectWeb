@@ -15,7 +15,6 @@ it('protects cached data before an observer or retained loader reference can mut
     const value = available(result);
     if (value) {
       expect(() => {
-        // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
         value.names.push('observer mutation');
       }).toThrow(TypeError);
       seen.push(value.names[0]!);

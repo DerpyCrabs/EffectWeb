@@ -3,8 +3,11 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { parse } from 'yuku-parser';
 import { reasons } from './reasons.mjs';
+import { apiCoverageProblems } from './api-coverage.mjs';
 
 const upstream = {
+  cn: 'https://github.com/shadcn-ui/cn',
+  'class-variance-authority': 'https://cva.style/docs',
   '@tanstack/router-core': 'https://tanstack.com/router/latest/docs/framework/react/api/router',
   '@tanstack/history':
     'https://tanstack.com/router/latest/docs/framework/react/guide/history-types',
@@ -15,7 +18,9 @@ const upstream = {
   '@lucide/icons/build': 'https://lucide.dev/guide/packages/lucide',
 };
 const repository = 'https://github.com/DerpyCrabs/EffectWeb/blob/main/';
-const modules = [
+export const modules = [
+  ['base-ui', 'index', '@effectweb/base-ui', 'Headless parts with explicit controllers.'],
+  ['shadcn', 'index', '@effectweb/shadcn', 'shadcn/ui components on native elements.'],
   ['runtime', 'index', 'effectweb', 'Everyday views, state, owned work and DOM access.'],
   [
     'runtime',
@@ -79,7 +84,19 @@ const modules = [
 // Reference pages, each listing one or more entry points. `categories` groups a single
 // entry point's exports under topic headings; every export must appear in one.
 /** @type {{ slug: string, title: string, description: string, entries: string[], categories?: [string, string[]][], internal?: boolean, icons?: boolean }[]} */
-const referencePages = [
+export const referencePages = [
+  {
+    slug: 'base-ui',
+    title: '@effectweb/base-ui',
+    description: 'Headless UI parts and controllers.',
+    entries: ['@effectweb/base-ui'],
+  },
+  {
+    slug: 'shadcn',
+    title: '@effectweb/shadcn',
+    description: 'shadcn/ui components on native elements.',
+    entries: ['@effectweb/shadcn'],
+  },
   {
     slug: 'runtime',
     title: 'effectweb',
@@ -192,6 +209,9 @@ const referencePages = [
 ];
 export const apiSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 export function createApi(root) {
+  // Report every missing description at once; the same check runs in the unit tests.
+  const problems = apiCoverageProblems();
+  if (problems.length) throw new Error(`API reference is incomplete:\n${problems.join('\n')}`);
   execFileSync(
     process.execPath,
     [
@@ -208,6 +228,10 @@ export function createApi(root) {
     'effectweb/jsx-dev-runtime',
     'effectweb/jsx',
     '@effectweb/compiler/oxlint-preset.json',
+    '@effectweb/shadcn/theme.css',
+    '@effectweb/shadcn/cn',
+    '@effectweb/shadcn/*',
+    '@effectweb/base-ui/*',
     '@effectweb/lucide/icons/*',
     '@effectweb/antd-icons/icons/*',
   ])
@@ -218,7 +242,11 @@ export function createApi(root) {
     );
     for (const entry of Object.keys(manifest.exports)) {
       const name = entry === '.' ? manifest.name : manifest.name + entry.slice(1);
-      if (!covered.has(name)) throw new Error(`Missing documentation for package entry: ${name}`);
+      // A package that documents its family modules as `name/*` covers each enumerated subpath.
+      const wildcard = `${manifest.name}/*`;
+      const familyModule = covered.has(wildcard) && name.startsWith(`${manifest.name}/`);
+      if (!covered.has(name) && !familyModule)
+        throw new Error(`Missing documentation for package entry: ${name}`);
     }
   }
   const cache = new Map();
@@ -306,7 +334,15 @@ export function createApi(root) {
         .join('\n')
         .trim();
       const isType = /(?:interface|type |namespace)/.test(snippets[0].slice(0, 65));
-      const why = reasons[`${importPath}:${name}`] ?? reasons[name] ?? doc;
+      // A symbol re-exported from another workspace package keeps that package's rationale.
+      const origin = symbol.file.match(/packages\/([^/]+)\/src\//)?.[1];
+      const originPath =
+        origin === 'runtime' ? 'effectweb' : origin ? `@effectweb/${origin}` : undefined;
+      const why =
+        reasons[`${importPath}:${name}`] ??
+        (originPath && reasons[`${originPath}:${name}`]) ??
+        reasons[name] ??
+        doc;
       if (!why && !isType) throw new Error(`Missing API rationale: ${importPath}:${name}`);
       if (why) body += why + '\n\n';
       body +=
@@ -348,6 +384,8 @@ export function createApi(root) {
     return body;
   };
   const notes = {
+    '@effectweb/shadcn':
+      'Family modules such as `@effectweb/shadcn/button` export the same components. `@effectweb/shadcn/cn` exports the class helpers. Import `@effectweb/shadcn/theme.css` after Tailwind and include the package in Tailwind’s sources; see [shadcn/ui components](/docs/shadcn/).',
     '@effectweb/compiler/lint-preset':
       'For JSON configuration, extend `./node_modules/@effectweb/compiler/dist/oxlint-preset.json` instead.',
     '@effectweb/tanstack-table':

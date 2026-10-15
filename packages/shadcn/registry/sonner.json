@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "sonner",
+  "type": "registry:ui",
+  "title": "Sonner",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/sonner.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/sonner.tsx",
+      "content": "import { controlStyle } from '@effectweb/base-ui/control-style';\nimport { domBinding, entities, list, observe, view } from 'effectweb';\nimport {\n  ToastViewport,\n  ToastRoot,\n  ToastTitle,\n  ToastDescription,\n  ToastClose,\n  type ToastManager,\n} from '@effectweb/base-ui/toast';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\nexport {\n  createToastManager,\n  ToastAction,\n  type ToastManager,\n  type ToastData,\n} from '@effectweb/base-ui/toast';\nconst acquireTheme = (element: HTMLElement) => {\n  const root = element.ownerDocument.documentElement;\n  const update = () => {\n    element.dataset.theme = root.classList.contains('dark') ? 'dark' : 'light';\n  };\n  const observer = new MutationObserver(update);\n  observer.observe(root, { attributes: true, attributeFilter: ['class'] });\n  update();\n  return { dispose: () => observer.disconnect() };\n};\n/** Styled Toaster part with native attributes and theme classes. */\nexport const Toaster = view<Native<'div'> & Styled & { readonly manager: ToastManager }>(\n  ({ manager, class: className, style, ...rest }) => (\n    <div use={domBinding(null, acquireTheme)}>\n      <ToastViewport\n        {...rest}\n        manager={manager}\n        data-slot=\"toaster\"\n        class={cn(\n          'toaster group fixed right-4 bottom-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2',\n          className,\n        )}\n        style={controlStyle(\n          {\n            '--normal-bg': 'var(--popover)',\n            '--normal-text': 'var(--popover-foreground)',\n            '--normal-border': 'var(--border)',\n            '--border-radius': 'var(--radius)',\n          },\n          style,\n        )}\n      >\n        {observe(manager.source, (state) =>\n          list(entities(state.toasts), (toast) => (\n            <ToastRoot\n              manager={manager}\n              toast={toast}\n              class=\"cn-toast relative flex flex-col gap-1 rounded-(--border-radius) border border-(--normal-border) bg-(--normal-bg) p-4 pr-9 text-sm text-(--normal-text) shadow-lg\"\n            >\n              <ToastTitle toast={toast} class=\"font-medium\" />\n              {toast.description ? (\n                <ToastDescription toast={toast} class=\"text-muted-foreground\" />\n              ) : null}\n              <ToastClose\n                manager={manager}\n                toast={toast}\n                class=\"absolute top-2 right-2 rounded-sm p-1 hover:bg-muted\"\n              >\n                ×\n              </ToastClose>\n            </ToastRoot>\n          )),\n        )}\n      </ToastViewport>\n    </div>\n  ),\n);\n"
+    }
+  ]
+}

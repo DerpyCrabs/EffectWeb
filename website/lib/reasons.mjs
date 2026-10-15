@@ -1,4 +1,6 @@
 export const reasons = {
+  '@effectweb/shadcn:place':
+    'Compute overlay coordinates from anchor, overlay and viewport dimensions, flipping and clamping to fit.',
   Source:
     'The observation contract: read the current immutable model and subscribe to publications. Adapters implement this so views do not need to understand their mutable stores.',
   ModelFields:
@@ -139,7 +141,7 @@ Object.assign(reasons, {
   Collection:
     'A reusable identity strategy and its row and structural-sharing operations. Use when several transformations must agree on what counts as the same entity.',
   ControllerLifetime:
-    'What a placement releases with its controller: the owner it created, or any object with dispose and an optional awaited close. A placement calls dispose on removal and waits for close during awaited teardown.',
+    'What a placement releases with its controller: the owner it created, or any object with dispose and an optional awaited close. A placement calls dispose on removal and waits for close during awaited teardown. A lifetime does not collect other resources; give those to the owner with owner.own(resource).',
   ViewController:
     'The shape of a controller: a source, a lifetime, optional prop reception, and methods. controllerView passes its methods to the view as model.actions, so mutable methods stay out of snapshots.',
   ControllerModel:
@@ -254,4 +256,38 @@ Object.assign(reasons, {
     'The common view type of generated Ant Design icons. Use it when a component accepts an icon implementation rather than one fixed import.',
   IconNode:
     'The readonly SVG node representation consumed by the Ant Design icon factory. It carries geometry, not a mutable mounted DOM element.',
+});
+
+Object.assign(reasons, {
+  createDrawer:
+    'Create an explicit modal drawer handle. Drawer shares Dialog focus, dismissal and presence; edge styling belongs to the styled Sheet/Drawer parts.',
+  '@effectweb/base-ui:FieldState':
+    'The field family snapshot: disabled, invalid, touched and dirty flags, without unrelated selection or overlay fields.',
+});
+
+Object.assign(reasons, {
+  '@effectweb/base-ui:ContextMenuItem':
+    'A context menu entry; the shared Menu item with the context menu handle.',
+  '@effectweb/base-ui:ContextMenuCheckboxItem': 'A context menu entry with a checked state.',
+  '@effectweb/base-ui:ContextMenuRadioGroup': 'Groups radio entries of a context menu.',
+  '@effectweb/base-ui:ContextMenuRadioItem':
+    'A context menu entry selected when its `value` matches the handle value.',
+  '@effectweb/base-ui:ContextMenuSubmenuTrigger':
+    'An entry that opens a context submenu created with `createContextMenu({ parent })`.',
+  '@effectweb/base-ui:ContextMenuGroup': 'Groups context menu entries under a label.',
+  '@effectweb/base-ui:ContextMenuGroupLabel': 'The label of a context menu group.',
+  '@effectweb/base-ui:ContextMenuSeparator': 'A separator between context menu groups.',
+  '@effectweb/base-ui:MenubarItem':
+    'A menubar menu entry; the shared Menu item with a menubar menu handle.',
+  '@effectweb/base-ui:MenubarCheckboxItem': 'A menubar menu entry with a checked state.',
+  '@effectweb/base-ui:MenubarRadioGroup': 'Groups radio entries of a menubar menu.',
+  '@effectweb/base-ui:MenubarRadioItem':
+    'A menubar menu entry selected when its `value` matches the menu value.',
+  '@effectweb/base-ui:MenubarSubmenuTrigger':
+    'An entry that opens a submenu created with `createMenubarSubmenu({ parent })`.',
+  '@effectweb/base-ui:MenubarGroup': 'Groups menubar menu entries under a label.',
+  '@effectweb/base-ui:MenubarGroupLabel': 'The label of a menubar menu group.',
+  '@effectweb/base-ui:MenubarSeparator': 'A separator between menubar menu groups.',
+  '@effectweb/base-ui:createMenubarSubmenu':
+    'Create a submenu handle for a menubar menu; Left returns to the parent and Right moves to the next top-level menu.',
 });

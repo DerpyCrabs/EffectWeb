@@ -16,7 +16,9 @@
     "paths": {
       "effectweb": ["./packages/runtime/src/index.ts"],
       "effectweb/*": ["./packages/runtime/src/*.ts"],
-      "@effectweb/query": ["./packages/query/src/index.ts"]
+      "@effectweb/query": ["./packages/query/src/index.ts"],
+      "@effectweb/base-ui": ["./packages/base-ui/src/index.ts"],
+      "@effectweb/base-ui/*": ["./packages/base-ui/src/*.ts"]
     },
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,

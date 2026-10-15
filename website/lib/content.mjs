@@ -42,6 +42,12 @@ export async function createContent(root) {
   );
   const guides = 'Guides';
   await file(
+    'base-ui',
+    'Headless Base UI',
+    'Compose headless UI parts with explicit controllers.',
+    guides,
+  );
+  await file(
     'views',
     'Views and JSX',
     'Write views, pass children, handle events and report actions to the parent.',
@@ -63,9 +69,21 @@ export async function createContent(root) {
   );
   await file('queries', 'Server data', 'Load, cache, refresh and paginate server data.', guides);
   await file(
+    'live',
+    'Live data',
+    'Refresh data while preserving row identity and the reader’s place.',
+    guides,
+  );
+  await file(
     'forms',
     'Forms',
     'Small forms with controlled inputs, large forms with validation.',
+    guides,
+  );
+  await file(
+    'shadcn',
+    'shadcn/ui components',
+    'Native elements with shadcn/ui styling and EffectWeb state.',
     guides,
   );
   await file('dom', 'DOM', 'Focus, measure and attach libraries to elements.', guides);

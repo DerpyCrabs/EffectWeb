@@ -1,5 +1,9 @@
 These packages connect existing libraries to EffectWeb. The library keeps its own behavior; the adapter publishes copies of its state as immutable snapshots and ties its subscriptions to an owner. Install them at the same version as `effectweb`.
 
+## Components
+
+`@effectweb/shadcn` provides shadcn/ui components on native elements, styled with Tailwind v4. See [shadcn/ui components](/docs/shadcn/) for setup, composition and theming.
+
 ## Routing
 
 `@effectweb/tanstack-router` uses TanStack Router for matching, route trees, loaders, search validation and redirects.

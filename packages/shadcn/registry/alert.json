@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "alert",
+  "type": "registry:ui",
+  "title": "Alert",
+  "dependencies": [
+    "class-variance-authority"
+  ],
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/alert.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/alert.tsx",
+      "content": "import { view } from 'effectweb';\nimport { cn } from '@/lib/utils';\nimport { cva, type VariantProps } from 'class-variance-authority';\nimport type { Native, Styled } from '@/lib/types';\n\ntype DivProps = Native<'div'> & Styled;\n\n/** Classes for the default and destructive alert variants. */\nexport const alertVariants = cva(\n  \"group/alert relative grid w-full gap-0.5 rounded-lg border px-2.5 py-2 text-left text-sm has-data-[slot=alert-action]:relative has-data-[slot=alert-action]:pr-18 has-[>svg]:grid-cols-[auto_1fr] has-[>svg]:gap-x-2 *:[svg]:row-span-2 *:[svg]:translate-y-0.5 *:[svg]:text-current *:[svg:not([class*='size-'])]:size-4\",\n  {\n    variants: {\n      variant: {\n        default: 'bg-card text-card-foreground',\n        destructive:\n          'bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current',\n      },\n    },\n    defaultVariants: { variant: 'default' },\n  },\n);\n\n/** A styled alert region. Compose its title, description and action as children. */\nexport const Alert = view<DivProps & VariantProps<typeof alertVariants>>(\n  ({ class: className, variant, children, ...rest }) => (\n    <div data-slot=\"alert\" role=\"alert\" class={cn(alertVariants({ variant }), className)} {...rest}>\n      {children}\n    </div>\n  ),\n);\n\n/** The alert heading text. */\nexport const AlertTitle = view<DivProps>(({ class: className, children, ...rest }) => (\n  <div\n    data-slot=\"alert-title\"\n    class={cn(\n      'font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground',\n      className,\n    )}\n    {...rest}\n  >\n    {children}\n  </div>\n));\n\n/** Supporting content inside an alert. */\nexport const AlertDescription = view<DivProps>(({ class: className, children, ...rest }) => (\n  <div\n    data-slot=\"alert-description\"\n    class={cn(\n      'text-sm text-balance text-muted-foreground md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4',\n      className,\n    )}\n    {...rest}\n  >\n    {children}\n  </div>\n));\n\n/** An action placed at the upper right of an alert. */\nexport const AlertAction = view<DivProps>(({ class: className, children, ...rest }) => (\n  <div data-slot=\"alert-action\" class={cn('absolute top-2 right-2', className)} {...rest}>\n    {children}\n  </div>\n));\n"
+    }
+  ]
+}

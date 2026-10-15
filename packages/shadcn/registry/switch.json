@@ -1,0 +1,22 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "switch",
+  "type": "registry:ui",
+  "title": "Switch",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/adapter",
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/switch.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/switch.tsx",
+      "content": "import { createSwitch } from '@effectweb/base-ui';\nimport { SwitchRoot as BaseSwitch } from '@effectweb/base-ui';\nimport { primitiveAdapter } from '@/lib/adapter';\nimport { controllerView, view } from 'effectweb';\nimport { cn } from '@/lib/utils';\nimport type { Native } from '@/lib/types';\n\nexport type SwitchProps = Omit<Native<'input'>, 'type' | 'checked'> & {\n  readonly class?: string | undefined;\n  readonly checked: boolean;\n  readonly onCheckedChange?: ((checked: boolean) => void) | undefined;\n  readonly size?: 'sm' | 'default' | undefined;\n};\n\n/** A native checkbox with `role=\"switch\"`, drawn as a track whose thumb is a pseudo-element. */\nexport const Switch = controllerView(\n  {\n    controller: (props: SwitchProps) =>\n      primitiveAdapter(\n        props,\n        createSwitch,\n        (read) => ({\n          checked: props.checked,\n          disabled: props.disabled ?? false,\n          onCheckedChange: (value) => {\n            const props = read();\n            props.onCheckedChange?.(value);\n          },\n        }),\n        (next) => ({ checked: next.checked, disabled: next.disabled ?? false }),\n      ),\n  },\n  view((model) => {\n    const {\n      class: className,\n      checked,\n      onCheckedChange: _onCheckedChange,\n      size,\n      ...rest\n    } = model.props;\n    return (\n      <BaseSwitch\n        switch={model.actions.handle}\n        type=\"checkbox\"\n        role=\"switch\"\n        data-slot=\"switch\"\n        data-size={size ?? 'default'}\n        data-state={checked ? 'checked' : 'unchecked'}\n        class={cn(\n          'peer group/switch relative inline-flex shrink-0 cursor-default appearance-none items-center rounded-full border border-transparent transition-all outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-[size=default]:h-[18.4px] data-[size=default]:w-[32px] data-[size=sm]:h-[14px] data-[size=sm]:w-[24px] dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 checked:bg-primary bg-input dark:bg-input/80 disabled:cursor-not-allowed disabled:opacity-50',\n          \"before:pointer-events-none before:absolute before:top-1/2 before:left-0 before:block before:-translate-y-1/2 before:rounded-full before:bg-background before:transition-transform before:content-[''] data-[size=default]:before:size-4 data-[size=sm]:before:size-3 data-[size=default]:checked:before:translate-x-[calc(100%-2px)] data-[size=sm]:checked:before:translate-x-[calc(100%-2px)] dark:before:bg-foreground dark:checked:before:bg-primary-foreground\",\n          className,\n        )}\n        {...rest}\n      />\n    );\n  }),\n);\n"
+    }
+  ]
+}

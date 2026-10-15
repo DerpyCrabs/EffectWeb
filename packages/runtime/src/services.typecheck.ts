@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/missing-effect-context -- Negative service-requirement type contracts. */
 import { Context, Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { program, type Command } from './program.js';

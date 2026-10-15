@@ -22,7 +22,7 @@ Setup runs in a microtask after the element is inserted. A test that mounts a vi
 
 ## Pass data to a widget
 
-`domBinding(data, setup)` keeps one widget instance while its data changes. The setup receives a function that returns the current data, and returns an `update` method called after each change.
+`domBinding(data, setup)` keeps one widget instance while its data changes. The setup receives a function that returns the current data, and returns an `update` method called after each change. Read the data through `input()` inside `update` or inside the event handlers you add, not into a variable at setup: setup runs once, so a value read there never changes (EW3008). When the setup attaches the element to something named by the data, such as a handle, key the binding by it with `{ ...domBinding(handle, setup), identity: handle }` so another handle acquires again. Declare the setup once outside the view: its identity decides whether the binding is kept (EW3002).
 
 ```tsx check
 import { domBinding, view } from 'effectweb';

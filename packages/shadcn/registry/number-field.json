@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "number-field",
+  "type": "registry:ui",
+  "title": "Number Field",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/number-field.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/number-field.tsx",
+      "content": "import { view } from 'effectweb';\nimport {\n  NumberFieldRoot,\n  NumberFieldInput,\n  NumberFieldIncrement,\n  NumberFieldDecrement,\n  type NumberFieldHandle,\n} from '@effectweb/base-ui/number-field';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\nexport {\n  createNumberField,\n  NumberFieldScrubArea,\n  type NumberFieldHandle,\n} from '@effectweb/base-ui/number-field';\n/** No base-nova registry family exists; uses the Input and ButtonGroup visual language. */\nexport const NumberField = view<\n  Native<'div'> &\n    Styled & { readonly numberField: NumberFieldHandle; readonly 'aria-label'?: string | undefined }\n>(({ numberField, class: className, 'aria-label': label, ...rest }) => (\n  <NumberFieldRoot\n    {...rest}\n    numberField={numberField}\n    data-slot=\"number-field\"\n    class={cn('flex w-fit items-stretch rounded-lg border border-input shadow-xs', className)}\n  >\n    <NumberFieldDecrement\n      numberField={numberField}\n      class=\"flex size-9 items-center justify-center rounded-l-lg hover:bg-muted disabled:opacity-50\"\n    >\n      −\n    </NumberFieldDecrement>\n    <NumberFieldInput\n      numberField={numberField}\n      aria-label={label}\n      class=\"h-9 w-20 border-x border-input bg-transparent px-3 text-center text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50\"\n    />\n    <NumberFieldIncrement\n      numberField={numberField}\n      class=\"flex size-9 items-center justify-center rounded-r-lg hover:bg-muted disabled:opacity-50\"\n    >\n      +\n    </NumberFieldIncrement>\n  </NumberFieldRoot>\n));\n"
+    }
+  ]
+}

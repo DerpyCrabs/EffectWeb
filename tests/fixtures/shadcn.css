@@ -1,0 +1,4 @@
+@import 'tailwindcss';
+@import '../../packages/shadcn/src/theme.css';
+@source '../../packages/shadcn/src';
+@source './shadcnFixture.tsx';

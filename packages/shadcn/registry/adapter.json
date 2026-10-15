@@ -1,0 +1,17 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "adapter",
+  "type": "registry:lib",
+  "title": "Adapter",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0"
+  ],
+  "files": [
+    {
+      "path": "lib/adapter.ts",
+      "type": "registry:lib",
+      "target": "lib/adapter.ts",
+      "content": "import { modelOwner, mapSource, type ControllerLifetime } from 'effectweb';\nimport type { ControllerOptions } from '@effectweb/base-ui';\n/** Own a family handle and synchronize controlled props on receipt. */\nexport function primitiveAdapter<\n  Props,\n  Options,\n  Handle extends {\n    readonly lifetime: ControllerLifetime;\n    readonly configure: (options: ControllerOptions) => void;\n    readonly sync: (state: never) => void;\n  },\n>(\n  props: Props,\n  create: (options: Options) => Handle,\n  options: (read: () => Props) => Options,\n  state: (props: Props) => Parameters<Handle['sync']>[0],\n  configure: (props: Props) => ControllerOptions = () => ({}),\n) {\n  let current = props;\n  const owner = modelOwner({ revision: 0 });\n  const handle = create(options(() => current));\n  owner.own(handle.lifetime);\n  return {\n    source: mapSource(owner.source, () => ({ props: current })),\n    handle,\n    lifetime: owner,\n    receive: (next: Props) => {\n      current = next;\n      owner.edit('revision', (revision) => revision + 1);\n      handle.configure(configure(next));\n      handle.sync(state(next));\n    },\n  };\n}\n\n/** Own visibility while reading current change callbacks. */\nexport function overlayAdapter<\n  Props extends {\n    readonly open?: boolean | undefined;\n    readonly defaultOpen?: boolean | undefined;\n    readonly onOpenChange?: ((open: boolean) => void) | undefined;\n  },\n>(\n  props: Props,\n  create: (\n    options: import('@effectweb/base-ui').OverlayOptions,\n  ) => import('@effectweb/base-ui').OverlayHandle,\n) {\n  return primitiveAdapter(\n    props,\n    create,\n    (read) => ({\n      get open() {\n        return read().open;\n      },\n      defaultOpen: props.defaultOpen,\n      onOpenChange: (open) => read().onOpenChange?.(open),\n    }),\n    (next) => (next.open === undefined ? {} : { open: next.open }),\n  );\n}\n"
+    }
+  ]
+}

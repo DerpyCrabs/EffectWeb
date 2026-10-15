@@ -1,0 +1,17 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "placement",
+  "type": "registry:lib",
+  "title": "Placement",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0"
+  ],
+  "files": [
+    {
+      "path": "lib/placement.ts",
+      "type": "registry:lib",
+      "target": "lib/placement.ts",
+      "content": "export {\n  place,\n  placeElement,\n  type Align,\n  type Side,\n  type Box,\n  type Placement,\n} from '@effectweb/base-ui/positioning';\n"
+    }
+  ]
+}

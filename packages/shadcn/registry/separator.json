@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "separator",
+  "type": "registry:ui",
+  "title": "Separator",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/separator.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/separator.tsx",
+      "content": "import { Separator as BaseSeparator } from '@effectweb/base-ui';\nimport { view } from 'effectweb';\nimport { cn } from '@/lib/utils';\nimport type { Native } from '@/lib/types';\n\n/** A horizontal or vertical divider. Set decorative to false for separator semantics. */\nexport const Separator = view<\n  Native<'div'> & {\n    readonly class?: string | undefined;\n    readonly orientation?: 'horizontal' | 'vertical' | undefined;\n    readonly decorative?: boolean | undefined;\n  }\n>(({ class: className, orientation, decorative, ...rest }) => (\n  <BaseSeparator\n    data-slot=\"separator\"\n    decorative={decorative !== false}\n    orientation={orientation}\n    role={decorative === false ? 'separator' : 'none'}\n    data-orientation={orientation ?? 'horizontal'}\n    aria-orientation={decorative === false ? (orientation ?? 'horizontal') : undefined}\n    class={cn(\n      'shrink-0 bg-border data-horizontal:h-px data-horizontal:w-full data-vertical:w-px data-vertical:self-stretch',\n      className,\n    )}\n    {...rest}\n  />\n));\n"
+    }
+  ]
+}

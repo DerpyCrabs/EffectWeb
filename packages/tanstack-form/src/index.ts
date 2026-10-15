@@ -3,6 +3,8 @@ import { Effect } from 'effect';
 import type { Source } from 'effectweb';
 import { projectionSource, shareValue } from 'effectweb/advanced';
 
+/** Draft paths and their value types, for typed field bindings. */
+export type { DeepKeys, DeepValue } from '@tanstack/form-core';
 export type FieldErrors<T> = Partial<Record<DeepKeys<T>, string>>;
 export interface FieldState {
   readonly touched: boolean;

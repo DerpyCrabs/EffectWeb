@@ -260,6 +260,18 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
             diagnostic.severity = "warning".into();
             diagnostics.push(diagnostic);
         }
+        for span in bindings.stale_reads {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "This binding's setup reads input() once while acquiring and returns no update, so later data never reaches the element. Read input() inside the event handler that needs it, or return { update, dispose } and read input() in update.",
+            );
+            diagnostic.code = "EW3008".into();
+            diagnostic.category = "identity".into();
+            diagnostic.severity = "warning".into();
+            diagnostics.push(diagnostic);
+        }
         for span in bindings.sources_inline {
             let mut diagnostic = lower::diagnostic(
                 source,

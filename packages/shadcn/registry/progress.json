@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "progress",
+  "type": "registry:ui",
+  "title": "Progress",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/progress.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/progress.tsx",
+      "content": "import { ProgressRoot, ProgressTrack, ProgressIndicator } from '@effectweb/base-ui';\nimport { view } from 'effectweb';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\n\n/** A determinate bar: `value` from 0 to `max` (100 by default); null shows an indeterminate pulse. */\nexport const Progress = view<\n  Native<'div'> &\n    Styled & {\n      readonly value: number | null;\n      readonly max?: number | undefined;\n      readonly label?: string | undefined;\n      readonly showValue?: boolean | undefined;\n    }\n>(({ class: className, value, max, label, showValue, children, ...rest }) => {\n  const top = max ?? 100;\n  const percent = value === null ? null : Math.max(0, Math.min(100, (value / top) * 100));\n  return (\n    <ProgressRoot\n      value={value}\n      max={top}\n      data-slot=\"progress\"\n      role=\"progressbar\"\n      aria-valuemin={0}\n      aria-valuemax={top}\n      aria-valuenow={value ?? undefined}\n      aria-label={label}\n      class={cn('flex flex-wrap gap-3', className)}\n      {...rest}\n    >\n      {label ? (\n        <span class=\"text-sm font-medium\" data-slot=\"progress-label\">\n          {label}\n        </span>\n      ) : null}\n      {showValue && percent !== null ? (\n        <span class=\"ml-auto text-sm text-muted-foreground tabular-nums\" data-slot=\"progress-value\">\n          {Math.round(percent)}%\n        </span>\n      ) : null}\n      {children}\n      <ProgressTrack\n        class=\"relative flex h-1 w-full items-center overflow-x-hidden rounded-full bg-muted\"\n        data-slot=\"progress-track\"\n      >\n        <ProgressIndicator\n          data-slot=\"progress-indicator\"\n          class={cn('h-full bg-primary transition-all', percent === null && 'w-1/3 animate-pulse')}\n          style={percent === null ? undefined : { width: `${percent}%` }}\n        />\n      </ProgressTrack>\n    </ProgressRoot>\n  );\n});\n"
+    }
+  ]
+}

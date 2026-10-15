@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/missing-effect-error -- Negative contract: an unhandled failure is rejected. */
 import { Effect } from 'effect';
 import type { Command } from './program.js';
 import { modelOwner } from './owner.js';

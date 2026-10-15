@@ -12,6 +12,8 @@ export const packages = [
   ['tanstack-form', 'index'],
   ['tanstack-table', 'index'],
   ['keycloak', 'index'],
+  ['base-ui', 'index'],
+  ['shadcn', 'index'],
 ].map(([directory, entry]) => {
   const path = `packages/${directory}`;
   const metadata = JSON.parse(readFileSync(`${path}/package.json`, 'utf8'));

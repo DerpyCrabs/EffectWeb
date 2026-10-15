@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "collapsible",
+  "type": "registry:ui",
+  "title": "Collapsible",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/adapter",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/collapsible.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/collapsible.tsx",
+      "content": "import { createCollapsible } from '@effectweb/base-ui';\nimport {\n  CollapsibleRoot,\n  CollapsibleTrigger as BaseTrigger,\n  CollapsiblePanel,\n} from '@effectweb/base-ui';\nimport { primitiveAdapter } from '@/lib/adapter';\nimport { controllerView, view, type JSX } from 'effectweb';\nimport { cn } from '@/lib/utils';\n\nexport interface CollapsibleProps {\n  readonly open?: boolean | undefined;\n  readonly defaultOpen?: boolean | undefined;\n  readonly onOpenChange?: ((open: boolean) => void) | undefined;\n  /** The summary line the user clicks. */\n  readonly trigger: JSX.Element;\n  readonly children?: JSX.Element;\n  readonly class?: string | undefined;\n  readonly triggerClass?: string | undefined;\n  readonly contentClass?: string | undefined;\n}\n\n/** A disclosure with explicit trigger/panel relationships. */\nexport const Collapsible = controllerView(\n  {\n    controller: (props: CollapsibleProps) =>\n      primitiveAdapter(\n        props,\n        createCollapsible,\n        (read) => ({\n          get open() {\n            return read().open;\n          },\n          defaultOpen: props.defaultOpen,\n          onOpenChange: (open) => read().onOpenChange?.(open),\n        }),\n        (next) => (next.open !== undefined ? { open: next.open } : {}),\n      ),\n  },\n  view((model) => (\n    <CollapsibleRoot\n      collapsible={model.actions.handle}\n      data-slot=\"collapsible\"\n      class={cn('group/collapsible', model.props.class)}\n    >\n      <CollapsibleTrigger\n        collapsible={model.actions.handle}\n        data-slot=\"collapsible-trigger\"\n        class={model.props.triggerClass}\n      >\n        {model.props.trigger}\n      </CollapsibleTrigger>\n      <CollapsibleContent\n        collapsible={model.actions.handle}\n        data-slot=\"collapsible-content\"\n        class={model.props.contentClass}\n      >\n        {model.props.children}\n      </CollapsibleContent>\n    </CollapsibleRoot>\n  )),\n);\n\n/** The styled collapsible trigger. */\nexport const CollapsibleTrigger = view<Parameters<typeof BaseTrigger>[0]>((props) => (\n  <BaseTrigger {...props} data-slot=\"collapsible-trigger\" />\n));\n/** The styled collapsible panel. */\nexport const CollapsibleContent = view<Parameters<typeof CollapsiblePanel>[0]>((props) => (\n  <CollapsiblePanel {...props} data-slot=\"collapsible-content\" />\n));\n"
+    }
+  ]
+}

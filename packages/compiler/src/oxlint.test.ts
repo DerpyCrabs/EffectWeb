@@ -448,6 +448,8 @@ it('publishes the same preset rules for JSON and JavaScript configurations', asy
   const { effectwebLint } = await import('./preset.js');
   const json = (await import('./oxlint-preset.json', { with: { type: 'json' } })).default;
   expect(effectwebLint.rules).toEqual(json.rules);
+  expect(effectwebLint.options).toEqual(json.options);
+  expect(json.options.reportUnusedDisableDirectives).toBe('error');
   expect(
     Object.keys(plugin.rules)
       .map((name) => `effectweb/${name}`)
@@ -465,4 +467,23 @@ const option = { map: fn => fn('x') };
 export const A = view(() => option.map(value => <b>{value}</b>));`;
   expect(lint(source, 'option.tsx').filter((d) => d.code === 'EW3001')).toHaveLength(1);
   expect(() => compile(source, 'option.tsx')).not.toThrow();
+});
+
+it('flags a binding setup that reads its data once and keeps no update (EW3008)', () => {
+  const stale = `import { domBinding, view } from 'effectweb';
+const label = (element, input) => { element.textContent = input(); return () => {}; };
+function register(element, input) { const { menu, value } = input(); menu.set(value, element); return () => menu.delete(value); }
+export const A = view((props) => <div use={domBinding(props.text, label)} />);
+export const B = view((props) => <div use={domBinding({ menu: props.menu, value: props.value }, register)} />);`;
+  expect(lint(stale, 'stale.tsx').filter((d) => d.code === 'EW3008')).toHaveLength(2);
+  const current = `import { domBinding, view } from 'effectweb';
+const onClick = (element, input) => { const click = () => console.log(input()); element.addEventListener('click', click); return () => element.removeEventListener('click', click); };
+const draw = (element, input) => { element.textContent = input(); return { update: () => { element.textContent = input(); }, dispose: () => {} }; };
+const viaEffect = (element, input) => { input(); return makeWork(element); };
+export const A = view((props) => <div use={domBinding(props.text, onClick)} />);
+export const B = view((props) => <div use={domBinding(props.text, draw)} />);
+export const C = view((props) => <div use={domBinding(props.text, viaEffect)} />);
+const attach = (element, input) => { input().attach(element); return () => {}; };
+export const D = view((props) => <div use={{ ...domBinding(props.handle, attach), identity: props.handle }} />);`;
+  expect(lint(current, 'current.tsx').filter((d) => d.code === 'EW3008')).toEqual([]);
 });

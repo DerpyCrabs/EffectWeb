@@ -19,7 +19,6 @@ owner.source.subscribe((model) => {
 });
 const arrayOwner = modelOwner({ values: [1] });
 arrayOwner.edit('values', (values) => {
-  // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
   values.push(2);
   return [...values, 2];
 });

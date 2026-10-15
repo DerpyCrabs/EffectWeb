@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "scroll-area",
+  "type": "registry:ui",
+  "title": "Scroll Area",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/scroll-area.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/scroll-area.tsx",
+      "content": "import { view } from 'effectweb';\nimport {\n  ScrollAreaRoot,\n  ScrollAreaViewport,\n  ScrollAreaScrollbar,\n  ScrollAreaThumb,\n  ScrollAreaCorner,\n  type ScrollAreaHandle,\n} from '@effectweb/base-ui/scroll-area';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\nexport {\n  createScrollArea,\n  ScrollAreaContent,\n  type ScrollAreaHandle,\n} from '@effectweb/base-ui/scroll-area';\n/** Styled ScrollBar part with native attributes and theme classes. */\nexport const ScrollBar = view<\n  Native<'div'> &\n    Styled & {\n      readonly scrollArea: ScrollAreaHandle;\n      readonly orientation?: 'horizontal' | 'vertical' | undefined;\n    }\n>(({ class: className, scrollArea, orientation = 'vertical', ...rest }) => (\n  <ScrollAreaScrollbar\n    {...rest}\n    scrollArea={scrollArea}\n    orientation={orientation}\n    data-slot=\"scroll-area-scrollbar\"\n    class={cn(\n      'flex touch-none p-px transition-colors select-none data-horizontal:h-2.5 data-horizontal:flex-col data-horizontal:border-t data-horizontal:border-t-transparent data-vertical:h-full data-vertical:w-2.5 data-vertical:border-l data-vertical:border-l-transparent',\n      className,\n    )}\n  >\n    <ScrollAreaThumb\n      scrollArea={scrollArea}\n      orientation={orientation}\n      data-slot=\"scroll-area-thumb\"\n      class=\"relative flex-1 rounded-full bg-border\"\n    />\n  </ScrollAreaScrollbar>\n));\n/** Styled ScrollArea part with native attributes and theme classes. */\nexport const ScrollArea = view<\n  Native<'div'> &\n    Styled & { readonly scrollArea: ScrollAreaHandle; readonly horizontal?: boolean | undefined }\n>(({ class: className, scrollArea, horizontal, children, ...rest }) => (\n  <ScrollAreaRoot\n    {...rest}\n    scrollArea={scrollArea}\n    data-slot=\"scroll-area\"\n    class={cn('relative', className)}\n  >\n    <ScrollAreaViewport\n      scrollArea={scrollArea}\n      data-slot=\"scroll-area-viewport\"\n      class=\"size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1\"\n    >\n      {children}\n    </ScrollAreaViewport>\n    <ScrollBar scrollArea={scrollArea} />\n    {horizontal ? <ScrollBar scrollArea={scrollArea} orientation=\"horizontal\" /> : null}\n    <ScrollAreaCorner scrollArea={scrollArea} />\n  </ScrollAreaRoot>\n));\n"
+    }
+  ]
+}

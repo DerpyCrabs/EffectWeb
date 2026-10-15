@@ -267,7 +267,10 @@ function messageComponent<Props, Model extends { readonly props: Props }, Messag
   );
 }
 
-/** What a placement releases with its controller: an owner, or any `{ dispose, close? }`. */
+/**
+ * What a placement releases: `dispose` on removal, `close` during awaited teardown. It does not
+ * collect other resources; give those to the `modelOwner` with `owner.own(resource)`.
+ */
 export interface ControllerLifetime {
   readonly dispose: () => void;
   /** Awaited teardown, when the resource has one; `dispose` alone is immediate. */

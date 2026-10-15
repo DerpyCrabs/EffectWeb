@@ -23,9 +23,12 @@ export namespace JSX {
     | undefined
     | CompiledContent
     | ElementArray;
-  /** A handler may return an Effect, which the listener runs, or the handle of work an owner started. */
+  /** A handler may return an Effect, which the listener runs, or the handle of work an owner started. `null`,
+   * `undefined` and booleans are ignored, so `cond ? patch(…) : null` and `cond && run()` are handlers too. */
   export type EventResult =
     | void
+    | null
+    | undefined
     | boolean
     | Effect.Effect<unknown, unknown, Scope.Scope>
     | OwnedRun<unknown, unknown>;

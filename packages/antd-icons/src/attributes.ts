@@ -8,6 +8,7 @@ export type AntDesignIconProps = JSX.IntrinsicElements['svg'] & {
 };
 export type AntDesignIcon = View<AntDesignIconProps, never>;
 
+/** The SVG attributes for an icon: size, accessible title or hidden state, and the caller's own attributes. */
 export function iconAttributes(props: AntDesignIconProps, name: string, viewBox: string) {
   const { size = '1em', title, children: _children, class: className, ...attributes } = props;
   const labelled = Boolean(title || attributes['aria-label'] || attributes['aria-labelledby']);

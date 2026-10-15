@@ -1,6 +1,6 @@
 {
   "name": "effectweb-workspace",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "workspaces": [
     "packages/runtime",
@@ -13,7 +13,9 @@
     "packages/tanstack-table",
     "packages/query",
     "packages/keycloak",
-    "packages/antd-icons"
+    "packages/antd-icons",
+    "packages/shadcn",
+    "packages/base-ui"
   ],
   "type": "module",
   "scripts": {
@@ -26,10 +28,11 @@
     "test:compiler": "cargo test --manifest-path packages/compiler/native/Cargo.toml --locked",
     "test:package": "node scripts/package-smoke.mjs",
     "fmt": "cargo fmt --manifest-path packages/compiler/native/Cargo.toml && vp fmt",
-    "check": "tsc --noEmit && cargo fmt --manifest-path packages/compiler/native/Cargo.toml --check && cargo clippy --manifest-path packages/compiler/native/Cargo.toml --locked --all-targets -- -D warnings && vp check",
+    "check": "npm run registry:check && tsc --noEmit && cargo fmt --manifest-path packages/compiler/native/Cargo.toml --check && cargo clippy --manifest-path packages/compiler/native/Cargo.toml --locked --all-targets -- -D warnings && vp check",
     "pack:release": "node scripts/pack-release.mjs",
     "version:release": "node scripts/version-release.mjs",
     "test:browser": "playwright test",
+    "test:performance": "vp test --run packages/runtime/src/performance-regression.test.ts && playwright test --config tests/performance/playwright.config.ts",
     "check:browser": "tsc --noEmit -p tsconfig.browser.json",
     "build:benchmark": "vp build --config vite.benchmark.config.ts",
     "measure:bundles": "node scripts/measure-bundles.mjs --check",
@@ -39,7 +42,11 @@
     "build:site": "npm --prefix website run build",
     "preview:site": "npm --prefix website run preview",
     "test:docs": "node website/scripts/check-snippets.mjs",
-    "test:site": "node website/scripts/check-site.mjs"
+    "test:site": "node website/scripts/check-site.mjs",
+    "registry:build": "node scripts/shadcn-registry.mjs",
+    "registry:check": "node scripts/shadcn-registry.mjs --check",
+    "registry:serve": "node scripts/shadcn-registry.mjs --serve",
+    "test:registry": "node scripts/registry-smoke.mjs"
   },
   "devDependencies": {
     "@effect/tsgo": "0.47.1",
@@ -47,6 +54,7 @@
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@lucide/icons": "1.49.0",
     "@playwright/test": "1.63.0",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/markdown-it": "14.2.0",
     "@types/node": "^26.6.3",
     "@vitest/coverage-v8": "5.0.1",
@@ -58,7 +66,9 @@
     "oxfmt": "0.71.0",
     "oxlint": "1.86.0",
     "oxlint-tsgolint": "7.0.2003",
+    "shadcn": "4.21.4",
     "shiki": "4.5.0",
+    "tailwindcss": "^4.3.3",
     "typescript": "7.0.2",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
     "vite-plus": "1.0.0",

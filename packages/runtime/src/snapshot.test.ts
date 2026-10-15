@@ -32,7 +32,6 @@ describe('published snapshot protection', () => {
     const app = program({
       initial: { values: [1] },
       update(model, _message: void) {
-        // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
         model.values.push(2);
         return { model };
       },

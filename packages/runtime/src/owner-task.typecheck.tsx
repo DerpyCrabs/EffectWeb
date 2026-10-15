@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/missing-effect-error -- Negative type contracts pass Effects whose errors do not fit. */
 import { Effect } from 'effect';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
 import { component } from './component.js';

@@ -689,9 +689,15 @@ function buildSkeleton(site: SiteNode, svg: boolean): Element | undefined {
   return node;
 }
 
+// Properties a user or a form reset can change without a publication. A bound one is written
+// back from the model after handled edits and resets. A form-associated custom element (a
+// hyphenated name) resets its own value through formResetCallback, so its value is a control too.
 const isControl = (element: Element, name: string) =>
-  (name === 'value' && ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName)) ||
-  (name === 'checked' && element.tagName === 'INPUT');
+  (name === 'value' &&
+    (['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName) ||
+      element.localName.includes('-'))) ||
+  (name === 'checked' && element.tagName === 'INPUT') ||
+  (name === 'selected' && element.tagName === 'OPTION');
 
 /** Content that is shown as text: a position holding it needs no slot. */
 const plain = (value: unknown): value is string | number | bigint | boolean | null | undefined =>
@@ -1623,6 +1629,35 @@ function styleValue(property: string, value: unknown): string {
 }
 let booleanAttributes: Set<string> | undefined;
 const styleProperties = new WeakMap<Element, Set<string>>();
+const styleSnapshots = new WeakMap<
+  Element,
+  { readonly entries: readonly (readonly [string, unknown])[]; readonly cssText: string }
+>();
+const styleShorthands = new Map<string, boolean>();
+function styleShorthand(element: Element, property: string): boolean {
+  if (property.startsWith('--')) return false;
+  let shorthand = styleShorthands.get(property);
+  if (shorthand === undefined) {
+    const probe = element.ownerDocument.createElement('div').style;
+    probe.setProperty(property, 'initial');
+    shorthand = probe.length > 1;
+    styleShorthands.set(property, shorthand);
+  }
+  return shorthand;
+}
+function sameStyleEntries(
+  before: readonly (readonly [string, unknown])[],
+  after: readonly (readonly [string, unknown])[],
+): boolean {
+  if (before.length !== after.length) return false;
+  // Order matters for overlapping shorthand and longhand declarations.
+  for (let index = 0; index < after.length; index++) {
+    const entry = after[index]!;
+    const previous = before[index]!;
+    if (entry[0] !== previous[0] || !Object.is(entry[1], previous[1])) return false;
+  }
+  return true;
+}
 /** Cloning copies CSS declarations but not the reconciliation metadata of the template. */
 function scalar(value: unknown): string {
   if (value == null) return '';
@@ -1652,11 +1687,15 @@ export function attribute(element: Element, name: string, value: unknown, fresh 
       for (const token of classes.split(/\s+/u).filter(Boolean)) if (enabled) next.add(token);
     for (const token of classTokens.get(element) ?? [])
       if (!next.has(token)) element.classList.remove(token);
-    for (const token of next) element.classList.add(token);
+    for (const token of next) if (!element.classList.contains(token)) element.classList.add(token);
     classTokens.set(element, next);
   } else if (name === 'style' && value != null && typeof value === 'object' && 'style' in element) {
     const style = element.style as CSSStyleDeclaration;
-    const entries = Object.entries(value).map(
+    const snapshot = Object.entries(value);
+    const previous = styleSnapshots.get(element);
+    const reset = !previous || previous.cssText !== style.cssText;
+    if (!reset && sameStyleEntries(previous.entries, snapshot)) return;
+    const entries = snapshot.map(
       ([property, value]) =>
         [
           property.startsWith('--')
@@ -1670,8 +1709,17 @@ export function attribute(element: Element, name: string, value: unknown, fresh 
     const current =
       styleProperties.get(element) ?? (element.hasAttribute('style') ? Array.from(style) : []);
     for (const property of current) if (!next.has(property)) style.removeProperty(property);
-    for (const [property, value] of entries) style.setProperty(property, value);
+    for (const [property, value] of entries)
+      if (
+        reset ||
+        value === '' ||
+        styleShorthand(element, property) ||
+        style.getPropertyValue(property) !== value ||
+        style.getPropertyPriority(property) !== ''
+      )
+        style.setProperty(property, value);
     styleProperties.set(element, next);
+    styleSnapshots.set(element, { entries: snapshot, cssText: style.cssText });
   } else if (name === 'value' && 'value' in element && element.localName !== 'option') {
     // An <option> gets its value as an attribute: before its text child exists its value property reads "", so a
     // property write of "" would be skipped and the option would later fall back to its text.
@@ -1699,8 +1747,10 @@ export function attribute(element: Element, name: string, value: unknown, fresh 
     if (fresh || element.getAttribute(key) !== next) element.setAttribute(key, next);
   }
   if (key === 'class' && !fresh)
-    for (const token of classTokens.get(element) ?? []) element.classList.add(token);
+    for (const token of classTokens.get(element) ?? [])
+      if (!element.classList.contains(token)) element.classList.add(token);
   if (name === 'style' && (value == null || typeof value !== 'object')) {
+    styleSnapshots.delete(element);
     if (value == null) styleProperties.delete(element);
     else if ('style' in element)
       styleProperties.set(element, new Set(Array.from(element.style as CSSStyleDeclaration)));
@@ -1727,6 +1777,7 @@ const isEvent = (name: string) => {
 interface ControlState {
   handled(type: string, event: Event): void;
   edit(event: Event): void;
+  reset(event: Event): void;
   start(): void;
   end(): void;
 }
@@ -1737,6 +1788,18 @@ const controlDispatched = new WeakSet<Event>();
 function dispatchControl(event: Event) {
   if (controlDispatched.has(event)) return;
   controlDispatched.add(event);
+  if (event.type === 'reset') {
+    const form = event.target as HTMLFormElement | null;
+    if (form?.nodeName === 'FORM')
+      for (const element of form.elements) {
+        for (const state of controlStates.get(element) ?? []) state.reset(event);
+        // Options are not form elements; a multiple select keeps its selection on them.
+        if (element instanceof HTMLSelectElement)
+          for (const option of element.options)
+            for (const state of controlStates.get(option) ?? []) state.reset(event);
+      }
+    return;
+  }
   const states = event.target && controlStates.get(event.target);
   if (!states) return;
   for (const state of states) {
@@ -1758,6 +1821,7 @@ export function bindControl<M, E>(
   let composing = false;
   let deferred = false;
   let pending: ReturnType<typeof setTimeout> | undefined;
+  let resetPending: ReturnType<typeof setTimeout> | undefined;
   const select = element.tagName === 'SELECT' && name === 'value';
   const write = () => {
     if (scope.disposed) return;
@@ -1867,12 +1931,31 @@ export function bindControl<M, E>(
     } else if (type === 'click') handledClick = true;
     restore();
   };
-  const state: ControlState = { handled, edit, start, end };
+  const resets: Event[] = [];
+  const reset = (event: Event) => {
+    resets.push(event);
+    if (resetPending !== undefined) return;
+    // Reset's native default action runs after dispatch, and application reset handlers
+    // can publish a new model or cancel each event independently. Restore the bound property
+    // if any coalesced reset completes its default action.
+    resetPending = setTimeout(() => {
+      resetPending = undefined;
+      const completed = resets.some((resetEvent) => !resetEvent.defaultPrevented);
+      resets.length = 0;
+      if (completed && !scope.disposed) {
+        composing = false;
+        deferred = false;
+        apply();
+      }
+    }, 0);
+  };
+  const state: ControlState = { handled, edit, reset, start, end };
   let states = controlStates.get(element);
   if (!states) controlStates.set(element, (states = new Set()));
   states.add(state);
   scope.cleanups.push(() => {
     clearTimeout(pending);
+    clearTimeout(resetPending);
     states.delete(state);
     if (!states.size) controlStates.delete(element);
   });
@@ -2336,11 +2419,19 @@ function delegate(type: string) {
   delegatedTypes.add(type);
   for (const host of delegationHosts.keys()) listenAt(host, type);
 }
+// Reset can target a form outside a mount whose controls use the native `form` attribute.
+const resetDocuments = new WeakMap<Document, number>();
 /** Route delegated events that reach `host` to the handlers of the elements below it. */
 function delegationHost(host: Node): () => void {
   const count = delegationHosts.get(host) ?? 0;
   delegationHosts.set(host, count + 1);
   if (!count) {
+    const document = host.ownerDocument ?? (host as Document);
+    const resets = resetDocuments.get(document) ?? 0;
+    resetDocuments.set(document, resets + 1);
+    if (!resets) document.addEventListener('reset', dispatchControl, true);
+    // Native reset does not cross a shadow boundary.
+    host.addEventListener('reset', dispatchControl, true);
     for (const type of delegatedTypes) listenAt(host, type);
     for (const type of controlEvents) host.addEventListener(type, dispatchControl, true);
   }
@@ -2354,6 +2445,14 @@ function delegationHost(host: Node): () => void {
       return;
     }
     delegationHosts.delete(host);
+    const document = host.ownerDocument ?? (host as Document);
+    const resets = (resetDocuments.get(document) ?? 1) - 1;
+    if (resets) resetDocuments.set(document, resets);
+    else {
+      resetDocuments.delete(document);
+      document.removeEventListener('reset', dispatchControl, true);
+    }
+    host.removeEventListener('reset', dispatchControl, true);
     for (const type of delegatedTypes) {
       host.removeEventListener(type, dispatchDelegated);
       host.removeEventListener(type, beginDelegatedDispatch, true);

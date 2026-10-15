@@ -6,6 +6,7 @@ import { compile as compileSource, diagnose } from './compile';
 type Markup = { tag: string; props: Record<string, unknown> };
 type Shape = [string, Record<string, unknown> | null | 0, unknown[]];
 const runtime = {
+  captured: (callback: unknown, _values: unknown[]) => callback,
   view: (render: unknown) => render,
   slot: (render: unknown) => render,
   markup:
@@ -556,4 +557,76 @@ it.each([
   ],
 ])('function props left alone: %s', (_name, body) => {
   expect(captured(body)).not.toContain('.captured(');
+});
+
+it('marks a named snapshot getter once at its declaration, preserving its receiver', () => {
+  const code = captured(`const Row = view(p => <li/>); export const L = view((m) => {
+    const read = () => m.item.value;
+    return <><Row read={read}/><Row read={read}/></>;
+  });`);
+  expect(code).toContain('constread=()=>m.item.value;');
+  expect(code).toContain('_ew_dom.captured(read,[_ew_c0,m]);');
+  expect(code.match(/\.captured\(/gu)).toHaveLength(1);
+});
+
+it('named getter metadata does not read properties early or lose inferred function names', () => {
+  const exports = execute(`const Row = p => p;
+    export const L = view(m => {
+      const read = () => m.value;
+      return <Row read={read}/>;
+    });`);
+  let reads = 0;
+  const result = (exports.L as (model: object) => { read: () => number })({
+    get value() {
+      reads++;
+      return 42;
+    },
+  });
+  expect(reads).toBe(0);
+  expect(result.read.name).toBe('read');
+  expect(result.read()).toBe(42);
+  expect(reads).toBe(1);
+});
+
+it('named getter metadata uses declaration scope even when the prop site shadows its inputs', () => {
+  const exports = execute(`const Row = p => p;
+    export const L = view(m => {
+      const read = () => m.value;
+      { const m = { value: 'shadow' }; return <Row read={read} other={m.value}/>; }
+    });`);
+  const result = (exports.L as (model: object) => { read: () => string; other: string })({
+    value: 'outer',
+  });
+  expect(result.read()).toBe('outer');
+  expect(result.other).toBe('shadow');
+});
+
+it.each([
+  'let read = () => m.value;',
+  'const read = () => later.value; const later = m;',
+  'let value = m.value; const read = () => value; value++;',
+  'const read = () => read;',
+  'const read = () => read();',
+  'const read = () => m.read();',
+  'const read = () => helper(m);',
+  'const read = () => m[key];',
+  'const read = async () => m.value;',
+  'const read = (key) => m[key];',
+  'const read = () => this.value;',
+  'const read = () => m.value, other = 1;',
+  'const store = m.store; const read = () => store.value;',
+])('leaves unproven named getter alone: %s', (declaration) => {
+  expect(
+    captured(
+      `const Row = view(p => <li/>); export const L = view(m => { ${declaration} return <Row read={read}/>; });`,
+    ),
+  ).not.toContain('.captured(');
+});
+
+it('does not infer snapshot semantics for arbitrary helper parameters', () => {
+  expect(
+    captured(
+      `const Row = view(p => <li/>); function helper(store) { const read = () => store.value; return <Row read={read}/>; }`,
+    ),
+  ).not.toContain('.captured(');
 });

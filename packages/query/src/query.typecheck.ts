@@ -42,7 +42,6 @@ export function querySnapshotArguments() {
   const data = query<Args, { names: string[] }>({
     name: 'readonly-arguments',
     load: (args) => {
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative readonly contract.
       args.ids.push('bad');
       return Effect.succeed({ names: args.ids.slice() });
     },
@@ -56,11 +55,9 @@ export function querySnapshotArguments() {
   const value: { names: string[] } = { names: ['Ada'] };
   const written = cache.setQueryData(data, args, value);
   cache.updateQueryData(data, args, (previous) => {
-    // oxlint-disable-next-line typescript/no-unsafe-call -- Negative readonly contract.
     previous.names.push('bad');
     return { names: [...previous.names, 'Grace'] };
   });
-  // oxlint-disable-next-line typescript/no-unsafe-call -- Negative readonly contract.
   written.names.push('bad');
   // @ts-expect-error The definition fixes the result type; a writer cannot widen it.
   cache.setQueryData(data, args, { names: [1] });
@@ -159,7 +156,6 @@ export function immutableQueryInputs() {
   return query<{ filters: string[]; page: number }, number>({
     name: 'readonly query inputs',
     load: (args) => {
-      // oxlint-disable-next-line typescript/no-unsafe-call -- Negative type contract deliberately calls a member rejected by TypeScript.
       args.filters.push('changed');
       throw new Error('Type-only fixture');
     },

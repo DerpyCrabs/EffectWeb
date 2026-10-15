@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "tooltip",
+  "type": "registry:ui",
+  "title": "Tooltip",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/placement",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/tooltip.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/tooltip.tsx",
+      "content": "import { controllerView, modelOwner, view, type JSX } from 'effectweb';\nimport { createTooltip, TooltipPopup } from '@effectweb/base-ui';\nimport { tooltipHostBinding } from '@effectweb/base-ui/tooltip-host';\nimport { cn } from '@/lib/utils';\nimport type { Align, Side } from '@/lib/placement';\nexport interface TooltipProps {\n  readonly content: JSX.Element;\n  /** The trigger: a button or link. The tooltip describes it (`aria-describedby`). */\n  readonly children: JSX.Element;\n  readonly side?: Side | undefined;\n  readonly align?: Align | undefined;\n  readonly sideOffset?: number | undefined;\n  readonly delay?: number | undefined;\n  readonly class?: string | undefined;\n}\n\nfunction tooltipController(props: TooltipProps) {\n  const owner = modelOwner({ props });\n  const tooltip = createTooltip();\n  owner.own(tooltip.lifetime);\n  return {\n    source: owner.source,\n    tooltip,\n    lifetime: owner,\n    receive: (next: TooltipProps) => owner.patch({ props: next }),\n  };\n}\n/** Shown while the trigger is hovered or focused; Escape hides it. A manual popover, so it sits in the top layer. */\nexport const Tooltip = controllerView(\n  { controller: tooltipController },\n  view((model) => {\n    const props = model.props;\n    return (\n      <span\n        data-slot=\"tooltip\"\n        class=\"contents\"\n        data-side={props.side ?? 'top'}\n        data-align={props.align ?? 'center'}\n        data-offset={props.sideOffset ?? 4}\n        data-delay={props.delay ?? 0}\n        use={tooltipHostBinding({ handle: model.actions.tooltip, delay: props.delay ?? 0 })}\n      >\n        {props.children}\n        <TooltipPopup\n          tooltip={model.actions.tooltip}\n          side={props.side ?? 'top'}\n          align={props.align}\n          sideOffset={props.sideOffset}\n          data-slot=\"tooltip-content\"\n          class={cn(\n            'z-50 inline-flex w-fit max-w-xs items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs text-background has-data-[slot=kbd]:pr-1.5 open:animate-in open:fade-in-0 open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',\n            props.class,\n          )}\n        >\n          {props.content}\n        </TooltipPopup>\n      </span>\n    );\n  }),\n);\n"
+    }
+  ]
+}

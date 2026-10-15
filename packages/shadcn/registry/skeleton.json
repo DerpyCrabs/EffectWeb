@@ -1,0 +1,18 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "skeleton",
+  "type": "registry:ui",
+  "title": "Skeleton",
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/skeleton.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/skeleton.tsx",
+      "content": "import { view } from 'effectweb';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\n\n/** A pulsing placeholder. Supply dimensions through class or style. */\nexport const Skeleton = view<Native<'div'> & Styled>(({ class: className, children, ...rest }) => (\n  <div data-slot=\"skeleton\" class={cn('animate-pulse rounded-md bg-muted', className)} {...rest}>\n    {children}\n  </div>\n));\n"
+    }
+  ]
+}

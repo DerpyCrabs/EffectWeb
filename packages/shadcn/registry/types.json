@@ -1,0 +1,14 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "types",
+  "type": "registry:lib",
+  "title": "Types",
+  "files": [
+    {
+      "path": "lib/types.ts",
+      "type": "registry:lib",
+      "target": "lib/types.ts",
+      "content": "import type { JSX } from 'effectweb';\n\n/** The attributes of a native element, with `class` and `children` left to each component's own props. */\nexport type Native<Tag extends keyof JSX.IntrinsicElements> = Omit<\n  JSX.IntrinsicElements[Tag],\n  'class' | 'children'\n>;\n\nexport interface Styled {\n  readonly class?: string | undefined;\n  readonly children?: JSX.Element;\n}\n"
+    }
+  ]
+}

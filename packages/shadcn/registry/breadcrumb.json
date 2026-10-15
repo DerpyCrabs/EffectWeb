@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "breadcrumb",
+  "type": "registry:ui",
+  "title": "Breadcrumb",
+  "dependencies": [
+    "@effectweb/lucide@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/breadcrumb.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/breadcrumb.tsx",
+      "content": "import { view } from 'effectweb';\nimport ChevronRight from '@effectweb/lucide/icons/chevron-right';\nimport Ellipsis from '@effectweb/lucide/icons/ellipsis';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\n\n/** A navigation landmark for the current location in a hierarchy. */\nexport const Breadcrumb = view<Native<'nav'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <nav aria-label=\"breadcrumb\" data-slot=\"breadcrumb\" class={cn(className)} {...rest}>\n      {children}\n    </nav>\n  ),\n);\n\n/** The ordered list of breadcrumb items. */\nexport const BreadcrumbList = view<Native<'ol'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <ol\n      data-slot=\"breadcrumb-list\"\n      class={cn(\n        'flex flex-wrap items-center gap-1.5 text-sm wrap-break-word text-muted-foreground',\n        className,\n      )}\n      {...rest}\n    >\n      {children}\n    </ol>\n  ),\n);\n\n/** One breadcrumb list item. */\nexport const BreadcrumbItem = view<Native<'li'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <li\n      data-slot=\"breadcrumb-item\"\n      class={cn('inline-flex items-center gap-1', className)}\n      {...rest}\n    >\n      {children}\n    </li>\n  ),\n);\n\n/** An anchor for an ancestor location. */\nexport const BreadcrumbLink = view<Native<'a'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <a\n      data-slot=\"breadcrumb-link\"\n      class={cn('transition-colors hover:text-foreground', className)}\n      {...rest}\n    >\n      {children}\n    </a>\n  ),\n);\n\n/** The current breadcrumb location, marked with aria-current. */\nexport const BreadcrumbPage = view<Native<'span'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <span\n      data-slot=\"breadcrumb-page\"\n      role=\"link\"\n      aria-disabled=\"true\"\n      aria-current=\"page\"\n      class={cn('font-normal text-foreground', className)}\n      {...rest}\n    >\n      {children}\n    </span>\n  ),\n);\n\n/** A decorative separator between breadcrumb items. */\nexport const BreadcrumbSeparator = view<Native<'li'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <li\n      data-slot=\"breadcrumb-separator\"\n      role=\"presentation\"\n      aria-hidden=\"true\"\n      class={cn('[&>svg]:size-3.5', className)}\n      {...rest}\n    >\n      {children ?? <ChevronRight class=\"cn-rtl-flip\" />}\n    </li>\n  ),\n);\n\n/** A decorative indicator for omitted breadcrumb levels. */\nexport const BreadcrumbEllipsis = view<Native<'span'> & { readonly class?: string | undefined }>(\n  ({ class: className, ...rest }) => (\n    <span\n      data-slot=\"breadcrumb-ellipsis\"\n      role=\"presentation\"\n      aria-hidden=\"true\"\n      class={cn('flex size-5 items-center justify-center [&>svg]:size-4', className)}\n      {...rest}\n    >\n      <Ellipsis />\n      <span class=\"sr-only\">More</span>\n    </span>\n  ),\n);\n"
+    }
+  ]
+}

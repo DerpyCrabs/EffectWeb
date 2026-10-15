@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "toolbar",
+  "type": "registry:ui",
+  "title": "Toolbar",
+  "dependencies": [
+    "@effectweb/base-ui@0.12.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/toolbar.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/toolbar.tsx",
+      "content": "import { view, type View } from 'effectweb';\nimport {\n  ToolbarRoot as Root,\n  ToolbarButton as Button,\n  ToolbarLink as Link,\n  ToolbarInput as Input,\n  ToolbarGroup as Group,\n  ToolbarSeparator as Separator,\n  type ToolbarHandle,\n} from '@effectweb/base-ui/toolbar';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\nexport { createToolbar, type ToolbarHandle } from '@effectweb/base-ui/toolbar';\n/** Styled Toolbar part with native attributes and theme classes. */\nexport const Toolbar = view<Native<'div'> & Styled & { readonly toolbar: ToolbarHandle }>(\n  ({ class: className, ...rest }) => (\n    <Root\n      {...rest}\n      data-slot=\"toolbar\"\n      class={cn(\n        'flex items-center gap-1 rounded-lg border bg-background p-1 data-[orientation=vertical]:flex-col',\n        className,\n      )}\n    />\n  ),\n);\n/** Styled ToolbarButton part with native attributes and theme classes. */\nexport const ToolbarButton = view<Native<'button'> & Styled>(({ class: className, ...rest }) => (\n  <Button\n    {...rest}\n    class={cn(\n      'inline-flex h-8 items-center justify-center rounded-md px-2 text-sm hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50',\n      className,\n    )}\n  />\n));\n/** Styled ToolbarLink part with native attributes and theme classes. */\nexport const ToolbarLink: View<Native<'a'> & Styled, never> = view<Native<'a'> & Styled>(\n  ({ class: className, ...rest }) => (\n    <Link\n      {...rest}\n      class={cn(\n        'rounded-md px-2 py-1 text-sm hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50',\n        className,\n      )}\n    />\n  ),\n);\n/** Styled ToolbarInput part with native attributes and theme classes. */\nexport const ToolbarInput = view<Native<'input'> & Styled>(({ class: className, ...rest }) => (\n  <Input\n    {...rest}\n    class={cn('h-8 rounded-md border border-input bg-transparent px-2 text-sm', className)}\n  />\n));\n/** Styled ToolbarGroup part with native attributes and theme classes. */\nexport const ToolbarGroup = view<Native<'div'> & Styled>(({ class: className, ...rest }) => (\n  <Group {...rest} class={cn('flex items-center gap-1', className)} />\n));\n/** Styled ToolbarSeparator part with native attributes and theme classes. */\nexport const ToolbarSeparator = view<Native<'div'> & Styled & { readonly toolbar: ToolbarHandle }>(\n  ({ class: className, ...rest }) => (\n    <Separator\n      {...rest}\n      class={cn(\n        'mx-1 h-5 w-px bg-border aria-[orientation=horizontal]:h-px aria-[orientation=horizontal]:w-full',\n        className,\n      )}\n    />\n  ),\n);\n"
+    }
+  ]
+}

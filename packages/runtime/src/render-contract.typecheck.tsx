@@ -47,7 +47,6 @@ export function renderContractTypes() {
   // @ts-expect-error Promises cannot be rendered as values.
   const promiseValue: JSX.Element = Promise.resolve('text');
   // @ts-expect-error A view renders synchronously.
-  // oxlint-disable-next-line effectweb/valid-view -- Negative type contract deliberately uses an unsupported async view marker.
   const asyncView = view(async () => 'text');
   // @ts-expect-error Effect programs enter through an Effect adapter.
   const effectView = view(() => Effect.succeed('text'));
