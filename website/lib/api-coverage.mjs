@@ -3,11 +3,15 @@
 // A value export needs a JSDoc comment on its declaration or an entry in reasons.mjs; a page
 // with categories must list every export of its entry point.
 import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse } from 'yuku-parser';
 import { modules, referencePages } from './api.mjs';
 import { reasons } from './reasons.mjs';
 
-const packagesRoot = new URL('../../packages/', import.meta.url).pathname;
+const packagesRoot = fileURLToPath(new URL('../../packages/', import.meta.url)).replaceAll(
+  '\\',
+  '/',
+);
 // Built on first use: api.mjs imports this module, so its lists are not ready at load time.
 let packageDirectory;
 const directories = () =>
@@ -52,7 +56,9 @@ function read(file) {
 
 function resolve(file, specifier) {
   if (specifier.startsWith('.')) {
-    const base = new URL(specifier.replace(/\.js$/, ''), `file://${file}`).pathname;
+    const base = fileURLToPath(
+      new URL(specifier.replace(/\.js$/, ''), pathToFileURL(file)),
+    ).replaceAll('\\', '/');
     for (const extension of ['.ts', '.tsx'])
       if (existsSync(base + extension)) return base + extension;
     return undefined;

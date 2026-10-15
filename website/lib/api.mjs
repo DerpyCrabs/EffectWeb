@@ -335,7 +335,7 @@ export function createApi(root) {
         .trim();
       const isType = /(?:interface|type |namespace)/.test(snippets[0].slice(0, 65));
       // A symbol re-exported from another workspace package keeps that package's rationale.
-      const origin = symbol.file.match(/packages\/([^/]+)\/src\//)?.[1];
+      const origin = symbol.file.replaceAll('\\', '/').match(/packages\/([^/]+)\/src\//)?.[1];
       const originPath =
         origin === 'runtime' ? 'effectweb' : origin ? `@effectweb/${origin}` : undefined;
       const why =

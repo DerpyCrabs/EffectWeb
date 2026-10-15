@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite-plus';
 import tailwindcss from '@tailwindcss/vite';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { effectweb } from './packages/compiler/src/vite';
 
 // The dev server behind the browser tests resolves workspace packages to their sources, so a test
@@ -17,7 +18,10 @@ const sourcePackages = [
   'shadcn',
 ];
 const sourceAliases = sourcePackages.flatMap((directory) => {
-  const root = new URL(`./packages/${directory}/`, import.meta.url).pathname;
+  const root = fileURLToPath(new URL(`./packages/${directory}/`, import.meta.url)).replaceAll(
+    '\\',
+    '/',
+  );
   const manifest = JSON.parse(readFileSync(`${root}package.json`, 'utf8')) as {
     name: string;
     exports: Record<string, string | { import?: string }>;
