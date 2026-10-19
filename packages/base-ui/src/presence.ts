@@ -11,7 +11,7 @@ export function createPresence(element: HTMLElement, subtree = false) {
     win.cancelAnimationFrame(frame);
   };
   return {
-    update(open: boolean, show: () => void, hide: () => void) {
+    update(open: boolean, show: () => void, hide: () => void, complete?: (open: boolean) => void) {
       if (wanted === open) return;
       const initial = wanted === undefined;
       wanted = open;
@@ -22,6 +22,20 @@ export function createPresence(element: HTMLElement, subtree = false) {
       element.dataset.state = open ? 'open' : 'closed';
       element.removeAttribute('data-starting-style');
       element.removeAttribute('data-ending-style');
+      const afterMotion = (finish: () => void) => {
+        const animations = element.getAnimations({ subtree }).filter((animation) => {
+          const timing = animation.effect?.getComputedTiming();
+          return animation.playState !== 'finished' && timing?.endTime !== Infinity;
+        });
+        const settled = () => {
+          if (token === generation) finish();
+        };
+        if (animations.length)
+          void Promise.allSettled(animations.map((animation) => animation.finished))
+            .then(settled)
+            .catch((error: unknown) => win.reportError(error));
+        else settled();
+      };
       if (open) {
         element.setAttribute('data-starting-style', '');
         show();
@@ -29,7 +43,12 @@ export function createPresence(element: HTMLElement, subtree = false) {
         element.getBoundingClientRect();
         frame = win.requestAnimationFrame(() => {
           frame = win.requestAnimationFrame(() => {
-            if (token === generation) element.removeAttribute('data-starting-style');
+            if (token !== generation) return;
+            element.removeAttribute('data-starting-style');
+            if (complete) {
+              element.getBoundingClientRect();
+              afterMotion(() => complete(true));
+            }
           });
         });
       } else {
@@ -39,21 +58,11 @@ export function createPresence(element: HTMLElement, subtree = false) {
         }
         element.setAttribute('data-ending-style', '');
         element.getBoundingClientRect();
-        const animations = element.getAnimations({ subtree }).filter((animation) => {
-          const timing = animation.effect?.getComputedTiming();
-          return animation.playState !== 'finished' && timing?.endTime !== Infinity;
-        });
-        const finish = () => {
-          if (token !== generation) return;
+        afterMotion(() => {
           element.removeAttribute('data-ending-style');
           hide();
-        };
-        if (animations.length)
-          void Promise.allSettled(animations.map((animation) => animation.finished)).then(
-            finish,
-            finish,
-          );
-        else finish();
+          complete?.(false);
+        });
       }
     },
     dispose: cancel,

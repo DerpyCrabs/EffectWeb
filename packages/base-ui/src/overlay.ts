@@ -1,29 +1,122 @@
+import { completeOverlayExit } from './overlay-portal.js';
+import {
+  focusPopupInitially,
+  restorePopupFocus,
+  type CloseInteraction,
+  type PopupFocusOptions,
+} from './popup-focus.js';
+export type { PopupFocusOptions } from './popup-focus.js';
 import { logicalKey } from './direction.js';
 import { createPresence } from './presence.js';
 import { domBinding } from 'effectweb';
 import { createOpenController, type OpenOptions, type OpenHandle } from './controller.js';
-import { placeElement, type Side, type Align } from './positioning.js';
+import { resolvePositionAnchor } from './position-anchor.js';
+import { placeElement, type Side, type Align, type CollisionAvoidance } from './positioning.js';
 import { createListNavigation, enabledItems } from './collection.js';
 
-export interface OverlayOptions extends OpenOptions {
+export interface OverlayChangeCause {
+  readonly reason:
+    | 'trigger-hover'
+    | 'trigger-focus'
+    | 'trigger-press'
+    | 'item-press'
+    | 'outside-press'
+    | 'escape-key'
+    | 'close-press'
+    | 'focus-out'
+    | 'imperative-action'
+    | 'none';
+  readonly event: Event;
+}
+export interface OverlayChangeEventDetails extends OverlayChangeCause {
+  readonly trigger: Element | undefined;
+  readonly isCanceled: boolean;
+  readonly isPropagationAllowed: boolean;
+  readonly cancel: () => void;
+  readonly allowPropagation: () => void;
+}
+export interface OverlayOptions extends Omit<OpenOptions, 'onOpenChange'> {
+  readonly onOpenChangeComplete?: ((open: boolean) => void) | undefined;
+  readonly onOpenChange?: ((open: boolean, details: OverlayChangeEventDetails) => void) | undefined;
   readonly parent?: OverlayHandle | undefined;
   readonly modal?: boolean | undefined;
   readonly delay?: number | undefined;
   readonly restoreFocus?: boolean | undefined;
 }
+function changeDetails(
+  cause: OverlayChangeCause | undefined,
+  trigger: Element | undefined,
+): OverlayChangeEventDetails {
+  if (cause && 'isCanceled' in cause) return cause as OverlayChangeEventDetails;
+  let canceled = false;
+  let propagationAllowed = false;
+  const details: OverlayChangeEventDetails = {
+    reason: cause?.reason ?? 'imperative-action',
+    event: cause?.event ?? new Event('change'),
+    trigger,
+    get isCanceled() {
+      return canceled;
+    },
+    get isPropagationAllowed() {
+      return propagationAllowed;
+    },
+    cancel: () => {
+      canceled = true;
+    },
+    allowPropagation: () => {
+      propagationAllowed = true;
+    },
+  };
+  return details;
+}
 /** Parent-owned overlay state, DOM anchors and delayed visibility actions. */
+const completionCallbacks = new WeakMap<OverlayHandle, (open: boolean) => void>();
+const openInteractions = new WeakMap<OverlayHandle['trigger'], CloseInteraction>();
+
+/** Create shared open state, parent hierarchy, anchor and popup references for overlays. */
 export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
-  const primitive = createOpenController(options);
+  // The overlay decides whether to accept a request after its cancellable callback.
+  const primitive = createOpenController({
+    ...options,
+    open: options.open ?? options.defaultOpen ?? false,
+    onOpenChange: undefined,
+  });
   let trigger: HTMLElement | undefined;
   let popup: HTMLElement | undefined;
   let focusLast = false;
   let position: PositionOptions | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const cancel = () => clearTimeout(timer);
-  const setOpen = (open: boolean) => {
+  const setOpen = (open: boolean, cause?: OverlayChangeCause): void => {
     cancel();
-    if (open && options.parent && !options.parent.source.model().open) return;
-    primitive.setOpen(open);
+    const current = primitive.source.model();
+    if (
+      current.disabled ||
+      current.open === open ||
+      (open && options.parent && !options.parent.source.model().open)
+    )
+      return;
+    const details = changeDetails(cause, trigger);
+    options.onOpenChange?.(open, details);
+    if (open && !details.isCanceled) {
+      const event = cause?.event;
+      openInteractions.set(
+        handle.trigger,
+        typeof PointerEvent !== 'undefined' && event instanceof PointerEvent
+          ? event.pointerType === 'touch' || event.pointerType === 'pen'
+            ? event.pointerType
+            : 'mouse'
+          : (typeof KeyboardEvent !== 'undefined' && event instanceof KeyboardEvent) ||
+              (typeof MouseEvent !== 'undefined' &&
+                event instanceof MouseEvent &&
+                event.detail === 0)
+            ? 'keyboard'
+            : typeof MouseEvent !== 'undefined' && event instanceof MouseEvent
+              ? 'mouse'
+              : '',
+      );
+    }
+    if (!details.isCanceled && options.open === undefined) primitive.sync({ open });
   };
   primitive.lifetime.own(cancel);
   if (options.parent)
@@ -32,17 +125,17 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
         if (!state.open) setOpen(false);
       }),
     );
-  return {
+  const handle: OverlayHandle = {
     ...primitive,
     setOpen,
-    toggle: () => setOpen(!primitive.source.model().open),
+    toggle: (cause?: OverlayChangeCause) => setOpen(!primitive.source.model().open, cause),
     sync: (next) => {
       if (next.open === false) cancel();
       primitive.sync(next);
     },
-    openFromKey: (key: string) => {
+    openFromKey: (key: string, event?: KeyboardEvent) => {
       focusLast = key === 'ArrowUp';
-      setOpen(true);
+      setOpen(true, event ? { reason: 'trigger-press', event } : undefined);
     },
     focusLast: () => focusLast,
     position: () => position,
@@ -60,24 +153,29 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     attachPopup: (element: HTMLElement | undefined) => {
       popup = element;
     },
-    showDelayed: () => {
+    showDelayed: (cause?: OverlayChangeCause) => {
       clearTimeout(timer);
-      timer = setTimeout(() => setOpen(true), options.delay ?? 0);
+      timer = setTimeout(() => setOpen(true, cause), options.delay ?? 0);
     },
-    hide: () => {
+    hide: (cause?: OverlayChangeCause) => {
       clearTimeout(timer);
-      setOpen(false);
+      return setOpen(false, cause);
     },
-    closeTree: () => {
-      setOpen(false);
-      options.parent?.closeTree();
+    closeTree: (cause?: OverlayChangeCause) => {
+      const details = changeDetails(cause, trigger);
+      setOpen(false, details);
+      if (!details.isCanceled) options.parent?.closeTree(details);
     },
   };
+  if (options.onOpenChangeComplete) completionCallbacks.set(handle, options.onOpenChangeComplete);
+  return handle;
 }
 export interface OverlayHandle extends OpenHandle {
+  readonly setOpen: (open: boolean, cause?: OverlayChangeCause) => void;
+  readonly toggle: (cause?: OverlayChangeCause) => void;
   readonly parent: OverlayHandle | undefined;
   readonly modal: boolean;
-  readonly openFromKey: (key: string) => void;
+  readonly openFromKey: (key: string, event?: KeyboardEvent) => void;
   readonly focusLast: () => boolean;
   readonly position: () => PositionOptions | undefined;
   readonly configurePosition: (next: PositionOptions | undefined) => void;
@@ -86,11 +184,29 @@ export interface OverlayHandle extends OpenHandle {
   readonly popup: () => HTMLElement | undefined;
   readonly attachTrigger: (element: HTMLElement | undefined) => void;
   readonly attachPopup: (element: HTMLElement | undefined) => void;
-  readonly showDelayed: () => void;
-  readonly hide: () => void;
-  readonly closeTree: () => void;
+  readonly showDelayed: (cause?: OverlayChangeCause) => void;
+  readonly hide: (cause?: OverlayChangeCause) => void;
+  readonly closeTree: (cause?: OverlayChangeCause) => void;
 }
 export interface PositionOptions {
+  readonly anchor?:
+    | Element
+    | {
+        readonly getBoundingClientRect: () => DOMRect;
+        readonly contextElement?: Element | undefined;
+      }
+    | { readonly current: Element | null }
+    | (() =>
+        | Element
+        | {
+            readonly getBoundingClientRect: () => DOMRect;
+            readonly contextElement?: Element | undefined;
+          }
+        | null
+        | undefined)
+    | null
+    | undefined;
+  readonly collisionAvoidance?: CollisionAvoidance | undefined;
   readonly side?: Side | undefined;
   readonly align?: Align | undefined;
   readonly sideOffset?: number | undefined;
@@ -108,7 +224,7 @@ export const triggerBinding = (handle: OverlayHandle) => ({
   ...domBinding(handle, acquireTrigger),
   identity: handle,
 });
-interface PopupInput extends PositionOptions {
+interface PopupInput extends PositionOptions, PopupFocusOptions {
   readonly handle: OverlayHandle;
   readonly kind: 'dialog' | 'alertdialog' | 'popover' | 'menu' | 'listbox' | 'tooltip';
   readonly dismissible?: boolean | undefined;
@@ -116,19 +232,51 @@ interface PopupInput extends PositionOptions {
 const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
   const handle = current().handle;
   handle.attachPopup(element);
-  let wasOpen = false;
+  let wasOpen: boolean | undefined;
+  let hidden = false;
+  let display = element.style.getPropertyValue('display');
+  let displayPriority = element.style.getPropertyPriority('display');
+  const conceal = () => {
+    if (
+      !hidden ||
+      element.style.getPropertyValue('display') !== 'none' ||
+      element.style.getPropertyPriority('display') !== 'important'
+    ) {
+      display = element.style.getPropertyValue('display');
+      displayPriority = element.style.getPropertyPriority('display');
+    }
+    hidden = true;
+    // Author utility classes override the UA's closed-popover display rule.
+    element.style.setProperty('display', 'none', 'important');
+  };
+  const reveal = () => {
+    if (!hidden) return;
+    if (display) element.style.setProperty('display', display, displayPriority);
+    else element.style.removeProperty('display');
+    hidden = false;
+  };
+  let focusPending = false;
   const presence = createPresence(element);
   let returningFocus = true;
+  let closeInteraction: CloseInteraction = 'keyboard';
   const isDialog = element instanceof HTMLDialogElement;
   const place = () => {
-    const { side, align, sideOffset, alignOffset } = { ...current(), ...handle.position() };
-    const anchor = handle.trigger();
+    const {
+      anchor: suppliedAnchor,
+      side,
+      align,
+      sideOffset,
+      alignOffset,
+      collisionAvoidance,
+    } = { ...current(), ...handle.position() };
+    const anchor = resolvePositionAnchor(suppliedAnchor, handle.trigger());
     if (!isDialog && anchor && handle.source.model().open) {
       placeElement(anchor, element, {
         side: side ?? 'bottom',
         align: align ?? 'center',
         offset: sideOffset ?? 4,
         alignOffset: alignOffset ?? 0,
+        collisionAvoidance,
       });
     }
   };
@@ -146,34 +294,55 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
     )
       element.setAttribute('aria-describedby', `${handle.id}-description`);
     if (open === wasOpen) {
+      if (hidden) conceal();
       place();
       return;
     }
     wasOpen = open;
+    if (open) focusPending = true;
     presence.update(
       open,
       () => {
+        reveal();
+        const previous = element.ownerDocument.activeElement;
         if (isDialog) {
           if (handle.modal) element.showModal();
           else element.show();
         } else element.showPopover();
         place();
-        if (current().kind === 'menu' || current().kind === 'listbox') {
+        const kind = current().kind;
+        const interaction = openInteractions.get(handle.trigger) ?? '';
+        let fallback: HTMLElement | undefined;
+        if (kind === 'menu' || kind === 'listbox') {
           const items = enabledItems(element, '[role^="menuitem"], [role="option"]');
-          (
+          fallback =
             items.find((item) => item.getAttribute('aria-selected') === 'true') ??
-            (handle.focusLast() ? items[items.length - 1] : items[0]) ??
-            element
-          ).focus();
+            (handle.focusLast() ? items.at(-1) : items[0]) ??
+            element;
+        } else if (kind !== 'tooltip') {
+          fallback =
+            interaction === 'touch'
+              ? element
+              : (enabledItems(element, 'button, input, select, textarea, a[href], [tabindex]').find(
+                  (item) => item.tabIndex >= 0,
+                ) ?? element);
         }
+        if (kind !== 'tooltip')
+          focusPopupInitially(current().initialFocus, fallback, previous, interaction);
       },
       () => {
-        const restore = returningFocus;
+        const restore = returningFocus && focusPending;
+        focusPending = false;
         if (isDialog && element.open) element.close();
         else if (!isDialog && element.matches(':popover-open')) element.hidePopover();
+        conceal();
         if (restore && handle.restoreFocus && current().kind !== 'tooltip')
-          handle.trigger()?.focus();
+          restorePopupFocus(current().finalFocus, handle.trigger(), closeInteraction);
         returningFocus = true;
+      },
+      (open) => {
+        completionCallbacks.get(handle)?.(open);
+        if (!open) completeOverlayExit(handle);
       },
     );
   };
@@ -184,12 +353,16 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
     // A child submenu belongs to the same interaction tree.
     const target = event.target as Element;
     if (target.closest(`[data-overlay-parent="${handle.id}"]`)) return;
+    const previous = returningFocus;
     returningFocus = false;
-    handle.hide();
+    const details = changeDetails({ reason: 'outside-press', event }, handle.trigger());
+    handle.hide(details);
+    if (details.isCanceled) returningFocus = previous;
   };
   const cancel = (event: Event) => {
     event.preventDefault();
-    if (current().kind !== 'alertdialog' && current().dismissible !== false) handle.hide();
+    if (current().kind !== 'alertdialog' && current().dismissible !== false)
+      handle.hide({ reason: 'escape-key', event });
   };
   const click = (event: MouseEvent) => {
     if (
@@ -206,7 +379,7 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
       event.clientY < r.top ||
       event.clientY > r.bottom
     )
-      handle.hide();
+      handle.hide({ reason: 'outside-press', event });
   };
   const navigate = createListNavigation();
   const key = (event: KeyboardEvent) => {
@@ -216,8 +389,9 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
       (handle.parent && logicalKey(event.key, element) === 'ArrowLeft')
     ) {
       event.preventDefault();
-      event.stopPropagation();
-      if (current().kind !== 'alertdialog' && current().dismissible !== false) handle.hide();
+      const details = changeDetails({ reason: 'escape-key', event }, handle.trigger());
+      if (current().kind !== 'alertdialog' && current().dismissible !== false) handle.hide(details);
+      if (!details.isPropagationAllowed) event.stopPropagation();
       return;
     }
     if (isDialog && handle.modal && event.key === 'Tab') {
@@ -241,7 +415,7 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
     if (current().kind !== 'menu' && current().kind !== 'listbox') return;
     if (event.key === 'Tab') {
       returningFocus = false;
-      handle.closeTree();
+      handle.closeTree({ reason: 'focus-out', event });
       return;
     }
     const items = enabledItems(element, '[role^="menuitem"], [role="option"]');
@@ -256,13 +430,26 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
     )
       return;
     if ((event.relatedTarget as Element).closest(`[data-overlay-parent="${handle.id}"]`)) return;
+    const previous = returningFocus;
     returningFocus = false;
-    handle.hide();
+    const details = changeDetails({ reason: 'focus-out', event }, handle.trigger());
+    handle.hide(details);
+    if (details.isCanceled) returningFocus = previous;
   };
   const close = () => {
     if (handle.source.model().open) handle.hide();
   };
   const doc = element.ownerDocument;
+  const pointerInteraction = (event: PointerEvent) => {
+    if (handle.source.model().open)
+      closeInteraction =
+        event.pointerType === 'touch' || event.pointerType === 'pen' ? event.pointerType : 'mouse';
+  };
+  const keyboardInteraction = () => {
+    closeInteraction = 'keyboard';
+  };
+  doc.addEventListener('pointerdown', pointerInteraction, true);
+  doc.addEventListener('keydown', keyboardInteraction, true);
   const triggerKey = (event: KeyboardEvent) => {
     if (event.key === 'Escape' && handle.trigger()?.contains(event.target as Node)) key(event);
   };
@@ -287,6 +474,8 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
       unsubscribe();
       resize.disconnect();
       doc.removeEventListener('pointerdown', outside);
+      doc.removeEventListener('pointerdown', pointerInteraction, true);
+      doc.removeEventListener('keydown', keyboardInteraction, true);
       doc.removeEventListener('keydown', triggerKey);
       element.removeEventListener('keydown', key);
       element.removeEventListener('cancel', cancel);
@@ -298,6 +487,10 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
       handle.attachPopup(undefined);
       if (isDialog && element.open) element.close();
       else if (!isDialog && element.matches(':popover-open')) element.hidePopover();
+      if (focusPending && returningFocus && handle.restoreFocus && current().kind !== 'tooltip')
+        restorePopupFocus(current().finalFocus, handle.trigger(), closeInteraction);
+      focusPending = false;
+      reveal();
     },
   };
 };

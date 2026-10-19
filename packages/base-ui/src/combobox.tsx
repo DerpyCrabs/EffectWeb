@@ -1,3 +1,6 @@
+import { OverlayPortal, type OverlayPortalProps } from './overlay-portal.js';
+import type { PopupFocusOptions } from './popup-focus.js';
+import { composeMounts } from 'effectweb';
 import {
   domBinding,
   list,
@@ -63,7 +66,7 @@ export interface ComboboxHandle<T = string, M extends boolean = false> extends S
   syncInputValue(value: string): void;
   setLoading(loading: boolean): void;
   highlight(index: number): void;
-  commit(item: T): void;
+  commit(item: T, event?: Event): void;
   clear(): void;
   key(event: KeyboardEvent): void;
   itemId(item: T): string;
@@ -71,11 +74,46 @@ export interface ComboboxHandle<T = string, M extends boolean = false> extends S
   create(): void;
   canCreate(): boolean;
 }
+type ItemRegistration = { value: unknown; id: string | undefined; disabled: boolean | undefined };
+const itemIdentities = new WeakMap<object, (value: unknown) => string>();
+const itemRegistries = new WeakMap<object, (item: ItemRegistration) => () => void>();
+const acquireItemRegistration = (
+  _element: HTMLElement,
+  current: () => ItemRegistration & { combobox: object },
+) => {
+  let previous = current();
+  let stop = itemRegistries.get(previous.combobox)?.(previous);
+  return {
+    update() {
+      const next = current();
+      if (
+        next.combobox === previous.combobox &&
+        next.value === previous.value &&
+        next.id === previous.id &&
+        next.disabled === previous.disabled
+      )
+        return;
+      stop?.();
+      previous = next;
+      stop = itemRegistries.get(next.combobox)?.(next);
+    },
+    dispose() {
+      stop?.();
+    },
+  };
+};
 /** Create an editable collection with filtering, keyboard navigation and typed selection. */
 export function createCombobox<T = string, M extends boolean = false>(
   options: ComboboxOptions<T, M> = {},
 ): ComboboxHandle<T, M> {
-  const selection = createSelection(options);
+  let itemCloseCanceled = false;
+  const selection = createSelection({
+    ...options,
+    onOpenChange(open, details) {
+      options.onOpenChange?.(open, details);
+      if (!open && details.reason === 'item-press') itemCloseCanceled = details.isCanceled;
+    },
+  });
   const itemsSource =
     options.items && !Array.isArray(options.items) && 'model' in options.items
       ? options.items
@@ -110,7 +148,11 @@ export function createCombobox<T = string, M extends boolean = false>(
   const read = () => owner.read().state;
   const patch = (state: Partial<ComboboxState<T>>) =>
     owner.patch({ state: { ...read(), ...state } });
-  const disabledItem = options.isItemDisabled ?? (() => false);
+  const registeredItems: ItemRegistration[] = [];
+  const sameItem = options.isItemEqualToValue ?? Object.is;
+  const disabledItem = (item: T) =>
+    !!options.isItemDisabled?.(item) ||
+    registeredItems.some((entry) => sameItem(entry.value as T, item) && entry.disabled === true);
   const highlight = (index: number) => {
     const item = read().filteredItems[index];
     const activeIndex = item !== undefined && !disabledItem(item) ? index : -1;
@@ -139,17 +181,21 @@ export function createCombobox<T = string, M extends boolean = false>(
     options.onInputValueChange?.(value);
     selection.setOpen(true);
   };
-  const commit = (item: T) => {
+  const commit = (item: T, event?: Event) => {
     if (disabledItem(item) || read().disabled) return;
     selection.choose(item);
+    if (!selection.multiple) {
+      itemCloseCanceled = false;
+      selection.overlay.hide({ reason: 'item-press', event: event ?? new Event('change') });
+      if (itemCloseCanceled) return;
+    }
     const value = selection.multiple ? '' : selection.label(item);
     if (options.inputValue === undefined) refilter(read().items, value);
     options.onInputValueChange?.(value);
-    if (!selection.multiple) selection.hide();
   };
   const ids: T[] = [];
   const equal = options.isItemEqualToValue ?? Object.is;
-  const itemId = (item: T) => {
+  const defaultItemId = (item: T) => {
     let index = ids.findIndex((value) => equal(value, item));
     if (index < 0) {
       index = ids.length;
@@ -157,6 +203,9 @@ export function createCombobox<T = string, M extends boolean = false>(
     }
     return `${selection.id}-option-${index}`;
   };
+  const itemId = (item: T) =>
+    registeredItems.find((entry) => entry.id !== undefined && equal(entry.value as T, item))?.id ??
+    defaultItemId(item);
   const canCreate = () =>
     !!options.createItem &&
     !!read().inputValue.trim() &&
@@ -185,7 +234,7 @@ export function createCombobox<T = string, M extends boolean = false>(
     options.onInputValueChange?.('');
     selection.overlay.trigger()?.focus();
   };
-  return {
+  const handle: ComboboxHandle<T, M> = {
     ...selection,
     lifetime: owner,
     inputSource: mapSource(owner.source, (model) => model.state),
@@ -241,7 +290,7 @@ export function createCombobox<T = string, M extends boolean = false>(
         const item = state.filteredItems[state.activeIndex];
         if (item !== undefined) {
           event.preventDefault();
-          commit(item);
+          commit(item, event);
         } else if (canCreate()) {
           event.preventDefault();
           create();
@@ -278,6 +327,22 @@ export function createCombobox<T = string, M extends boolean = false>(
       }
     },
   };
+  itemIdentities.set(handle, (value) => defaultItemId(value as T));
+  itemRegistries.set(handle, (entry) => {
+    registeredItems.push(entry);
+    patch({});
+    return () => {
+      const index = registeredItems.indexOf(entry);
+      if (index >= 0) registeredItems.splice(index, 1);
+      if (!owner.disposed) patch({});
+    };
+  });
+  owner.own(() => {
+    itemIdentities.delete(handle);
+    itemRegistries.delete(handle);
+    registeredItems.length = 0;
+  });
+  return handle;
 }
 type Handle = ComboboxHandle<unknown, boolean>;
 export type ComboboxInputProps = Native<'input'> & { readonly combobox: Handle };
@@ -338,7 +403,7 @@ export const ComboboxInput = view<ComboboxInputProps>(
     observe(combobox.inputSource, (state) => (
       <input
         {...props}
-        use={inputBinding(combobox)}
+        use={composeMounts([props.use, inputBinding(combobox)])}
         role="combobox"
         autocomplete="off"
         disabled={state.disabled || props.disabled}
@@ -403,24 +468,44 @@ export const ComboboxTrigger = view<Native<'button'> & { readonly combobox: Hand
       />
     )),
 );
-export type ComboboxPopupProps = Native<'div'> & PositionOptions & { readonly combobox: Handle };
+export type ComboboxPopupProps = Native<'div'> &
+  PositionOptions &
+  PopupFocusOptions & { readonly combobox: Handle };
 /** The popup listing combobox items. */
 export const ComboboxPopup = view<ComboboxPopupProps>(
-  ({ combobox, side, align, sideOffset, alignOffset, ...props }) =>
+  ({
+    combobox,
+    side,
+    align,
+    sideOffset,
+    alignOffset,
+    collisionAvoidance,
+    anchor,
+    initialFocus,
+    finalFocus,
+    ...props
+  }) =>
     observe(combobox.inputSource, (state) => (
       <div
         {...props}
         popover="manual"
         data-empty={!state.filteredItems.length ? '' : undefined}
         data-loading={state.loading ? '' : undefined}
-        use={popupBinding({
-          handle: combobox.overlay,
-          kind: 'popover',
-          side,
-          align,
-          sideOffset,
-          alignOffset,
-        })}
+        use={composeMounts([
+          props.use,
+          popupBinding({
+            handle: combobox.overlay,
+            initialFocus,
+            finalFocus,
+            kind: 'popover',
+            side,
+            align,
+            sideOffset,
+            alignOffset,
+            collisionAvoidance,
+            anchor,
+          }),
+        ])}
       />
     )),
 );
@@ -443,23 +528,40 @@ export const ComboboxList = view<Native<'div'> & { readonly combobox: Handle }>(
     )),
 );
 export type ComboboxItemProps = Native<'div'> & {
+  readonly disabled?: boolean;
   readonly combobox: Handle;
   readonly value: unknown;
   readonly index?: number;
 };
 /** One combobox option identified by `value`; selection and highlight come from the handle. */
 export const ComboboxItem = view<ComboboxItemProps>(
-  ({ combobox, value, index, onClick, onPointerMove, onPointerDown, ...props }) =>
+  ({
+    combobox,
+    value,
+    index,
+    disabled: itemDisabled,
+    onClick,
+    onPointerMove,
+    onPointerDown,
+    ...props
+  }) =>
     observe(combobox.inputSource, (state) =>
       observe(combobox.source, () => {
         const position =
           index ??
           state.filteredItems.findIndex((item) => combobox.itemId(item) === combobox.itemId(value));
-        const disabled = combobox.disabledItem(value);
+        const disabled = itemDisabled || combobox.disabledItem(value);
         return (
           <div
             {...props}
-            id={combobox.itemId(value)}
+            id={props.id ?? combobox.itemId(value)}
+            use={composeMounts([
+              props.use,
+              domBinding(
+                { combobox, value, id: props.id, disabled: itemDisabled },
+                acquireItemRegistration,
+              ),
+            ])}
             role="option"
             tabindex={-1}
             aria-selected={combobox.selected(value)}
@@ -480,7 +582,7 @@ export const ComboboxItem = view<ComboboxItemProps>(
             }}
             onClick={(event) => {
               onClick?.(event);
-              if (!event.defaultPrevented) combobox.commit(value);
+              if (!event.defaultPrevented && !disabled) combobox.commit(value, event);
             }}
           />
         );
@@ -497,7 +599,7 @@ export const ComboboxCollection = view<{
   observe(combobox.inputSource, (state) =>
     list(
       state.filteredItems.slice(start, end),
-      (item) => combobox.itemId(item),
+      (item) => itemIdentities.get(combobox)?.(item) ?? combobox.itemId(item),
       (item, index) =>
         renderItem ? (
           renderItem(item, start + index)
@@ -628,3 +730,11 @@ export const ComboboxGroup = SelectGroup;
 export const ComboboxGroupLabel = SelectGroupLabel;
 /** A separator between combobox groups. */
 export const ComboboxSeparator = SelectSeparator;
+
+export type ComboboxPortalProps = Omit<OverlayPortalProps, 'handle'> & {
+  readonly combobox: Handle;
+};
+/** Mount popup content while open or exiting; keepMounted explicitly retains closed content. */
+export const ComboboxPortal = view<ComboboxPortalProps>(({ combobox, ...props }) => (
+  <OverlayPortal handle={combobox.overlay} {...props} />
+));

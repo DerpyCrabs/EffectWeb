@@ -35,6 +35,35 @@ describe('numeric controls', () => {
     expect(changed).toHaveBeenCalledTimes(1);
     field.lifetime.dispose();
   });
+  it('preserves empty values and resets an uncontrolled field to empty', () => {
+    const changed = vi.fn();
+    const field = createNumberField({ onValueChange: changed });
+    expect(field.source.model().value).toBeNull();
+    expect(field.format()).toBe('');
+    field.setValue(4);
+    field.setValue(null);
+    expect(field.source.model().value).toBeNull();
+    expect(changed).toHaveBeenLastCalledWith(null);
+    field.step(1);
+    expect(field.source.model().value).toBe(1);
+    field.reset();
+    expect(field.source.model().value).toBeNull();
+    field.lifetime.dispose();
+  });
+  it('retains fractional input with any step while clamping bounds', () => {
+    const field = createNumberField({ defaultValue: 1.25, step: 'any', min: 0, max: 5 });
+    expect(field.source.model().value).toBe(1.25);
+    field.setValue(2.75);
+    expect(field.source.model().value).toBe(2.75);
+    field.step(1);
+    expect(field.source.model().value).toBe(3.75);
+    field.setValue(9.25);
+    expect(field.source.model().value).toBe(5);
+    field.sync({ value: null, step: 'any' });
+    expect(field.source.model().value).toBeNull();
+    expect(field.format()).toBe('');
+    field.lifetime.dispose();
+  });
   it('prevents range thumbs crossing and ignores disabled steps', () => {
     const slider = createSlider({ defaultValues: [20, 80], step: 5 });
     slider.set(0, 95);

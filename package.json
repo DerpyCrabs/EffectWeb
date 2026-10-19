@@ -1,6 +1,6 @@
 {
   "name": "effectweb-workspace",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "private": true,
   "workspaces": [
     "packages/runtime",
@@ -46,7 +46,8 @@
     "registry:build": "node scripts/shadcn-registry.mjs",
     "registry:check": "node scripts/shadcn-registry.mjs --check",
     "registry:serve": "node scripts/shadcn-registry.mjs --serve",
-    "test:registry": "node scripts/registry-smoke.mjs"
+    "test:registry": "node scripts/registry-smoke.mjs",
+    "test:build": "node scripts/build-smoke.mjs"
   },
   "devDependencies": {
     "@effect/tsgo": "0.47.1",

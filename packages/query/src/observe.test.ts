@@ -295,3 +295,35 @@ it('patches query results and projections into a model key', async () => {
   expect(owner.read().result._tag).toBe('Success');
   owner.dispose();
 });
+
+it('releases never-observed query source identities without invalidating retained handles', () => {
+  vi.useFakeTimers({ toFake: ['queueMicrotask'] });
+  const load = vi.fn((id: string) => Effect.succeed(id));
+  const definition = query({ name: 'unused-source', load });
+  const cache = queryCache();
+  try {
+    const retained = querySource(cache, definition, 'alice');
+    expect(querySource(cache, definition, 'alice')).toBe(retained);
+    vi.runAllTicks();
+    expect(load).not.toHaveBeenCalled();
+    const current = querySource(cache, definition, 'alice');
+    expect(current).not.toBe(retained);
+    const stop = current.subscribe(() => {});
+    vi.runAllTicks();
+    expect(querySource(cache, definition, 'alice')).toBe(current);
+    const stopRetained = retained.subscribe(() => {});
+    expect(available(retained.model())).toBe('alice');
+    expect(available(current.model())).toBe('alice');
+    expect(load).toHaveBeenCalledTimes(1);
+    stopRetained();
+    vi.runAllTicks();
+    expect(querySource(cache, definition, 'alice')).toBe(current);
+    stop();
+    vi.runAllTicks();
+    expect(querySource(cache, definition, 'alice')).not.toBe(current);
+    vi.runAllTicks();
+  } finally {
+    cache.dispose();
+    vi.useRealTimers();
+  }
+});

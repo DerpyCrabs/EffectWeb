@@ -38,6 +38,124 @@ export function domBinding<T extends Element, A>(
   };
 }
 
+const composedIdentity = Symbol('composed mounts');
+
+/** Attach independently replaceable element lifetimes to one native `use` slot. */
+export function composeMounts<T extends Element>(
+  bindings: readonly (DomMount<T> | undefined)[],
+): DomMount<T> {
+  return { identity: composedIdentity, data: bindings, acquire: () => {} };
+}
+
+interface MountLifetime<T extends Element> {
+  readonly closed: Effect.Effect<void>;
+  readonly start: () => void;
+  readonly close: () => Effect.Effect<void>;
+  readonly update: (mount: DomMount<T>) => boolean;
+  readonly dispose: (exit?: Exit.Exit<unknown, unknown>) => void;
+}
+
+function prepareComposedMount<T extends Element>(
+  element: T,
+  mount: DomMount<T>,
+  report: ReportError,
+  runtime: UiRuntime<never> | undefined,
+  onClosed: (() => void) | undefined,
+): MountLifetime<T> {
+  let bindings = mount.data as readonly (DomMount<T> | undefined)[];
+  const slots: Array<MountLifetime<T> | undefined> = [];
+  const pendingClose = new Set<MountLifetime<T>>();
+  const completed = Deferred.makeUnsafe<void>();
+  const closed = Deferred.await(completed);
+  let started = false;
+  let disposed = false;
+  let reconciling = false;
+  let changed = false;
+  let finished = false;
+  const finish = () => {
+    if (!finished && disposed && pendingClose.size === 0) {
+      finished = true;
+      Deferred.doneUnsafe(completed, Effect.void);
+      onClosed?.();
+    }
+  };
+  const release = (lifetime: MountLifetime<T> | undefined, exit?: Exit.Exit<unknown, unknown>) => {
+    try {
+      lifetime?.dispose(exit);
+    } catch (error) {
+      reportSafely(report, error);
+    }
+  };
+  const dispose = (exit?: Exit.Exit<unknown, unknown>) => {
+    if (disposed) return;
+    disposed = true;
+    for (let index = slots.length - 1; index >= 0; index--) release(slots[index], exit);
+    slots.length = 0;
+    finish();
+  };
+  const reconcile = () => {
+    if (disposed || !started) return;
+    if (reconciling) {
+      changed = true;
+      return;
+    }
+    reconciling = true;
+    try {
+      do {
+        changed = false;
+        const nextBindings = bindings;
+        for (let index = 0; index < Math.max(slots.length, nextBindings.length); index++) {
+          const next = nextBindings[index];
+          const previous = slots[index];
+          if (next && previous?.update(next)) {
+            if (disposed || changed) break;
+            continue;
+          }
+          slots[index] = undefined;
+          release(previous);
+          if (disposed || changed) break;
+          if (next) {
+            const lifetime = prepareMount(element, next, report, runtime, () => {
+              pendingClose.delete(lifetime);
+              finish();
+            });
+            slots[index] = lifetime;
+            pendingClose.add(lifetime);
+            lifetime.start();
+            if (disposed || changed) break;
+          }
+        }
+        if (!changed && !disposed) slots.length = nextBindings.length;
+      } while (changed && !disposed);
+    } catch (error) {
+      dispose(Exit.die(error));
+      throw error;
+    } finally {
+      reconciling = false;
+    }
+  };
+  return {
+    closed,
+    start: () => {
+      if (started || disposed) return;
+      started = true;
+      reconcile();
+    },
+    update: (next) => {
+      if (disposed || next.identity !== composedIdentity) return false;
+      bindings = next.data as readonly (DomMount<T> | undefined)[];
+      reconcile();
+      return true;
+    },
+    dispose,
+    close: () =>
+      Effect.suspend(() => {
+        dispose();
+        return closed;
+      }),
+  };
+}
+
 /** Allocate the lifetime before acquisition so reentrant publications can update or close it. */
 const noCleanup = () => {};
 export function prepareMount<T extends Element>(
@@ -45,7 +163,10 @@ export function prepareMount<T extends Element>(
   mount: DomMount<T>,
   report: ReportError = reportError,
   runtime?: UiRuntime<never>,
-) {
+  onClosed?: () => void,
+): MountLifetime<T> {
+  if (mount.identity === composedIdentity)
+    return prepareComposedMount(element, mount, report, runtime, onClosed);
   let data = mount.data;
   let work: Exclude<Work, void> | undefined;
   let fiber: Fiber.Fiber<unknown, unknown> | undefined;
@@ -57,7 +178,13 @@ export function prepareMount<T extends Element>(
   let changedDuringSetup = false;
   const completed = Deferred.makeUnsafe<void>();
   const closed = Deferred.await(completed);
-  const finish = () => Deferred.doneUnsafe(completed, Effect.void);
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    Deferred.doneUnsafe(completed, Effect.void);
+    onClosed?.();
+  };
   const release = (exit: Exit.Exit<unknown, unknown> = Exit.void) => {
     closingExit ??= exit;
     if (released || work === undefined || (Effect.isEffect(work) && !fiber)) return;

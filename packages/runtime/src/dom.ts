@@ -65,22 +65,28 @@ const equal = (a: readonly unknown[], b: readonly unknown[]) => {
 // A model publication reconciles DOM first and controlled dependent properties second.
 // Nested child scopes join the same synchronous commit; there is no reactive graph.
 let commitDepth = 0;
+let drainingCommits = false;
 const controlCommits = new Set<() => void>();
 function commitDom<A>(work: () => A): A {
   commitDepth++;
   try {
     return work();
   } finally {
-    if (--commitDepth === 0) {
-      for (const apply of controlCommits) {
-        controlCommits.delete(apply);
-        apply();
+    if (--commitDepth === 0 && !drainingCommits) {
+      drainingCommits = true;
+      try {
+        for (const apply of controlCommits) {
+          controlCommits.delete(apply);
+          apply();
+        }
+      } finally {
+        drainingCommits = false;
       }
     }
   }
 }
 function afterDom(apply: () => void) {
-  if (commitDepth) controlCommits.add(apply);
+  if (commitDepth || drainingCommits) controlCommits.add(apply);
   else apply();
 }
 
@@ -116,6 +122,10 @@ export class Scope<M, E> {
       }
     };
     this.jobs.push(run);
+  }
+  /** Source notifications cannot reenter a partially replaced child during DOM disposal. */
+  publish(value: M) {
+    afterDom(() => this.set(value));
   }
   set(value: M) {
     if (this.disposed) return;
@@ -349,20 +359,31 @@ export function memoView<M, E>(
 
 const capturedValues = Symbol('captured');
 type Captured = { readonly [capturedValues]?: readonly unknown[] };
+const capturedObjects = new WeakMap<object, readonly unknown[]>();
 /**
- * Compiler output for an inline function prop of a view: the site it was written at and the
- * outer values it reads. Two functions from one site that read the same values behave the same,
- * so the view receiving them is not run again.
+ * Compiler output for an inline function, object or array prop of a view: the site it was
+ * written at and the outer values it reads. Two values from one site that read the same outer
+ * values are the same function, or field-for-field equal data, so the view receiving them is
+ * not run again. Objects are tagged aside, so the tag never appears in the value or its
+ * development freeze.
  */
-export function captured<F extends object>(callback: F, values: readonly unknown[]): F {
-  (callback as { [capturedValues]?: readonly unknown[] })[capturedValues] = values;
-  return callback;
+export function captured<F extends object>(value: F, values: readonly unknown[]): F {
+  if (typeof value === 'function')
+    (value as { [capturedValues]?: readonly unknown[] })[capturedValues] = values;
+  else capturedObjects.set(value, values);
+  return value;
 }
+const capturesOf = (value: unknown): readonly unknown[] | undefined =>
+  typeof value === 'function'
+    ? (value as Captured)[capturedValues]
+    : typeof value === 'object' && value !== null
+      ? capturedObjects.get(value)
+      : undefined;
 function sameCaptured(previous: unknown, next: unknown): boolean {
-  if (typeof previous !== 'function' || typeof next !== 'function') return false;
-  const before = (previous as Captured)[capturedValues];
-  const after = (next as Captured)[capturedValues];
-  if (!before || !after || before.length !== after.length) return false;
+  const after = capturesOf(next);
+  if (!after) return false;
+  const before = capturesOf(previous);
+  if (!before || before.length !== after.length) return false;
   for (let index = 0; index < after.length; index++)
     if (!Object.is(before[index], after[index])) return false;
   return true;
@@ -1345,7 +1366,7 @@ const observationDefinition = contentDefinition<Observation>((scope, parent, bef
     if (scope.disposed) return;
     const current = source;
     const release = current.subscribe((value) => {
-      if (!scope.disposed && source === current) child.set(value);
+      if (!scope.disposed && source === current) child.publish(value);
     });
     if (scope.disposed || source !== current) release();
     else {
@@ -1526,7 +1547,7 @@ export function mountViewWithSettlement<M, E>(
     try {
       unsubscribe = source.subscribe((model) => {
         latest = model;
-        if (ready) scope.set(model);
+        if (ready) scope.publish(model);
       });
       const fragment = buildFragment(parent);
       definition.build(scope as unknown as Scope<M, E>, fragment, null);
@@ -1659,7 +1680,7 @@ function sameStyleEntries(
   return true;
 }
 /** Cloning copies CSS declarations but not the reconciliation metadata of the template. */
-function scalar(value: unknown): string {
+function scalar(value: unknown, element?: Element, name?: string): string {
   if (value == null) return '';
   if (
     typeof value === 'string' ||
@@ -1669,7 +1690,7 @@ function scalar(value: unknown): string {
   )
     return String(value);
   throw new Error(
-    'DOM values must be scalar. Render objects as compiled child views or domain collections.',
+    `DOM values must be scalar${element ? ` for <${element.localName}> attribute "${name}"` : ''}. Render objects as compiled child views or domain collections.`,
   );
 }
 /** `fresh` marks a cloned element with no attributes yet: nothing to compare or remove. */
@@ -1723,7 +1744,7 @@ export function attribute(element: Element, name: string, value: unknown, fresh 
   } else if (name === 'value' && 'value' in element && element.localName !== 'option') {
     // An <option> gets its value as an attribute: before its text child exists its value property reads "", so a
     // property write of "" would be skipped and the option would later fall back to its text.
-    const next = scalar(value);
+    const next = scalar(value, element, name);
     if (element.value !== next) element.value = next;
   } else if (
     (typeof value === 'boolean' || value == null) &&
@@ -1743,7 +1764,7 @@ export function attribute(element: Element, name: string, value: unknown, fresh 
   ) {
     element.removeAttribute(key);
   } else {
-    const next = scalar(value);
+    const next = scalar(value, element, name);
     if (fresh || element.getAttribute(key) !== next) element.setAttribute(key, next);
   }
   if (key === 'class' && !fresh)
@@ -2298,7 +2319,8 @@ const eventTargets = new Map<string, readonly [string, boolean]>();
 // invoked by one listener per type on each mount root and portal host, in bubble order.
 // Roots are the mount containers rather than the document, so a handler that stops
 // propagation still shields listeners on the document and window. Capturing, custom and
-// non-bubbling events keep their own listeners, and so do touchstart and touchmove: a
+// non-bubbling and keyboard events keep their own listeners: keyboard handlers must run
+// before native ancestor handlers in overlays and editors. So do touchstart and touchmove: a
 // container listener that may cancel them would stop the browser scrolling the whole view
 // without waiting for script.
 const delegatedEvents = new Set([
@@ -2310,8 +2332,6 @@ const delegatedEvents = new Set([
   'focusout',
   'input',
   'change',
-  'keydown',
-  'keyup',
   'mousedown',
   'mousemove',
   'mouseout',
@@ -2906,47 +2926,59 @@ export function portal<M, E>(
   build: Build<M, E>,
   mount: () => Element | undefined = () => undefined,
 ) {
-  let host: HTMLElement | SVGElement | undefined;
+  let target: Element | undefined;
+  let range: ContentRange | undefined;
   let child: Scope<M, E> | undefined;
-  // Portal content is outside its mount root, so its host routes delegated events itself.
+  let svg = false;
   let undelegate: (() => void) | undefined;
-  scope.cleanups.push(() => {
+  const dispose = () => {
     const previous = child;
+    const previousRange = range;
+    const release = undelegate;
+    child = undefined;
+    range = undefined;
+    target = undefined;
+    undelegate = undefined;
     if (previous) detached(() => previous.dispose());
-    host?.remove();
-    undelegate?.();
-  });
+    if (previousRange) remove(previousRange.start, previousRange.end);
+    release?.();
+  };
+  scope.cleanups.push(dispose);
   const update = () => {
-    const target = mount() ?? document.body;
-    const svg = svgChildren(target);
-    if (!host || (host.namespaceURI === svgNamespace) !== svg) {
-      const previous = child;
-      if (previous) detached(() => previous.dispose());
-      host?.remove();
-      undelegate?.();
-      undelegate = undefined;
+    const next = mount() ?? document.body;
+    const nextSvg = svgChildren(next);
+    if (!child || svg !== nextSvg) {
+      dispose();
       if (scope.disposed) return;
-      host = svg
-        ? target.ownerDocument.createElementNS(svgNamespace, 'g')
-        : target.ownerDocument.createElement('div');
-      host.style.display = 'contents';
-      undelegate = delegationHost(host);
+      svg = nextSvg;
+      target = next;
+      // A wrapper would break native slots and table/SVG parent semantics.
+      range = markers(next, null);
+      undelegate = delegationHost(next);
       child = new Scope(scope.value, scope.send, scope.report, scope.settlement);
-      target.appendChild(host);
-      build(child, host, null);
+      build(child, next, range.end);
       return;
     }
-    if (host.parentNode !== target) {
-      const focused = host.ownerDocument.activeElement;
-      const move = Reflect.get(target, 'moveBefore');
-      if (
-        typeof move === 'function' &&
-        target.isConnected &&
-        host.isConnected &&
-        target.ownerDocument === host.ownerDocument
-      )
-        move.call(target, host, null);
-      else target.appendChild(host);
+    if (target !== next) {
+      const focused = target!.ownerDocument.activeElement;
+      let node: Node | null = range!.start;
+      while (node) {
+        const following: Node | null = node.nextSibling;
+        const move = Reflect.get(next, 'moveBefore');
+        if (
+          typeof move === 'function' &&
+          next.isConnected &&
+          node.isConnected &&
+          next.ownerDocument === node.ownerDocument
+        )
+          move.call(next, node, null);
+        else next.appendChild(node);
+        if (node === range!.end) break;
+        node = following;
+      }
+      undelegate?.();
+      undelegate = delegationHost(next);
+      target = next;
       if (
         focused instanceof HTMLElement &&
         focused.isConnected &&
@@ -2954,7 +2986,7 @@ export function portal<M, E>(
       )
         focused.focus({ preventScroll: true });
     }
-    child!.set(scope.value);
+    child.set(scope.value);
   };
   scope.jobs.push(update);
   update();

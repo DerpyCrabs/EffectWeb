@@ -1,5 +1,8 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import { iconAttributes } from './attributes.js';
+import { iconAttributes, lucideIcon, type LucideProps } from './attributes.js';
+import { Camera } from '@lucide/icons';
+import { mount, modelOwner } from 'effectweb';
 
 describe('Lucide SVG props', () => {
   it('defaults to a decorative 24px currentColor outline', () => {
@@ -62,4 +65,23 @@ describe('Lucide SVG props', () => {
     for (const name of ['size', 'color', 'strokeWidth', 'absoluteStrokeWidth', 'title', 'children'])
       expect(attrs).not.toHaveProperty(name);
   });
+});
+
+it('mounts raw Lucide data and nested shapes without leaking reconciliation keys', () => {
+  const Icon = lucideIcon('lucide-camera', 24, 24, [['g', { key: 'group' }, Camera.node]]);
+  const props = modelOwner<LucideProps>({});
+  const host = document.createElement('div');
+  const root = mount(host, Icon, props.source);
+  try {
+    expect(host.querySelectorAll('g > path, g > circle')).toHaveLength(Camera.node.length);
+    expect(host.querySelector('[key]')).toBeNull();
+    props.patch({ absoluteStrokeWidth: true });
+    for (const shape of host.querySelectorAll('g, path, circle')) {
+      expect(shape.getAttribute('vector-effect')).toBe('non-scaling-stroke');
+    }
+    expect(host.querySelector('[key]')).toBeNull();
+  } finally {
+    root.dispose();
+    props.dispose();
+  }
 });

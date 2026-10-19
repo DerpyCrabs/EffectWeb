@@ -27,6 +27,10 @@ export const SwitchRoot = view<Native<'input'> & { readonly switch: SwitchHandle
         onChange={(event) => {
           onChange?.(event);
           if (!event.defaultPrevented) switchControl.setChecked(event.currentTarget.checked);
+          // A controlled request can leave the model unchanged while native activation toggles.
+          const accepted = switchControl.source.model();
+          event.currentTarget.checked = accepted.checked;
+          event.currentTarget.indeterminate = accepted.indeterminate;
         }}
       />
     )),

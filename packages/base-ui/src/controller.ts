@@ -102,7 +102,7 @@ export function createValueController(options: ValueOptions = {}) {
       else options.onValueChange?.(initial);
     },
     setValue: (value: string) => {
-      if (state.source.model().disabled) return;
+      if (state.source.model().disabled || state.source.model().value === value) return;
       if (options.value === undefined) state.sync({ value, dirty: true });
       options.onValueChange?.(value);
     },

@@ -1,3 +1,6 @@
+import { OverlayPortal, type OverlayPortalProps } from './overlay-portal.js';
+import type { PopupFocusOptions } from './popup-focus.js';
+import { composeMounts } from 'effectweb';
 import type { OpenState as DialogSnapshot } from './controller.js';
 /** Immutable state belonging to the Dialog family. */
 export type DialogState = DialogSnapshot;
@@ -23,7 +26,7 @@ export const DialogTrigger = view<DialogTriggerProps>(
       <button
         {...rest}
         type="button"
-        use={triggerBinding(dialog)}
+        use={composeMounts([rest.use, triggerBinding(dialog)])}
         disabled={state.disabled || rest.disabled}
         aria-controls={`${dialog.id}-popup`}
         aria-expanded={state.open}
@@ -32,13 +35,13 @@ export const DialogTrigger = view<DialogTriggerProps>(
         data-closed={!state.open ? '' : undefined}
         onClick={(event) => {
           onClick?.(event);
-          if (!event.defaultPrevented) dialog.toggle();
+          if (!event.defaultPrevented) dialog.toggle({ reason: 'trigger-press', event });
         }}
         onKeyDown={(event) => {
           onKeyDown?.(event);
           if (!event.defaultPrevented && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
             event.preventDefault();
-            dialog.setOpen(true);
+            dialog.setOpen(true, { reason: 'trigger-press', event });
           }
         }}
       >
@@ -47,25 +50,44 @@ export const DialogTrigger = view<DialogTriggerProps>(
     )),
 );
 export type DialogPopupProps = Native<'dialog'> &
-  PositionOptions & { readonly dialog: DialogHandle; readonly dismissible?: boolean | undefined };
+  PositionOptions &
+  PopupFocusOptions & { readonly dialog: DialogHandle; readonly dismissible?: boolean | undefined };
 /** The modal `<dialog>` element; the browser contains focus and the handle owns open state and dismissal. */
 export const DialogPopup = view<DialogPopupProps>(
-  ({ dialog, children, side, align, sideOffset, alignOffset, dismissible, ...rest }) => (
+  ({
+    dialog,
+    children,
+    side,
+    align,
+    sideOffset,
+    alignOffset,
+    collisionAvoidance,
+    dismissible,
+    initialFocus,
+    finalFocus,
+    ...rest
+  }) => (
     <dialog
       {...rest}
       id={`${dialog.id}-popup`}
       role={rest.role ?? 'dialog'}
       tabindex={-1}
       data-overlay-parent={dialog.parent?.id}
-      use={popupBinding({
-        handle: dialog,
-        kind: rest.role === 'alertdialog' ? 'alertdialog' : 'dialog',
-        dismissible,
-        side,
-        align,
-        sideOffset,
-        alignOffset,
-      })}
+      use={composeMounts([
+        rest.use,
+        popupBinding({
+          handle: dialog,
+          initialFocus,
+          finalFocus,
+          kind: rest.role === 'alertdialog' ? 'alertdialog' : 'dialog',
+          dismissible,
+          side,
+          align,
+          sideOffset,
+          alignOffset,
+          collisionAvoidance,
+        }),
+      ])}
     >
       {children}
     </dialog>
@@ -79,7 +101,7 @@ export const DialogClose = view<Native<'button'> & { readonly dialog: DialogHand
       type="button"
       onClick={(event) => {
         onClick?.(event);
-        if (!event.defaultPrevented) dialog.hide();
+        if (!event.defaultPrevented) dialog.hide({ reason: 'close-press', event });
       }}
     >
       {children}
@@ -99,3 +121,11 @@ export const DialogDescription = view<Native<'p'> & { readonly dialog: DialogHan
 export const DialogBackdrop = view<
   Omit<Native<'div'>, 'dialog'> & { readonly dialog: DialogHandle }
 >(({ dialog, ...rest }) => <OverlayBackdrop {...rest} handle={dialog} />);
+
+export type DialogPortalProps = Omit<OverlayPortalProps, 'handle'> & {
+  readonly dialog: DialogHandle;
+};
+/** Mount popup content while open or exiting; keepMounted explicitly retains closed content. */
+export const DialogPortal = view<DialogPortalProps>(({ dialog, ...props }) => (
+  <OverlayPortal handle={dialog} {...props} />
+));

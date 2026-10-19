@@ -172,9 +172,15 @@ test('dropdown menu: opens on click or arrow, focuses the first item, arrows ski
   await expect(menu).toBeHidden();
   expect((await state(page)).log).toEqual(['delete']);
   await trigger.click();
-  await page.getByRole('menuitemcheckbox', { name: 'Checked' }).click();
-  await expect(menu).toBeHidden();
+  const checkbox = page.getByRole('menuitemcheckbox', { name: 'Checked' });
+  await checkbox.click();
+  await expect(menu).toBeVisible();
+  await expect(checkbox).toBeFocused();
+  await expect(checkbox).toHaveAttribute('aria-checked', 'true');
   expect((await state(page)).checked).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
   await trigger.click();
   await expect(page.getByRole('menuitemcheckbox', { name: 'Checked' })).toHaveAttribute(
     'aria-checked',

@@ -303,6 +303,25 @@ const E = () => <input use={domMount(function () { return () => {}; })} />;`;
 });
 
 describe('optional identity lint: stable sources', () => {
+  it('reports advanced projections created in render but permits owned setup and cached atom adapters', () => {
+    const text = `import { view, observe, atomSource } from 'effectweb';
+import { projectionSource as project } from 'effectweb/advanced';
+export function create(owner, registry, atom) {
+  const source = project({ project: () => owner.read() });
+  owner.own(source);
+  source.start();
+  const stable = view(() => <p>{observe(source, value => value.label)}</p>);
+  const unstable = view(() => <p>{observe(project({ project: () => owner.read() }), value => value.label)}</p>);
+  const cached = view(() => <p>{observe(atomSource(registry, atom), value => value.label)}</p>);
+  return [stable, unstable, cached];
+}`;
+    expect(
+      lint(text, 'projections.tsx')
+        .filter((d) => d.code === 'EW3004')
+        .map((d) => d.line),
+    ).toEqual([8]);
+  });
+
   it('reports sources created while rendering an observation', () => {
     const text = `import { view, observe, mapSource, clock } from 'effectweb';
 const minute = clock(60_000);

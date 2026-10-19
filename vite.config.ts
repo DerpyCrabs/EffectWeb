@@ -62,8 +62,9 @@ export default defineConfig({
     ],
   },
   test: {
+    maxWorkers: 2,
     environment: 'node',
-    include: ['packages/*/src/**/*.test.ts', 'tests/unit/**/*.test.ts'],
+    include: ['packages/*/src/**/*.test.{ts,tsx}', 'tests/unit/**/*.test.{ts,tsx}'],
   },
   lint: {
     ignorePatterns: ['**/dist/**', '**/target/**', 'artifacts/**', 'vendor/**', 'website/**'],

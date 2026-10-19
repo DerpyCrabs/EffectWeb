@@ -54,11 +54,14 @@ const factory = (tag: string) => {
   if (!render) factories.set(tag, (render = markup(tag)));
   return render;
 };
-const shape = ([tag, attributes, children]: IconNode, absolute: boolean): JSX.Element =>
-  factory(tag)(
-    absolute ? { 'vector-effect': 'non-scaling-stroke', ...attributes } : attributes,
+const shape = ([tag, attributes, children]: IconNode, absolute: boolean): JSX.Element => {
+  // Raw Lucide geometry carries reconciliation keys; only SVG attributes belong on a DOM host.
+  const { key: _key, ...svgAttributes } = attributes;
+  return factory(tag)(
+    absolute ? { 'vector-effect': 'non-scaling-stroke', ...svgAttributes } : svgAttributes,
     ...(children ?? []).map((child) => shape(child, absolute)),
   );
+};
 /**
  * Define an icon view from Lucide geometry. The shapes never change, so their markup is built
  * once per stroke mode and shared by every mounted instance.

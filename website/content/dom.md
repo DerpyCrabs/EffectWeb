@@ -20,6 +20,8 @@ Listeners on `window` or `document` belong in a `domMount` too, so they are remo
 
 Setup runs in a microtask after the element is inserted. A test that mounts a view and checks the result must wait for that microtask.
 
+Use `composeMounts([first, second])` when one element needs several bindings. Each array position keeps its own identity and data: replacing one binding leaves the others mounted. `undefined` entries are ignored. The containing mount's `close()` also waits for asynchronous finalizers from bindings replaced earlier. Composed bindings receive the same application services and error handling as a direct `use` binding.
+
 ## Pass data to a widget
 
 `domBinding(data, setup)` keeps one widget instance while its data changes. The setup receives a function that returns the current data, and returns an `update` method called after each change. Read the data through `input()` inside `update` or inside the event handlers you add, not into a variable at setup: setup runs once, so a value read there never changes (EW3008). When the setup attaches the element to something named by the data, such as a handle, key the binding by it with `{ ...domBinding(handle, setup), identity: handle }` so another handle acquires again. Declare the setup once outside the view: its identity decides whether the binding is kept (EW3002).

@@ -270,6 +270,44 @@ it('a function prop marked with its captured values does not render the view aga
   stop.dispose();
 });
 
+it('an object literal prop marked with its captured values does not render the view again', () => {
+  let renders = 0;
+  let options!: { readonly readOnly: boolean; readonly size: number };
+  const Row = view<{ options: { readonly readOnly: boolean; readonly size: number } }>((props) => {
+    renders++;
+    options = props.options;
+    return jsx('li', {});
+  });
+  const site = Symbol();
+  const other = Symbol();
+  const { owner, stop } = mounted({ locked: false, unrelated: 0, alternate: false }, (model) =>
+    jsx('ul', {
+      children: jsx(Row, {
+        // What the compiler emits for options={{ readOnly: model.locked, size: 2 }}.
+        options: captured({ readOnly: model.locked, size: 2 }, [
+          model.alternate ? other : site,
+          model.locked,
+        ]),
+      }),
+    }),
+  );
+  expect(renders).toBe(1);
+  const first = options;
+  owner.patch({ unrelated: 1 });
+  expect(renders).toBe(1);
+  expect(options).toBe(first);
+  // The tag lives beside the object, not on it.
+  expect(Object.getOwnPropertySymbols(first)).toEqual([]);
+  // A captured value changed: the view runs again and receives the new object.
+  owner.patch({ locked: true });
+  expect(renders).toBe(2);
+  expect(options).toEqual({ readOnly: true, size: 2 });
+  // The same values from another site are a different object.
+  owner.patch({ alternate: true });
+  expect(renders).toBe(3);
+  stop.dispose();
+});
+
 it('an unmarked function prop renders the view on every parent render', () => {
   let renders = 0;
   const Row = view<{ onPick: () => void }>(() => {

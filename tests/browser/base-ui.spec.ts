@@ -135,22 +135,30 @@ test('form controls, toggle groups, field validation and static semantics', asyn
   await expect(page.getByText('AB', { exact: true })).toBeVisible();
 });
 
-test('menu check and radio items retain state and ArrowUp starts at the end', async ({ page }) => {
+test('menu check and radio items stay open, retain state across reopening and support ArrowUp', async ({
+  page,
+}) => {
   const trigger = page.getByRole('button', { name: 'Open menu' });
+  const menu = page.getByRole('menu', { name: 'Actions', exact: true });
+  const checkbox = page.getByRole('menuitemcheckbox', { name: 'Flag' });
+  const radio = page.getByRole('menuitemradio', { name: 'Radio choice' });
   await trigger.click();
-  await page.getByRole('menuitemcheckbox', { name: 'Flag' }).click();
-  await trigger.click();
-  await expect(page.getByRole('menuitemcheckbox', { name: 'Flag' })).toHaveAttribute(
-    'aria-checked',
-    'true',
-  );
-  await page.getByRole('menuitemradio', { name: 'Radio choice' }).click();
-  await trigger.click();
-  await expect(page.getByRole('menuitemradio', { name: 'Radio choice' })).toHaveAttribute(
-    'aria-checked',
-    'true',
-  );
+  await checkbox.click();
+  await expect(menu).toBeVisible();
+  await expect(checkbox).toBeFocused();
+  await expect(checkbox).toHaveAttribute('aria-checked', 'true');
+  await radio.click();
+  await expect(menu).toBeVisible();
+  await expect(radio).toBeFocused();
+  await expect(radio).toHaveAttribute('aria-checked', 'true');
   await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await expect(checkbox).toHaveAttribute('aria-checked', 'true');
+  await expect(radio).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
   await trigger.press('ArrowUp');
   await expect(page.getByRole('menuitem', { name: 'More' })).toBeFocused();
 });

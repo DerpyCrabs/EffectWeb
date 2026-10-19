@@ -18,7 +18,8 @@
       "effectweb/*": ["./packages/runtime/src/*.ts"],
       "@effectweb/query": ["./packages/query/src/index.ts"],
       "@effectweb/base-ui": ["./packages/base-ui/src/index.ts"],
-      "@effectweb/base-ui/*": ["./packages/base-ui/src/*.ts"]
+      "@effectweb/base-ui/*": ["./packages/base-ui/src/*.ts"],
+      "@effectweb/tanstack-router": ["./packages/tanstack-router/src/index.ts"]
     },
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,

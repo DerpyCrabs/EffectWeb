@@ -69,6 +69,7 @@ pub fn resolve_host_aliases<'a>(
 pub struct Reference {
     pub span: Span,
     pub symbol: Option<SymbolId>,
+    pub is_write: bool,
 }
 pub struct Index<'a, 's> {
     pub scoping: &'s Scoping,
@@ -79,6 +80,9 @@ pub struct Index<'a, 's> {
     pub declarators: HashMap<SymbolId, &'a VariableDeclarator<'a>>,
     pub functions: HashMap<SymbolId, &'a Function<'a>>,
     pub writes: Vec<Span>,
+    pub assignments: Vec<&'a AssignmentExpression<'a>>,
+    pub updates: Vec<&'a UpdateExpression<'a>>,
+    pub collection_reads: Vec<Span>,
     pub(super) imports: HashMap<SymbolId, (String, Vec<String>)>,
     pub jsx: Vec<Span>,
     pub compiled_views: Vec<Span>,
@@ -97,6 +101,9 @@ impl<'a, 's> Index<'a, 's> {
             declarators: HashMap::new(),
             functions: HashMap::new(),
             writes: vec![],
+            assignments: vec![],
+            updates: vec![],
+            collection_reads: vec![],
             imports: HashMap::new(),
             jsx: vec![],
             compiled_views: vec![],
@@ -126,6 +133,29 @@ impl<'a, 's> Index<'a, 's> {
 }
 impl<'a> Visit<'a> for Index<'a, '_> {
     fn visit_ts_type(&mut self, _: &TSType<'a>) {}
+    fn visit_static_member_expression(&mut self, node: &StaticMemberExpression<'a>) {
+        if node.property.name == "length"
+            && matches!(unwrapped(&node.object), Expression::Identifier(_))
+        {
+            self.collection_reads.push(node.object.span());
+        }
+        oxc::ast_visit::walk::walk_static_member_expression(self, node);
+    }
+    fn visit_return_statement(&mut self, node: &ReturnStatement<'a>) {
+        if let Some(value) = &node.argument
+            && matches!(unwrapped(value), Expression::Identifier(_))
+        {
+            self.collection_reads.push(value.span());
+        }
+        oxc::ast_visit::walk::walk_return_statement(self, node);
+    }
+    fn visit_spread_element(&mut self, node: &SpreadElement<'a>) {
+        if matches!(unwrapped(&node.argument), Expression::Identifier(_)) {
+            self.collection_reads.push(node.argument.span());
+        }
+        oxc::ast_visit::walk::walk_spread_element(self, node);
+    }
+
     fn enter_node(&mut self, kind: AstKind<'a>) {
         match kind {
             AstKind::ImportDeclaration(import) if !import.import_kind.is_type() => {
@@ -202,6 +232,10 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                 self.refs.push(Reference {
                     span: id.span,
                     symbol: self.symbol(id),
+                    is_write: id
+                        .reference_id
+                        .get()
+                        .is_some_and(|reference| self.scoping.get_reference(reference).is_write()),
                 });
             }
             AstKind::BindingIdentifier(id) => {
@@ -210,8 +244,14 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                 }
             }
             AstKind::CallExpression(call) => self.calls.push(call),
-            AstKind::AssignmentExpression(n) => self.writes.push(n.left.span()),
-            AstKind::UpdateExpression(n) => self.writes.push(n.argument.span()),
+            AstKind::AssignmentExpression(n) => {
+                self.writes.push(n.left.span());
+                self.assignments.push(n);
+            }
+            AstKind::UpdateExpression(n) => {
+                self.writes.push(n.argument.span());
+                self.updates.push(n);
+            }
             AstKind::UnaryExpression(n) if n.operator.as_str() == "delete" => {
                 self.writes.push(n.argument.span())
             }

@@ -242,14 +242,15 @@ export function querySource<Args, A, E, R>(
     }
     return resource;
   };
-  // A read without an observer (or the last observer leaving) releases after the current turn,
+  // An unused source, a read without an observer, or the last observer leaving releases after the current turn,
   // so the subscription that normally follows a first read keeps the same resource.
   const releaseIfUnobserved = () =>
     queueMicrotask(() => {
-      if (observers || !resource) return;
-      resource.dispose();
+      if (observers) return;
+      resource?.dispose();
       resource = undefined;
       if (entries.get(key) === source) entries.delete(key);
+      if (entries.size === 0 && byQuery.get(definition) === entries) byQuery.delete(definition);
     });
   const source: Source<AsyncResult.AsyncResult<A, E>> = {
     model: () => {
@@ -270,5 +271,6 @@ export function querySource<Args, A, E, R>(
     },
   };
   entries.set(key, source as SharedSource);
+  releaseIfUnobserved();
   return source;
 }

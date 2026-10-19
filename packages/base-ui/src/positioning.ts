@@ -48,6 +48,13 @@ const within = (value: number, size: number, start: number, extent: number) =>
   Math.max(start, Math.min(value, start + extent - size));
 
 /** Compute viewport placement with side flipping and cross-axis shifting. */
+export interface CollisionAvoidance {
+  readonly side?: 'flip' | 'shift' | 'none';
+  readonly align?: 'flip' | 'shift' | 'none';
+  readonly fallbackAxisSide?: 'start' | 'end' | 'none';
+}
+
+/** Resolve popup coordinates, including requested collision corrections and logical sides. */
 export const place = (
   anchor: Box,
   floating: Box,
@@ -58,6 +65,7 @@ export const place = (
     readonly align?: Align;
     readonly offset?: number;
     readonly alignOffset?: number;
+    readonly collisionAvoidance?: CollisionAvoidance | undefined;
   } = {},
 ): Placement => {
   const rtl = options.dir === 'rtl';
@@ -84,37 +92,52 @@ export const place = (
   const offset = options.offset ?? 4;
   const alignOffset =
     (options.alignOffset ?? 0) * (rtl && (wanted === 'top' || wanted === 'bottom') ? -1 : 1);
-  const side =
-    fits(wanted, anchor, floating, viewport, offset) ||
-    !fits(opposite[wanted], anchor, floating, viewport, offset)
-      ? wanted
-      : opposite[wanted];
+  const collision = options.collisionAvoidance;
+  const sideRule = collision?.side ?? 'flip';
+  const alignRule = collision?.align ?? (collision ? 'flip' : 'shift');
+  let side = wanted;
+  if (sideRule === 'flip' && !fits(wanted, anchor, floating, viewport, offset)) {
+    if (fits(opposite[wanted], anchor, floating, viewport, offset)) side = opposite[wanted];
+    else if (collision?.fallbackAxisSide && collision.fallbackAxisSide !== 'none') {
+      const vertical = wanted === 'top' || wanted === 'bottom';
+      const start: PhysicalSide = vertical ? (rtl ? 'right' : 'left') : 'top';
+      const first = collision.fallbackAxisSide === 'start' ? start : opposite[start];
+      if (fits(first, anchor, floating, viewport, offset)) side = first;
+      else if (fits(opposite[first], anchor, floating, viewport, offset)) side = opposite[first];
+    }
+  }
   const vertical = side === 'top' || side === 'bottom';
-  const x = vertical
-    ? within(
-        along(align, anchor.x, anchor.width, floating.width) + alignOffset,
-        floating.width,
-        viewport.x,
-        viewport.width,
-      )
-    : side === 'left'
-      ? anchor.x - offset - floating.width
-      : anchor.x + anchor.width + offset;
-  const y = vertical
-    ? side === 'top'
+  const crossStart = vertical ? anchor.x : anchor.y;
+  const crossSize = vertical ? anchor.width : anchor.height;
+  const floatingCross = vertical ? floating.width : floating.height;
+  const boundaryStart = vertical ? viewport.x : viewport.y;
+  const boundarySize = vertical ? viewport.width : viewport.height;
+  let cross = along(align, crossStart, crossSize, floatingCross) + alignOffset;
+  const fitsCross = (value: number) =>
+    value >= boundaryStart && value + floatingCross <= boundaryStart + boundarySize;
+  if (alignRule === 'flip' && align !== 'center' && !fitsCross(cross)) {
+    const alternate =
+      along(align === 'start' ? 'end' : 'start', crossStart, crossSize, floatingCross) -
+      alignOffset;
+    if (fitsCross(alternate)) cross = alternate;
+  } else if (alignRule === 'shift')
+    cross = within(cross, floatingCross, boundaryStart, boundarySize);
+  let main =
+    side === 'top'
       ? anchor.y - offset - floating.height
-      : anchor.y + anchor.height + offset
-    : within(
-        along(align, anchor.y, anchor.height, floating.height) + alignOffset,
-        floating.height,
-        viewport.y,
-        viewport.height,
-      );
-  return {
-    x: Math.round(within(x, floating.width, viewport.x, viewport.width)),
-    y: Math.round(within(y, floating.height, viewport.y, viewport.height)),
-    side,
-  };
+      : side === 'bottom'
+        ? anchor.y + anchor.height + offset
+        : side === 'left'
+          ? anchor.x - offset - floating.width
+          : anchor.x + anchor.width + offset;
+  if (sideRule !== 'none')
+    main = within(
+      main,
+      vertical ? floating.height : floating.width,
+      vertical ? viewport.y : viewport.x,
+      vertical ? viewport.height : viewport.width,
+    );
+  return { x: Math.round(vertical ? cross : main), y: Math.round(vertical ? main : cross), side };
 };
 
 const box = (rect: DOMRect): Box => ({
@@ -134,6 +157,7 @@ export const placeRect = (
     readonly align?: Align;
     readonly offset?: number;
     readonly alignOffset?: number;
+    readonly collisionAvoidance?: CollisionAvoidance | undefined;
   } = {},
 ): Side => {
   floating.style.margin = '0';
@@ -176,11 +200,18 @@ export const placeRect = (
 
 /** Measure a DOM anchor and apply its inherited writing direction. */
 export const placeElement = (
-  anchor: Element,
+  anchor:
+    | Element
+    | {
+        readonly getBoundingClientRect: () => DOMRect;
+        readonly contextElement?: Element | undefined;
+      },
   floating: HTMLElement,
   options: Parameters<typeof placeRect>[2] = {},
 ): Side =>
   placeRect(anchor.getBoundingClientRect(), floating, {
     ...options,
-    dir: options.dir ?? direction(anchor),
+    dir:
+      options.dir ??
+      direction(anchor instanceof Element ? anchor : (anchor.contextElement ?? floating)),
   });

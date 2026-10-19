@@ -1,5 +1,26 @@
 import { domMount, mount, Portal, program, view } from 'effectweb';
 
+export function mountConditionalPortal(parent: HTMLElement, target: Element) {
+  type Model = { target: Element; visible: boolean; label: string };
+  const Content = view<Model>((model) => (
+    <Portal mount={model.target}>
+      {model.visible ? <button slot="header">{model.label}</button> : null}
+    </Portal>
+  ));
+  const source = program<Model, Model>({
+    initial: { target, visible: false, label: 'initial' },
+    update: (_model, next) => ({ model: next }),
+  });
+  const mounted = mount(parent, Content, source);
+  return {
+    update: source.send,
+    dispose() {
+      mounted.dispose();
+      source.dispose();
+    },
+  };
+}
+
 export function mountPortal(
   parent: HTMLElement,
   target: Element | undefined,

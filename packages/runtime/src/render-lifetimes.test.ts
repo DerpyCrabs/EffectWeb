@@ -273,3 +273,76 @@ it('renderView replaces a hand-built owner, dispatch recorder and composite clea
   expect(simple.sent).toEqual(sent);
   await Effect.runPromise(simple.close());
 });
+
+it('errorBoundary preserves a healthy owned DOM lifetime when its recovery key changes', async () => {
+  let acquired = 0;
+  let released = 0;
+  const binding = domMount<HTMLInputElement>(() => {
+    acquired++;
+    return () => {
+      released++;
+    };
+  });
+  const definition = errorBoundary(
+    view<{ key: number; label: string }>((model) =>
+      jsx('div', { children: [jsx('input', { use: binding }), model.label] }),
+    ),
+    { fallback: view(() => 'failed'), reset: (model) => model.key },
+  );
+  const host = document.createElement('div');
+  const rendered = renderView(host, definition, { key: 1, label: 'first' });
+  await Promise.resolve();
+  const input = host.querySelector('input')!;
+  input.value = 'an unsaved edit';
+  input.setSelectionRange(3, 8);
+  rendered.update({ key: 2, label: 'second' });
+  await Promise.resolve();
+  expect(host.querySelector('input')).toBe(input);
+  expect(input.value).toBe('an unsaved edit');
+  expect([input.selectionStart, input.selectionEnd]).toEqual([3, 8]);
+  expect(host.textContent).toBe('second');
+  expect(acquired).toBe(1);
+  expect(released).toBe(0);
+  rendered.dispose();
+  expect(released).toBe(1);
+});
+
+it('errorBoundary still catches an event failure after healthy recovery-key updates and retries a failed region', async () => {
+  const errors: unknown[] = [];
+  const definition = errorBoundary(
+    view<{ key: number; fail: boolean }>((model) => {
+      if (model.fail) throw new Error('update failed');
+      return jsx('button', {
+        onClick: () => {
+          throw new Error('event failed');
+        },
+        children: 'ready',
+      });
+    }),
+    {
+      fallback: view(() => 'failed'),
+      reset: (model) => model.key,
+      onError: (error) => {
+        errors.push(error);
+      },
+    },
+  );
+  const host = document.createElement('div');
+  const rendered = renderView(host, definition, { key: 1, fail: false });
+  rendered.update({ key: 2, fail: false });
+  host.querySelector('button')!.click();
+  await Promise.resolve();
+  expect(host.textContent).toBe('failed');
+  expect(errors).toHaveLength(1);
+  rendered.update({ key: 2, fail: false });
+  expect(host.textContent).toBe('failed');
+  rendered.update({ key: 3, fail: false });
+  expect(host.textContent).toBe('ready');
+  rendered.update({ key: 3, fail: true });
+  await Promise.resolve();
+  expect(host.textContent).toBe('failed');
+  expect(errors).toHaveLength(2);
+  rendered.update({ key: 4, fail: false });
+  expect(host.textContent).toBe('ready');
+  rendered.dispose();
+});

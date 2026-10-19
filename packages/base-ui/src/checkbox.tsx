@@ -26,6 +26,10 @@ export const CheckboxRoot = view<Native<'input'> & { readonly checkbox: Checkbox
         onChange={(event) => {
           onChange?.(event);
           if (!event.defaultPrevented) checkbox.setChecked(event.currentTarget.checked);
+          // A controlled request can leave the model unchanged while native activation toggles.
+          const accepted = checkbox.source.model();
+          event.currentTarget.checked = accepted.checked;
+          event.currentTarget.indeterminate = accepted.indeterminate;
         }}
       />
     )),

@@ -1,4 +1,5 @@
-//! Captured values of inline callbacks: `list(...)` render callbacks and function props of views.
+//! Captured values of inline callbacks and literals: `list(...)` render callbacks and function,
+//! object and array props of views.
 //!
 //! An inline callback is a new function on every render, so the renderer cannot tell by
 //! identity whether it would behave differently. Views are pure functions of immutable
@@ -361,31 +362,38 @@ impl<'a> Visit<'a> for Lists<'_> {
                 ));
                 continue;
             }
-            let Some(Expression::ArrowFunctionExpression(callback)) =
-                container.expression.as_expression()
-            else {
+            // An object or array literal is likewise new on every render and equal to the
+            // previous one while the values it reads are the same.
+            let Some(expression) = container.expression.as_expression() else {
                 continue;
             };
-            if callback.r#async {
-                continue;
-            }
+            let span = match expression {
+                Expression::ArrowFunctionExpression(callback) => {
+                    if callback.r#async {
+                        continue;
+                    }
+                    callback.span
+                }
+                Expression::ObjectExpression(object) => object.span,
+                Expression::ArrayExpression(array) => array.span,
+                _ => continue,
+            };
             let mut captures = Captures {
                 scoping: self.scoping,
-                callback: callback.span,
-                call_start: callback.span.start,
+                callback: span,
+                call_start: span.start,
                 paths: vec![],
                 unknown: false,
             };
-            captures.visit_arrow_function_expression(callback);
+            captures.visit_expression(expression);
             if captures.unknown {
                 continue;
             }
-            // Two callbacks reading the same values are the same function only at one site.
+            // Two values reading the same outer values are the same only at one site.
             let site = format!("{}c{}", self.prefix, self.sites.len());
             self.sites.push(format!("const {site}=Symbol();"));
             let mut values = captures.values();
             values.insert(0, site);
-            let span = callback.span;
             self.insertions.push((
                 Span::new(span.start, span.start),
                 format!("{}.captured(", self.runtime),

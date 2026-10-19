@@ -1,3 +1,6 @@
+import { OverlayPortal, type OverlayPortalProps } from './overlay-portal.js';
+import type { PopupFocusOptions } from './popup-focus.js';
+import { composeMounts } from 'effectweb';
 import type { OpenState as AlertDialogSnapshot } from './controller.js';
 /** Immutable state belonging to the AlertDialog family. */
 export type AlertDialogState = AlertDialogSnapshot;
@@ -26,7 +29,7 @@ export const AlertDialogTrigger = view<AlertDialogTriggerProps>(
       <button
         {...rest}
         type="button"
-        use={triggerBinding(alertDialog)}
+        use={composeMounts([rest.use, triggerBinding(alertDialog)])}
         disabled={state.disabled || rest.disabled}
         aria-controls={`${alertDialog.id}-popup`}
         aria-expanded={state.open}
@@ -35,13 +38,13 @@ export const AlertDialogTrigger = view<AlertDialogTriggerProps>(
         data-closed={!state.open ? '' : undefined}
         onClick={(event) => {
           onClick?.(event);
-          if (!event.defaultPrevented) alertDialog.toggle();
+          if (!event.defaultPrevented) alertDialog.toggle({ reason: 'trigger-press', event });
         }}
         onKeyDown={(event) => {
           onKeyDown?.(event);
           if (!event.defaultPrevented && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
             event.preventDefault();
-            alertDialog.setOpen(true);
+            alertDialog.setOpen(true, { reason: 'trigger-press', event });
           }
         }}
       >
@@ -50,24 +53,42 @@ export const AlertDialogTrigger = view<AlertDialogTriggerProps>(
     )),
 );
 export type AlertDialogPopupProps = Native<'dialog'> &
-  PositionOptions & { readonly alertDialog: AlertDialogHandle };
+  PositionOptions &
+  PopupFocusOptions & { readonly alertDialog: AlertDialogHandle };
 /** The modal `<dialog>` of an alert dialog; Escape and backdrop clicks do not close it. */
 export const AlertDialogPopup = view<AlertDialogPopupProps>(
-  ({ alertDialog, children, side, align, sideOffset, alignOffset, ...rest }) => (
+  ({
+    alertDialog,
+    children,
+    side,
+    align,
+    sideOffset,
+    alignOffset,
+    collisionAvoidance,
+    initialFocus,
+    finalFocus,
+    ...rest
+  }) => (
     <dialog
       {...rest}
       id={`${alertDialog.id}-popup`}
       role="alertdialog"
       tabindex={-1}
       data-overlay-parent={alertDialog.parent?.id}
-      use={popupBinding({
-        handle: alertDialog,
-        kind: 'alertdialog',
-        side,
-        align,
-        sideOffset,
-        alignOffset,
-      })}
+      use={composeMounts([
+        rest.use,
+        popupBinding({
+          handle: alertDialog,
+          initialFocus,
+          finalFocus,
+          kind: 'alertdialog',
+          side,
+          align,
+          sideOffset,
+          alignOffset,
+          collisionAvoidance,
+        }),
+      ])}
     >
       {children}
     </dialog>
@@ -82,7 +103,7 @@ export const AlertDialogClose = view<
     type="button"
     onClick={(event) => {
       onClick?.(event);
-      if (!event.defaultPrevented) alertDialog.hide();
+      if (!event.defaultPrevented) alertDialog.hide({ reason: 'close-press', event });
     }}
   >
     {children}
@@ -101,3 +122,11 @@ export const AlertDialogDescription = view<
 export const AlertDialogBackdrop = view<
   Omit<Native<'div'>, 'alertDialog'> & { readonly alertDialog: AlertDialogHandle }
 >(({ alertDialog, ...rest }) => <OverlayBackdrop {...rest} handle={alertDialog} />);
+
+export type AlertDialogPortalProps = Omit<OverlayPortalProps, 'handle'> & {
+  readonly alertDialog: AlertDialogHandle;
+};
+/** Mount popup content while open or exiting; keepMounted explicitly retains closed content. */
+export const AlertDialogPortal = view<AlertDialogPortalProps>(({ alertDialog, ...props }) => (
+  <OverlayPortal handle={alertDialog} {...props} />
+));

@@ -177,7 +177,8 @@ test('late cleanup failure from a replaced subtree cannot break the recovered in
     )) as typeof import('../fixtures/recoveryFixture');
     return staleBoundaryCleanupFixture();
   });
-  expect(result.errors).toEqual(['Error: old cleanup']);
+  expect(result.failedBeforeReset).toBe(true);
+  expect(result.errors).toEqual(['Error: initial failure', 'Error: old cleanup']);
   expect(result.content).toBe('b');
   expect(result.fallback).toBe(false);
 });

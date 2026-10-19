@@ -102,3 +102,23 @@ export function fileController(files: readonly File[]) {
 Here a pointer update checks the branch identity but does not sort again. Putting the sort directly in the root selector would sort on every root publication, even if an equality function later suppressed the result. Returning `{ files: model.files }` or a copied array from the first selector also defeats its default `Object.is` comparison.
 
 Each selector still checks its input on root publications. For independently changing windows or editors, use owners scoped to those features so unrelated updates do not reach every subscriber. Avoid subscribing an expensive view to the whole workspace when it only needs one window. Keyed lists preserve row identity; they do not make expensive render callbacks or broad captured inputs free.
+
+## Observe an Effect Atom
+
+An application whose data layer is written with `effect/reactivity` keeps its `Atom`s and `AtomRegistry`. `atomSource(registry, atom)` is a source over one atom: views `observe` it, controllers select from it with `mapSource`, and the atom stays mounted while something is subscribed. Writes still go through the registry (`registry.set`, `registry.update`), so the atom remains the single owner of that state.
+
+```ts check
+import * as Atom from 'effect/reactivity/Atom';
+import * as AtomRegistry from 'effect/reactivity/AtomRegistry';
+import { atomSource, mapSource } from 'effectweb';
+
+const registry = AtomRegistry.make();
+const todos = Atom.make<readonly { readonly id: string; readonly done: boolean }[]>([]);
+export const openTodos = mapSource(atomSource(registry, todos), (rows) =>
+  rows.filter((row) => !row.done),
+);
+export const complete = (id: string) =>
+  registry.update(todos, (rows) =>
+    rows.map((row) => (row.id === id ? { ...row, done: true } : row)),
+  );
+```

@@ -1,3 +1,4 @@
+import { OverlayPortal, type OverlayPortalProps } from './overlay-portal.js';
 import type { OpenState as TooltipSnapshot } from './controller.js';
 /** Immutable state belonging to the Tooltip family. */
 export type TooltipState = TooltipSnapshot;
@@ -42,36 +43,36 @@ export const TooltipTrigger = view<TooltipTriggerProps>(
         data-closed={!state.open ? '' : undefined}
         onClick={(event) => {
           onClick?.(event);
-          if (!event.defaultPrevented) tooltip.toggle();
+          if (!event.defaultPrevented) tooltip.toggle({ reason: 'trigger-press', event });
         }}
         onKeyDown={(event) => {
           onKeyDown?.(event);
           if (event.defaultPrevented) return;
           if (event.key === 'Escape') {
             event.preventDefault();
-            tooltip.hide();
+            tooltip.hide({ reason: 'escape-key', event });
             return;
           }
           if (!event.defaultPrevented && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
             event.preventDefault();
-            tooltip.setOpen(true);
+            tooltip.setOpen(true, { reason: 'trigger-press', event });
           }
         }}
         onPointerEnter={(event) => {
           onPointerEnter?.(event);
-          if (!event.defaultPrevented) tooltip.showDelayed();
+          if (!event.defaultPrevented) tooltip.showDelayed({ reason: 'trigger-hover', event });
         }}
         onPointerLeave={(event) => {
           onPointerLeave?.(event);
-          if (!event.defaultPrevented) tooltip.hide();
+          if (!event.defaultPrevented) tooltip.hide({ reason: 'trigger-hover', event });
         }}
         onFocus={(event) => {
           onFocus?.(event);
-          if (!event.defaultPrevented) tooltip.showDelayed();
+          if (!event.defaultPrevented) tooltip.showDelayed({ reason: 'trigger-focus', event });
         }}
         onBlur={(event) => {
           onBlur?.(event);
-          if (!event.defaultPrevented) tooltip.hide();
+          if (!event.defaultPrevented) tooltip.hide({ reason: 'focus-out', event });
         }}
         aria-describedby={`${tooltip.id}-popup`}
       >
@@ -83,7 +84,17 @@ export type TooltipPopupProps = Native<'div'> &
   PositionOptions & { readonly tooltip: TooltipHandle };
 /** The tooltip surface in the top layer; Escape hides it. */
 export const TooltipPopup = view<TooltipPopupProps>(
-  ({ tooltip, children, side, align, sideOffset, alignOffset, ...rest }) => (
+  ({
+    tooltip,
+    children,
+    side,
+    align,
+    sideOffset,
+    alignOffset,
+    collisionAvoidance,
+    anchor,
+    ...rest
+  }) => (
     <div
       {...rest}
       id={`${tooltip.id}-popup`}
@@ -91,7 +102,16 @@ export const TooltipPopup = view<TooltipPopupProps>(
       popover="manual"
       tabindex={-1}
       data-overlay-parent={tooltip.parent?.id}
-      use={popupBinding({ handle: tooltip, kind: 'tooltip', side, align, sideOffset, alignOffset })}
+      use={popupBinding({
+        handle: tooltip,
+        kind: 'tooltip',
+        side,
+        align,
+        sideOffset,
+        alignOffset,
+        collisionAvoidance,
+        anchor,
+      })}
     >
       {children}
     </div>
@@ -105,7 +125,7 @@ export const TooltipClose = view<Native<'button'> & { readonly tooltip: TooltipH
       type="button"
       onClick={(event) => {
         onClick?.(event);
-        if (!event.defaultPrevented) tooltip.hide();
+        if (!event.defaultPrevented) tooltip.hide({ reason: 'close-press', event });
       }}
     >
       {children}
@@ -129,3 +149,11 @@ export const TooltipPositioner = view<
 export const TooltipArrow = view<Native<'span'> & { readonly tooltip: TooltipHandle }>(
   ({ tooltip, ...rest }) => <Arrow {...rest} handle={tooltip} />,
 );
+
+export type TooltipPortalProps = Omit<OverlayPortalProps, 'handle'> & {
+  readonly tooltip: TooltipHandle;
+};
+/** Mount popup content while open or exiting; keepMounted explicitly retains closed content. */
+export const TooltipPortal = view<TooltipPortalProps>(({ tooltip, ...props }) => (
+  <OverlayPortal handle={tooltip} {...props} />
+));

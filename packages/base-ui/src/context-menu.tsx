@@ -1,3 +1,4 @@
+import { OverlayPortal, type OverlayPortalProps } from './overlay-portal.js';
 import { domBinding, observe, view } from 'effectweb';
 import {
   createFloatingMenu,
@@ -121,3 +122,11 @@ export {
   MenuGroupLabel as ContextMenuGroupLabel,
   MenuSeparator as ContextMenuSeparator,
 } from './menu.js';
+
+export type ContextMenuPortalProps = Omit<OverlayPortalProps, 'handle'> & {
+  readonly contextMenu: ContextMenuHandle;
+};
+/** Mount popup content while open or exiting; keepMounted explicitly retains closed content. */
+export const ContextMenuPortal = view<ContextMenuPortalProps>(({ contextMenu, ...props }) => (
+  <OverlayPortal handle={contextMenu} {...props} />
+));

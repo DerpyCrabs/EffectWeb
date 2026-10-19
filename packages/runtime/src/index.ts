@@ -6,7 +6,14 @@
 export { view, list, observe, mount, type View, type Mounted } from './dom.js';
 export { makeMount } from './render.js';
 export type { JSX } from './jsx.js';
-export { Portal, domBinding, domMount, type DomMount, type PortalProps } from './mount.js';
+export {
+  Portal,
+  composeMounts,
+  domBinding,
+  domMount,
+  type DomMount,
+  type PortalProps,
+} from './mount.js';
 export { available, resourceError } from './result.js';
 export { errorBoundary } from './boundary.js';
 
@@ -46,3 +53,4 @@ export {
 
 // Sources
 export { mapSource, clock, type Source } from './source.js';
+export { atomSource } from './atom.js';

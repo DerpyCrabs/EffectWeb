@@ -29,7 +29,7 @@ test('TanStack matches params, validates search and runs loaders; EffectWeb publ
   await Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const source = yield* mountRouter(router);
+        const { source } = yield* mountRouter(router);
         source.subscribe(() => {
           changes++;
         });
@@ -192,7 +192,7 @@ for (const phase of ['loader', 'beforeLoad', 'preload'] as const) {
       history: createMemoryHistory({ initialEntries: ['/files/seed'] }),
     });
     const scope = Scope.makeUnsafe();
-    const source = await Effect.runPromise(mountRouter(router).pipe(Scope.provide(scope)));
+    const { source } = await Effect.runPromise(mountRouter(router).pipe(Scope.provide(scope)));
     const work =
       phase === 'preload'
         ? router.preloadRoute({ to: '/files/$name', params: { name: 'slow' } })

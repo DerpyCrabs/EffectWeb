@@ -126,8 +126,8 @@ export const referencePages = [
         ['program', 'RunPolicy', 'RunKey', 'Command', 'Transition', 'Program', 'RunningProgram'],
       ],
       ['Showing results', ['available', 'resourceError']],
-      ['Sources', ['observe', 'mapSource', 'clock', 'Source']],
-      ['DOM', ['domMount', 'domBinding', 'Portal', 'DomMount', 'PortalProps']],
+      ['Sources', ['observe', 'mapSource', 'atomSource', 'clock', 'Source']],
+      ['DOM', ['domMount', 'domBinding', 'composeMounts', 'Portal', 'DomMount', 'PortalProps']],
       ['Mounting and services', ['mount', 'makeMount', 'errorBoundary', 'Mounted']],
     ],
   },
@@ -208,19 +208,20 @@ export const referencePages = [
   },
 ];
 export const apiSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-export function createApi(root) {
+export function createApi(root, declarationsRoot) {
   // Report every missing description at once; the same check runs in the unit tests.
   const problems = apiCoverageProblems();
   if (problems.length) throw new Error(`API reference is incomplete:\n${problems.join('\n')}`);
-  execFileSync(
-    process.execPath,
-    [
-      path.join(root, '../node_modules/typescript/bin/tsc'),
-      '-p',
-      path.join(root, 'tsconfig.api.json'),
-    ],
-    { stdio: 'pipe' },
-  );
+  if (declarationsRoot === undefined)
+    execFileSync(
+      process.execPath,
+      [
+        path.join(root, '../node_modules/typescript/bin/tsc'),
+        '-p',
+        path.join(root, 'tsconfig.api.json'),
+      ],
+      { stdio: 'pipe' },
+    );
   const covered = new Set(modules.map(([, , name]) => name));
   for (const name of [
     'effectweb/dom',
@@ -335,7 +336,13 @@ export function createApi(root) {
         .trim();
       const isType = /(?:interface|type |namespace)/.test(snippets[0].slice(0, 65));
       // A symbol re-exported from another workspace package keeps that package's rationale.
-      const origin = symbol.file.replaceAll('\\', '/').match(/packages\/([^/]+)\/src\//)?.[1];
+      const origin =
+        declarationsRoot === undefined
+          ? symbol.file.replaceAll('\\', '/').match(/packages\/([^/]+)\/src\//)?.[1]
+          : path
+              .relative(declarationsRoot, symbol.file)
+              .replaceAll('\\', '/')
+              .match(/^([^/]+)\/dist\//)?.[1];
       const originPath =
         origin === 'runtime' ? 'effectweb' : origin ? `@effectweb/${origin}` : undefined;
       const why =
@@ -367,7 +374,12 @@ export function createApi(root) {
             )
             .join('\n\n') +
           '\n```\n\n</details>\n\n';
-      let relative = path.relative(path.join(root, '.api'), symbol.file).replace(/\.d\.ts$/, '.ts');
+      let relative = path
+        .relative(declarationsRoot ?? path.join(root, '.api'), symbol.file)
+        .replaceAll('\\', '/')
+        .replace(/\.d\.ts$/, '.ts');
+      if (declarationsRoot !== undefined)
+        relative = relative.replace(/^([^/]+)\/dist\//, '$1/src/');
       if (relative.startsWith('..')) relative = `${pkg}/src/${entry}.ts`;
       if (
         !existsSync(path.join(root, '../packages', relative)) &&
@@ -391,9 +403,14 @@ export function createApi(root) {
     '@effectweb/tanstack-table':
       'Targets TanStack Table v9. Use the installed core declarations for version-specific options.',
   };
+  const declarationFile = (pkg, entry) => {
+    if (declarationsRoot !== undefined)
+      return path.join(declarationsRoot, pkg, 'dist', entry + '.d.ts');
+    const file = path.join(root, '.api', pkg, 'src', entry + '.d.ts');
+    return existsSync(file) ? file : path.join(root, '../packages', pkg, 'dist', entry + '.d.ts');
+  };
   const symbolsOf = ([pkg, entry, importPath]) => {
-    let file = path.join(root, '.api', pkg, 'src', entry + '.d.ts');
-    if (!existsSync(file)) file = path.join(root, '../packages', pkg, 'dist', entry + '.d.ts');
+    const file = declarationFile(pkg, entry);
     const typeOnlyEntry = importPath.endsWith('/types');
     return exports(file).filter(([, symbol]) => {
       if (!typeOnlyEntry || symbol?.external) return true;
@@ -448,7 +465,7 @@ export function createApi(root) {
       body +=
         '## Internal entry points\n\nThese exist for compiled code and TypeScript. Do not import them in application code; the lint preset rejects imports of `effectweb/dom` and the JSX runtime.\n\n';
       for (const entry of ['dom', 'jsx-runtime', 'jsx']) {
-        const file = path.join(root, '.api/runtime/src', entry + '.d.ts');
+        const file = declarationFile('runtime', entry);
         body += `### effectweb/${entry}\n\n`;
         body +=
           entry === 'dom'

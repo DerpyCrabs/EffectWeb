@@ -18,8 +18,8 @@ const markdown = (body) =>
     )
     .replace(/\n\n<\/details>/g, '');
 
-export async function writePackageDocs(website, target) {
-  const pages = await createContent(website);
+export async function writePackageDocs(website, target, declarationsRoot) {
+  const pages = await createContent(website, declarationsRoot);
   const staged = `${target}.next`;
   rmSync(staged, { recursive: true, force: true });
   mkdirSync(staged, { recursive: true });

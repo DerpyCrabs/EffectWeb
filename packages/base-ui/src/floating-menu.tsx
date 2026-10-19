@@ -1,3 +1,9 @@
+import {
+  focusPopupInitially,
+  restorePopupFocus,
+  type PopupFocusOptions,
+  type CloseInteraction,
+} from './popup-focus.js';
 import { logicalKey, direction } from './direction.js';
 import { createPresence } from './presence.js';
 import { domBinding, view } from 'effectweb';
@@ -76,15 +82,17 @@ export function positionFloating(
     align: options.align ?? 'start',
     offset: options.sideOffset ?? 4,
     alignOffset: options.alignOffset ?? 0,
+    collisionAvoidance: options.collisionAvoidance,
   });
 }
 const acquireFloating = (
   element: HTMLElement,
-  current: () => { menu: FloatingMenuHandle } & PositionOptions,
+  current: () => { menu: FloatingMenuHandle } & PositionOptions & PopupFocusOptions,
 ) => {
   const { menu } = current();
   menu.attachPopup(element);
   let shown = false;
+  let closeInteraction: CloseInteraction = 'keyboard';
   const presence = createPresence(element);
   const items = () => enabledItems(element, '[role^="menuitem"]');
   const position = () => {
@@ -101,20 +109,28 @@ const acquireFloating = (
     presence.update(
       open,
       () => {
+        const previous = element.ownerDocument.activeElement;
         element.showPopover();
         position();
         const targets = items();
-        (menu.focusLast() ? targets.at(-1) : targets[0])?.focus();
+        focusPopupInitially(
+          current().initialFocus,
+          (menu.focusLast() ? targets.at(-1) : targets[0]) ?? element,
+          previous,
+          '',
+        );
       },
       () => {
         for (const child of menu.children) child.dismiss(false);
         if (element.matches(':popover-open')) element.hidePopover();
-        if (menu.takeRestore() && menu.restoreFocus) menu.trigger()?.focus();
+        if (menu.takeRestore() && menu.restoreFocus)
+          restorePopupFocus(current().finalFocus, menu.trigger(), closeInteraction);
       },
     );
   };
   const navigate = createListNavigation();
   const key = (event: KeyboardEvent) => {
+    closeInteraction = 'keyboard';
     if (
       event.defaultPrevented ||
       !shown ||
@@ -138,6 +154,13 @@ const acquireFloating = (
     }
     navigate(event, items(), element.ownerDocument.activeElement);
   };
+  const recordPointer = (event: Event) => {
+    const pointer = event as PointerEvent;
+    closeInteraction =
+      pointer.pointerType === 'touch' || pointer.pointerType === 'pen'
+        ? pointer.pointerType
+        : 'mouse';
+  };
   const outside = (event: Event) => {
     if (shown && !menu.contains(event.target as Node)) menu.dismiss(false);
   };
@@ -150,6 +173,7 @@ const acquireFloating = (
   resize.observe(element);
   element.addEventListener('keydown', key);
   element.addEventListener('focusout', focusout);
+  document.addEventListener('pointerdown', recordPointer, true);
   document.addEventListener('pointerdown', outside);
   window.addEventListener('resize', position);
   window.addEventListener('scroll', position, true);
@@ -162,6 +186,7 @@ const acquireFloating = (
       resize.disconnect();
       element.removeEventListener('keydown', key);
       element.removeEventListener('focusout', focusout);
+      document.removeEventListener('pointerdown', recordPointer, true);
       document.removeEventListener('pointerdown', outside);
       window.removeEventListener('resize', position);
       window.removeEventListener('scroll', position, true);
@@ -171,10 +196,21 @@ const acquireFloating = (
   };
 };
 export type FloatingMenuPopupProps = Native<'div'> &
-  PositionOptions & { readonly menu: FloatingMenuHandle };
+  PositionOptions &
+  PopupFocusOptions & { readonly menu: FloatingMenuHandle };
 /** Top-layer popup shared by the two menu families. */
 export const FloatingMenuPopup = view<FloatingMenuPopupProps>(
-  ({ menu, side, align, sideOffset, alignOffset, ...rest }) => (
+  ({
+    menu,
+    side,
+    align,
+    sideOffset,
+    alignOffset,
+    collisionAvoidance,
+    initialFocus,
+    finalFocus,
+    ...rest
+  }) => (
     <div
       {...rest}
       id={`${menu.id}-popup`}
@@ -183,7 +219,19 @@ export const FloatingMenuPopup = view<FloatingMenuPopupProps>(
       tabindex={-1}
       data-overlay-parent={menu.parent?.id}
       use={{
-        ...domBinding({ menu, side, align, sideOffset, alignOffset }, acquireFloating),
+        ...domBinding(
+          {
+            menu,
+            side,
+            align,
+            sideOffset,
+            alignOffset,
+            collisionAvoidance,
+            initialFocus,
+            finalFocus,
+          },
+          acquireFloating,
+        ),
         identity: menu,
       }}
     />
@@ -195,8 +243,8 @@ const acquirePositioner = (
 ) => {
   const menu = current().menu;
   const sync = () => {
-    const { side, align, sideOffset, alignOffset } = current();
-    menu.configurePosition({ side, align, sideOffset, alignOffset });
+    const { side, align, sideOffset, alignOffset, collisionAvoidance } = current();
+    menu.configurePosition({ side, align, sideOffset, alignOffset, collisionAvoidance });
     const popup = menu.popup();
     const anchor = menu.anchor();
     if (!popup || !anchor || !menu.source.model().open) return;
@@ -233,11 +281,14 @@ const acquirePositioner = (
 };
 /** Structural positioner publishes geometry while its popup occupies the top layer. */
 export const FloatingMenuPositioner = view<FloatingMenuPopupProps>(
-  ({ menu, side, align, sideOffset, alignOffset, ...rest }) => (
+  ({ menu, side, align, sideOffset, alignOffset, collisionAvoidance, ...rest }) => (
     <div
       {...rest}
       use={{
-        ...domBinding({ menu, side, align, sideOffset, alignOffset }, acquirePositioner),
+        ...domBinding(
+          { menu, side, align, sideOffset, alignOffset, collisionAvoidance },
+          acquirePositioner,
+        ),
         identity: menu,
       }}
     />

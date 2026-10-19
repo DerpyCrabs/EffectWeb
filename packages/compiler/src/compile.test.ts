@@ -540,6 +540,48 @@ it.each([
 
 it.each([
   [
+    'an object literal prop records its site and the values it reads',
+    `const Row = view(p => <li/>); export const L = view((m) => <Row options={{ readOnly: m.locked, size: 2, ...m.extra }} />);`,
+    /"options":_ew_dom\.captured\(\{readOnly:m\.locked,size:2,\.\.\.m\.extra\},\[_ew_c0,m\?\.locked,m\?\.extra\]\)/u,
+  ],
+  [
+    'an array literal prop records the values it reads',
+    `const Row = view(p => <li/>); export const L = view((m) => <Row items={[m.first, 'x']} />);`,
+    /"items":_ew_dom\.captured\(\[m\.first,"x"\],\[_ew_c0,m\?\.first\]\)/u,
+  ],
+  [
+    'a literal without outer reads is equal to itself at its site',
+    `const Row = view(p => <li/>); export const L = view((m) => <Row attachments={[]} options={{ readOnly: true }} />);`,
+    /"attachments":_ew_dom\.captured\(\[\],\[_ew_c0\]\),"options":_ew_dom\.captured\(\{readOnly:true\},\[_ew_c1\]\)/u,
+  ],
+  [
+    'a nested function in a literal captures its outer reads, not its parameters',
+    `const Row = view(p => <li/>); export const L = view((m, send) => <Row handlers={{ pick: (id) => send({ id, list: m.list }) }} />);`,
+    /\[_ew_c0,send,m\?\.list\]/u,
+  ],
+])('literal props: %s', (_name, body, expected) => {
+  expect(captured(body)).toMatch(expected);
+});
+
+it.each([
+  [
+    'an object literal on an element',
+    `export const L = view((m) => <div style={{ color: m.color }} />);`,
+  ],
+  [
+    'an object literal reading this',
+    `const Row = view(p => <li/>); export const L = view(function (m) { return <Row options={{ self: this }} />; });`,
+  ],
+  [
+    'an object literal reading a reassigned local',
+    `const Row = view(p => <li/>); export const L = view((m) => { let n = 0; n = m.n; return <Row options={{ n }} />; });`,
+  ],
+])('literal props left alone: %s', (_name, body) => {
+  expect(captured(body)).not.toContain('.captured(');
+});
+
+it.each([
+  [
     'a handler on an element',
     `export const L = view((m) => <button onClick={() => m.pick(m.id)} />);`,
   ],

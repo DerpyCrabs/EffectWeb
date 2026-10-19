@@ -46,6 +46,7 @@ Work started by a view must belong to something that outlives the event and can 
 | Must be reloaded after a write                             | `cache.invalidateQuery`, `queryGroup`             | [Server data](/docs/queries/#refresh-after-a-write)       |
 | Arrives in pages                                           | `infiniteQuery`, `fetchNextPage`                  | [Server data](/docs/queries/#load-more-pages)             |
 | Is behind a Promise-based API                              | `Effect.tryPromise`                               | [Async work](/docs/tasks/#call-a-promise-api)             |
+| Is an Effect `Atom` shared with other Effect code          | `atomSource(registry, atom)`                      | [Controllers](/docs/controllers/#observe-an-effect-atom)  |
 | Is an element, available once it is on the page            | `use={domMount(setup)}`                           | [DOM](/docs/dom/)                                         |
 | Flows into a third-party widget and changes over time      | `domBinding(data, setup)`                         | [DOM](/docs/dom/#pass-data-to-a-widget)                   |
 | Is an element a controller reads or scrolls                | a `domMount` that stores the element              | [DOM](/docs/dom/#give-a-controller-an-element)            |

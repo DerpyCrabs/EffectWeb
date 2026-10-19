@@ -58,10 +58,12 @@ export function errorBoundary<Model, Message>(
       const next = options.reset?.(scope.value as Model);
       if (!Object.is(reset, next)) {
         reset = next;
-        generation++;
-        render(undefined);
-        failed = false;
-        error = undefined;
+        if (failed) {
+          generation++;
+          render(undefined);
+          failed = false;
+          error = undefined;
+        }
       }
       if (failed) showFallback();
       else {

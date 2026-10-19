@@ -1,7 +1,15 @@
+import { OverlayPortal, type OverlayPortalProps } from './overlay-portal.js';
+import type { PopupFocusOptions } from './popup-focus.js';
+import { composeMounts } from 'effectweb';
 import { logicalKey } from './direction.js';
 import { Positioner, Arrow } from './positioner.js';
 import { observe, view, modelOwner, type Source } from 'effectweb';
-import type { ValueOptions, ValueState, OpenState } from './controller.js';
+import {
+  createValueController,
+  type ValueOptions,
+  type ValueState,
+  type OpenState,
+} from './controller.js';
 import {
   createOverlay,
   popupBinding,
@@ -12,8 +20,12 @@ import {
 } from './overlay.js';
 import type { Native } from './types.js';
 /** Create a parent-owned Menu handle; pass it to the parts and own its lifetime. */
-export interface MenuState extends ValueState, OpenState {}
-export interface MenuOptions extends OverlayOptions, ValueOptions {}
+export interface MenuState extends ValueState, OpenState {
+  readonly highlightItemOnHover: boolean;
+}
+export interface MenuOptions extends OverlayOptions, ValueOptions {
+  readonly highlightItemOnHover?: boolean | undefined;
+}
 /** Create a Menu handle: open state, the highlighted item, radio value and submenu links, shared by the trigger, popup and items. */
 export function createMenu(options: MenuOptions = {}): MenuHandle {
   const overlay = createOverlay(options);
@@ -21,6 +33,7 @@ export function createMenu(options: MenuOptions = {}): MenuHandle {
     ...overlay.source.model(),
     value: options.value ?? options.defaultValue ?? '',
     dirty: options.dirty ?? false,
+    highlightItemOnHover: options.highlightItemOnHover ?? true,
   });
   owner.own(overlay.lifetime);
   owner.own(overlay.source.subscribe((state) => owner.patch(state)));
@@ -36,7 +49,7 @@ export function createMenu(options: MenuOptions = {}): MenuHandle {
       owner.patch(state);
     },
     setValue: (value: string) => {
-      if (owner.read().disabled) return;
+      if (owner.read().disabled || owner.read().value === value) return;
       if (options.value === undefined) owner.patch({ value, dirty: true });
       options.onValueChange?.(value);
     },
@@ -55,7 +68,7 @@ export const MenuTrigger = view<MenuTriggerProps>(
       <button
         {...rest}
         type="button"
-        use={triggerBinding(menu)}
+        use={composeMounts([rest.use, triggerBinding(menu)])}
         disabled={state.disabled || rest.disabled}
         aria-controls={`${menu.id}-popup`}
         aria-expanded={state.open}
@@ -64,13 +77,13 @@ export const MenuTrigger = view<MenuTriggerProps>(
         data-closed={!state.open ? '' : undefined}
         onClick={(event) => {
           onClick?.(event);
-          if (!event.defaultPrevented) menu.toggle();
+          if (!event.defaultPrevented) menu.toggle({ reason: 'trigger-press', event });
         }}
         onKeyDown={(event) => {
           onKeyDown?.(event);
           if (!event.defaultPrevented && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
             event.preventDefault();
-            menu.openFromKey(event.key);
+            menu.openFromKey(event.key, event);
           }
         }}
       >
@@ -78,10 +91,24 @@ export const MenuTrigger = view<MenuTriggerProps>(
       </button>
     )),
 );
-export type MenuPopupProps = Native<'div'> & PositionOptions & { readonly menu: MenuHandle };
+export type MenuPopupProps = Native<'div'> &
+  PositionOptions &
+  PopupFocusOptions & { readonly menu: MenuHandle };
 /** The menu surface; arrow keys, Home, End and typeahead move between its items. */
 export const MenuPopup = view<MenuPopupProps>(
-  ({ menu, children, side, align, sideOffset, alignOffset, ...rest }) => (
+  ({
+    menu,
+    children,
+    side,
+    align,
+    sideOffset,
+    alignOffset,
+    collisionAvoidance,
+    anchor,
+    initialFocus,
+    finalFocus,
+    ...rest
+  }) => (
     <div
       {...rest}
       id={`${menu.id}-popup`}
@@ -89,7 +116,21 @@ export const MenuPopup = view<MenuPopupProps>(
       popover="manual"
       tabindex={-1}
       data-overlay-parent={menu.parent?.id}
-      use={popupBinding({ handle: menu, kind: 'menu', side, align, sideOffset, alignOffset })}
+      use={composeMounts([
+        rest.use,
+        popupBinding({
+          handle: menu,
+          initialFocus,
+          finalFocus,
+          kind: 'menu',
+          side,
+          align,
+          sideOffset,
+          alignOffset,
+          collisionAvoidance,
+          anchor,
+        }),
+      ])}
     >
       {children}
     </div>
@@ -103,7 +144,7 @@ export const MenuClose = view<Native<'button'> & { readonly menu: MenuHandle }>(
       type="button"
       onClick={(event) => {
         onClick?.(event);
-        if (!event.defaultPrevented) menu.hide();
+        if (!event.defaultPrevented) menu.hide({ reason: 'close-press', event });
       }}
     >
       {children}
@@ -130,7 +171,13 @@ export const MenuItem = view<
     data-disabled={rest.disabled ? '' : undefined}
     onPointerMove={(event) => {
       onPointerMove?.(event);
-      if (!event.defaultPrevented && !rest.disabled) event.currentTarget.focus();
+      if (
+        !event.defaultPrevented &&
+        !rest.disabled &&
+        menu.source.model().highlightItemOnHover &&
+        event.pointerType !== 'touch'
+      )
+        event.currentTarget.focus();
     }}
     onClick={(event) => {
       onClick?.(event);
@@ -145,9 +192,10 @@ export const MenuCheckboxItem = view<
   Native<'button'> & {
     readonly menu: MenuHandle;
     readonly checked: boolean;
+    readonly closeOnClick?: boolean | undefined;
     readonly onCheckedChange?: ((checked: boolean) => void) | undefined;
   }
->(({ menu, checked, onCheckedChange, children, onClick, ...rest }) => (
+>(({ menu, checked, closeOnClick = false, onCheckedChange, children, onClick, ...rest }) => (
   <button
     {...rest}
     type="button"
@@ -161,33 +209,44 @@ export const MenuCheckboxItem = view<
       onClick?.(event);
       if (!event.defaultPrevented) {
         onCheckedChange?.(!checked);
-        menu.closeTree();
+        if (closeOnClick) menu.closeTree();
       }
     }}
   >
     {children}
   </button>
 ));
-/** Groups radio items that share the menu handle string `value`. */
-export const MenuRadioGroup = view<Native<'div'>>((props) => <div {...props} role="group" />);
+/** Own an independent menu radio selection; controlled values change only through sync. */
+export const createMenuRadioGroup = (options: ValueOptions = {}) => createValueController(options);
+export type MenuRadioGroupHandle = ReturnType<typeof createMenuRadioGroup>;
+/** Pass the same explicit radioGroup to each item belonging to this group. */
+export const MenuRadioGroup = view<Native<'div'> & { readonly radioGroup?: MenuRadioGroupHandle }>(
+  ({ radioGroup: _radioGroup, ...props }) => <div {...props} role="group" />,
+);
 /** A menu entry selected when its `value` matches the handle value. */
 export const MenuRadioItem = view<
-  Native<'button'> & { readonly menu: MenuHandle; readonly value: string }
->(({ menu, value, children, onClick, ...rest }) =>
-  observe(menu.source, (state) => (
+  Native<'button'> & {
+    readonly menu: MenuHandle;
+    readonly radioGroup?: MenuRadioGroupHandle;
+    readonly closeOnClick?: boolean;
+    readonly value: string;
+  }
+>(({ menu, radioGroup, closeOnClick = false, value, children, onClick, ...rest }) =>
+  observe(radioGroup?.source ?? menu.source, (state) => (
     <button
       {...rest}
       type="button"
       role="menuitemradio"
-      data-disabled={rest.disabled ? '' : undefined}
+      disabled={rest.disabled || state.disabled}
+      data-disabled={rest.disabled || state.disabled ? '' : undefined}
       tabindex={-1}
       aria-checked={state.value === value}
       data-checked={state.value === value ? '' : undefined}
       onClick={(event) => {
         onClick?.(event);
         if (!event.defaultPrevented) {
-          menu.setValue(value);
-          menu.closeTree();
+          (radioGroup ?? menu).setValue(value);
+          if (closeOnClick) menu.closeTree();
         }
       }}
     >
@@ -219,7 +278,7 @@ export const MenuSubmenuTrigger = view<
       }}
       onClick={(event) => {
         onClick?.(event);
-        if (!event.defaultPrevented) submenu.setOpen(true);
+        if (!event.defaultPrevented) submenu.setOpen(true, { reason: 'trigger-press', event });
       }}
       onKeyDown={(event) => {
         onKeyDown?.(event);
@@ -229,7 +288,7 @@ export const MenuSubmenuTrigger = view<
           logicalKey(event.key, event.currentTarget) === 'ArrowRight'
         ) {
           event.preventDefault();
-          submenu.setOpen(true);
+          submenu.setOpen(true, { reason: 'trigger-press', event });
         }
       }}
     >
@@ -252,3 +311,9 @@ export const MenuPositioner = view<Native<'div'> & PositionOptions & { readonly 
 export const MenuArrow = view<Native<'span'> & { readonly menu: MenuHandle }>(
   ({ menu, ...rest }) => <Arrow {...rest} handle={menu} />,
 );
+
+export type MenuPortalProps = Omit<OverlayPortalProps, 'handle'> & { readonly menu: MenuHandle };
+/** Mount popup content while open or exiting; keepMounted explicitly retains closed content. */
+export const MenuPortal = view<MenuPortalProps>(({ menu, ...props }) => (
+  <OverlayPortal handle={menu} {...props} />
+));

@@ -5,7 +5,7 @@ import { transformSync } from 'esbuild';
 
 const require = createRequire(import.meta.url);
 const upstream = dirname(require.resolve('@ant-design/icons-svg/package.json'));
-const directory = 'packages/antd-icons/dist';
+const directory = process.argv[2] ?? 'packages/antd-icons/dist';
 mkdirSync(`${directory}/icons`, { recursive: true });
 
 const transpile = (source) =>

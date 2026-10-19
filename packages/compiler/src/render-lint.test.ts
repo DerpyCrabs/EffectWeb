@@ -400,3 +400,153 @@ it('accepts controller actions whose names look like collection methods', () => 
     checkRender(`view((model:any)=><button onClick={()=>model.tags.add(1)}/>);`),
   ).toThrow(/mutating method add/u);
 });
+
+it('allows numeric writes to private arrays while preserving callable and ownership checks', () => {
+  expect(() =>
+    checkRender(`
+    function tangents(points:number[]) {
+      const count=points.length;
+      const result=Array.from({length:count},()=>0);
+      result[0]=1;
+      result[count-1]=2;
+      for(let index=0;index<count-1;index+=1) {
+        result[index]=index;
+        result[index+1]=index*2;
+      }
+      return result.join(',');
+    }
+    view(model=><p>{tangents(model.points)}</p>);
+  `),
+  ).not.toThrow();
+  expect(() =>
+    checkRender(
+      `view(model=>{const values=Array.from({length:2},()=>0);values[model.key]=()=>fetch('/write');return <p>{values.join(',')}</p>;});`,
+    ),
+  ).toThrow(/provenance/u);
+  expect(() =>
+    checkRender(
+      `view(model=>{const values=[1,2];let index=0;index='map' as any;values[index]=()=>fetch('/write');return <p/>;});`,
+    ),
+  ).toThrow(/provenance/u);
+  expect(() => checkRender(`view(model=>{model.values[model.count-1]=0;return <p/>;});`)).toThrow(
+    /mutat/u,
+  );
+  expect(() =>
+    checkRender(
+      `view(model=>{const values=[1,2];let index=0;[index]=['map'] as any;values[index]=()=>fetch('/write');return <p/>;});`,
+    ),
+  ).toThrow(/provenance/u);
+  expect(() =>
+    checkRender(
+      `view(model=>{const read=()=>1;const values=[read];values[model.count-1]=()=>fetch('/write');return <p/>;});`,
+    ),
+  ).toThrow(/provenance/u);
+  expect(() =>
+    checkRender(
+      `view(()=>{const values=[()=>1];values[0]=()=>fetch('/write');return <p>{values[0]()}</p>;});`,
+    ),
+  ).toThrow(/provenance/u);
+});
+
+it('retains local container provenance after a pure helper returns', () => {
+  expect(() =>
+    checkRender(`
+    function scale() { const ticks=[]; ticks.push(1); return {max:2,ticks}; }
+    function chart() { const scaleResult=scale(); return {scale:scaleResult}; }
+    view(model=>{ const result=chart(); return <p>{result.scale.ticks.map(tick=>tick).join(',')}</p>; });
+  `),
+  ).not.toThrow();
+  expect(() =>
+    checkRender(`
+    const ticks=[]; function scale() { ticks.push(1); return {ticks}; }
+    view(model=><p>{scale().ticks.join(',')}</p>);
+  `),
+  ).toThrow(/mutat/);
+});
+
+it.each([
+  `function merge(input){const rows=[];for(const value of input){const previous=rows.at(-1);if(previous)previous.end=value.end;else rows.push({...value});}return rows;} view(model=><p>{merge(model.ranges).length}</p>);`,
+  `function group(input){const groups=new Map();input.forEach(value=>{const group=groups.get(value.key);if(group)group.push(value);else groups.set(value.key,[value]);});return [...groups];}view(model=><p>{group(model.rows).length}</p>);`,
+  `function group(input){const groups=[];for(const value of input){const group=groups.find(row=>row.length>0);if(group)group.push(value);else groups.push([value]);}return groups;}view(model=><p>{group(model.rows).length}</p>);`,
+  `view(model=>{const defaults={one:'a',two:'b'};const classes=Object.keys(defaults).reduce((acc,key)=>{acc[key]=model[key]||defaults[key];return acc;},{...defaults});return <p class={classes.one}/>;});`,
+])('tracks private collection insertion and reducer accumulator ownership: %s', (source) => {
+  expect(() => checkRender(source)).not.toThrow();
+});
+
+it.each([
+  `const rows=[];rows.push(model.row);rows.at(-1).end=2;`,
+  `const rows=[];rows.push({...model.row});rows.push(model.row);rows.at(-1).end=2;`,
+  `const groups=new Map();groups.set('a',model.rows);groups.get('a').push(2);`,
+  `const rows=[];const alias=rows;rows.push({...model.row});alias.push(model.row);rows.at(-1).end=2;`,
+  `const rows=[];rows.push({...model.row});rows[0]=model.row;rows.at(-1).end=2;`,
+  `const rows=[];rows.push({...model.row});rows.at(-1).nested.end=2;`,
+  `model.rows.reduce((acc,row)=>{acc.count++;return acc;},model.seed);`,
+  `model.rows.reduce((acc,row)=>{acc.count++;return row;},{});`,
+])('does not promote borrowed elements, escaped buffers or reducer seeds: %s', (body) => {
+  expect(() => checkRender(`view(model=>{${body}return <p/>;});`)).toThrow();
+});
+
+it('recognizes the actual CVA factory and aliases, without trusting similarly named factories', () => {
+  expect(() =>
+    checkRender(
+      `import {cva as variants} from 'class-variance-authority'; const style=variants('base',{variants:{size:{sm:'small'}}});view(model=><p class={style({size:model.size})}/>);`,
+    ),
+  ).not.toThrow();
+  expect(() =>
+    checkRender(
+      `import {cva} from 'unrelated'; const style=cva('base');view(model=><p class={style(model)}/>);`,
+    ),
+  ).toThrow();
+});
+
+it('permits grouping private arrays before handing them to the native list renderer', () => {
+  expect(() =>
+    checkRender(
+      `import {list} from 'effectweb';view(model=>{const many=model.rows.length>1;const groups=[];for(const row of model.rows){const group=many&&groups.find(items=>items.length>0);if(group)group.push(row);else groups.push([row]);}return <div>{groups.length}{list(groups,items=><p>{items.length}</p>)}</div>;});`,
+    ),
+  ).not.toThrow();
+});
+
+it('recognizes segment only on a proven Intl.Segmenter instance', () => {
+  expect(() =>
+    checkRender(
+      `const segmenter=new Intl.Segmenter(undefined,{granularity:'grapheme'});view(model=><p>{Array.from(segmenter.segment(model.text)).length}</p>);`,
+    ),
+  ).not.toThrow();
+  expect(() =>
+    checkRender(`const other=new Map();view(model=><p>{other.segment(model.text)}</p>);`),
+  ).toThrow();
+  expect(() =>
+    checkRender(
+      `const segmenter=new Intl.Segmenter();segmenter.segment=()=>Date.now();view(model=><p>{segmenter.segment(model.text)}</p>);`,
+    ),
+  ).toThrow();
+});
+
+it.each([
+  `import { markup } from 'effectweb/dom'; view(model => markup(model.tag)({class: model.class}, model.text));`,
+  `import { markup as element } from 'effectweb/dom'; const div = element('div'); view(model => div({onClick: () => console.log(model.id)}, model.text));`,
+  `import * as dom from 'effectweb/dom'; view(model => dom.markup('div')({title: model.text}));`,
+])('recognizes native DOM placement factories: %s', (source) => {
+  expect(() => checkRender(source)).not.toThrow();
+});
+
+it.each([
+  `import { markup } from 'another-library'; view(model => markup('div')({}));`,
+  `const markup = () => () => localStorage.setItem('key', 'value'); view(model => markup('div')({}));`,
+  `import { markup } from 'effectweb/dom'; view(model => markup('div')({title: Date.now()}));`,
+])('does not grant native factory purity to lookalikes or impure arguments: %s', (source) => {
+  expect(() => checkRender(source)).toThrow();
+});
+
+it('treats native mount composition as a description without allowing render-time effects', () => {
+  expect(() =>
+    checkRender(`import { composeMounts, domBinding } from 'effectweb';
+      const acquire = (element, current) => { element.dataset.value = String(current()); };
+      view(model => <div use={composeMounts([model.binding, domBinding(model.value, acquire)])} />);`),
+  ).not.toThrow();
+  expect(() =>
+    checkRender(`import { composeMounts } from 'effectweb';
+      view(model => <div use={composeMounts([localStorage.setItem('key', model.value)])} />);`),
+  ).toThrow();
+});

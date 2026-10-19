@@ -359,7 +359,19 @@ export async function staleBoundaryCleanupFixture() {
         };
       },
     },
-    view((model) => <span data-stale-content>{model.id}</span>),
+    view((model) => (
+      <div>
+        <button
+          data-stale-fail
+          onClick={() => {
+            throw new Error('initial failure');
+          }}
+        >
+          Fail
+        </button>
+        <span data-stale-content>{model.id}</span>
+      </div>
+    )),
   );
   const Failure = view<{ model: Props; error: unknown }>(() => (
     <span data-stale-fallback>Failed</span>
@@ -369,17 +381,21 @@ export async function staleBoundaryCleanupFixture() {
     reset: (props) => props.id,
     onError: (error) => {
       errors.push(String(error));
-      rejected();
+      if (String(error) === 'Error: old cleanup') rejected();
     },
   });
   const owner = modelOwner<Props>({ id: 'a', label: 'first' });
   const stop = mount(host, Safe, owner.source);
+  host.querySelector<HTMLButtonElement>('[data-stale-fail]')!.click();
+  await Promise.resolve();
+  const failedBeforeReset = Boolean(host.querySelector('[data-stale-fallback]'));
   owner.patch({ id: 'b' });
   release();
   await rejection;
   await Promise.resolve();
   const result = {
     errors,
+    failedBeforeReset,
     content: host.querySelector('[data-stale-content]')?.textContent,
     fallback: Boolean(host.querySelector('[data-stale-fallback]')),
   };

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { expect, it } from 'vitest';
-import { block, list, markup, mount, still, view, type SiteNode } from './dom.js';
+import { attribute, block, list, markup, mount, still, view, type SiteNode } from './dom.js';
 import { entities } from './collection.js';
 import { jsx } from './jsx-runtime.js';
 import { createModelOwner, modelOwner } from './owner.js';
@@ -444,3 +444,45 @@ it('reaches handlers on disabled controls for movement, and keeps touch moves on
   stop.dispose();
   host.remove();
 });
+
+it('identifies the element and attribute when a DOM attribute value is not scalar', () => {
+  const element = document.createElement('button');
+  expect(() => attribute(element, 'title', { invalid: true })).toThrow(
+    '<button> attribute "title"',
+  );
+});
+
+it.each(['keydown', 'keyup'] as const)(
+  'runs %s handlers before native ancestor listeners',
+  (type) => {
+    const seen: string[] = [];
+    const { host, owner, stop } = mounted({ shield: true }, (model) =>
+      jsx('button', {
+        [type === 'keydown' ? 'onKeyDown' : 'onKeyUp']: (event: KeyboardEvent) => {
+          seen.push('child');
+          if (model.shield) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        },
+        children: 'record',
+      }),
+    );
+    const ancestor = document.createElement('section');
+    host.append(ancestor);
+    const button = host.querySelector('button')!;
+    ancestor.append(button);
+    ancestor.addEventListener(type, () => seen.push('native ancestor'));
+    button.dispatchEvent(
+      new KeyboardEvent(type, { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    expect(seen).toEqual(['child']);
+    owner.patch({ shield: false });
+    button.dispatchEvent(
+      new KeyboardEvent(type, { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    expect(seen).toEqual(['child', 'child', 'native ancestor']);
+    stop.dispose();
+    owner.dispose();
+  },
+);

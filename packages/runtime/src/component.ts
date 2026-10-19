@@ -252,7 +252,7 @@ function messageComponent<Props, Model extends { readonly props: Props }, Messag
         () => child.dispose(),
         () => unsubscribe(),
       );
-      const release = source.subscribe((model) => child.set(model));
+      const release = source.subscribe((model) => child.publish(model));
       if (scope.disposed) {
         release();
         return;
@@ -369,7 +369,7 @@ export function programView<Props, Model, Message>(definition: {
         () => unsubscribe(),
         () => definition.beforeDispose?.(source),
       );
-      const release = source.subscribe((model) => child.set(model));
+      const release = source.subscribe((model) => child.publish(model));
       if (scope.disposed) {
         release();
         return;

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import * as upstream from '@lucide/icons';
 
-const directory = 'packages/lucide/dist';
+const directory = process.argv[2] ?? 'packages/lucide/dist';
 mkdirSync(`${directory}/icons`, { recursive: true });
 const canonical = new Map();
 for (const [name, data] of Object.entries(upstream).sort(([a], [b]) => a.localeCompare(b, 'en'))) {

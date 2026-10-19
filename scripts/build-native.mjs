@@ -34,3 +34,6 @@ if (!library) throw new Error('Cargo did not report the compiler library.');
 const target = `${directory}/effectweb-compiler.node`;
 copyFileSync(library, `${target}.tmp`);
 renameSync(`${target}.tmp`, target);
+
+// Local consumers install the same platform package that release packaging uses.
+await import('./stage-native.mjs');

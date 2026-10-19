@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createApi } from './api.mjs';
 import { format } from 'oxfmt';
 
-export async function createContent(root) {
+export async function createContent(root, declarationsRoot) {
   const pages = [];
   const file = async (slug, title, description, group) => {
     pages.push({
@@ -113,7 +113,7 @@ export async function createContent(root) {
     'Build setup, lint rules and every diagnostic code.',
     more,
   );
-  const api = createApi(root);
+  const api = createApi(root, declarationsRoot);
   for (const page of api.pages) {
     const blocks = [...page.body.matchAll(/```ts\n([\s\S]*?)```/g)];
     for (const block of blocks) {

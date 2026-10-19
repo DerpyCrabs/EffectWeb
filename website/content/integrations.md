@@ -6,13 +6,14 @@ These packages connect existing libraries to EffectWeb. The library keeps its ow
 
 ## Routing
 
-`@effectweb/tanstack-router` uses TanStack Router for matching, route trees, loaders, search validation and redirects.
+`@effectweb/tanstack-router` uses TanStack Router for matching, route trees, loaders, search validation and redirects, and renders the matched routes as EffectWeb views.
 
-- `createRouter(options)` creates the router with full type inference.
-- `mountRouter(router)`, inside an Effect scope, returns a source of the router state.
-- `const Link = createLink(router)` creates typed links. A `/files/$name` route is linked as `<Link to="/files/$name" params={{ name }}>`. The result is a real anchor, so middle-click and "copy link" work.
+- `createRouter(options)` creates the router with full type inference. Routes come from `createRootRoute`, `createRoute` and, with the TanStack Router generator, `createFileRoute`; a route's `component`, `pendingComponent`, `errorComponent` and `notFoundComponent` are views. `lazyRouteComponent(() => import('./Page'), 'Page')` loads one on first placement.
+- `createRouterController(router)` mounts the router; call `start()` once and `dispose()` when the application ends. Inside an Effect scope, `mountRouter(router)` does both and returns the same controller.
+- `<RouterView controller={controller} />` renders the matched tree. Each route view receives `scope`: `scope.match` publishes its params, search and loader data, `scope.location` the current location, `scope.navigate` navigates, and `scope.outlet(props)` places the next matched route with extra props for its view. Augment `RouteViewProps` to type those props.
+- `const Link = createLink(router)` creates typed links. A `/files/$name` route is linked as `<Link to="/files/$name" params={{ name }}>`. The result is a real anchor, so middle-click and "copy link" work; pass `active` from your route model for `aria-current`.
 
-Your app chooses which view to show for the current match. There is no `<Outlet>`, file-based routing or server rendering. See the [TanStack Router docs](https://tanstack.com/router/latest/docs/framework/react/routing/routing-concepts) for route concepts.
+There is no server rendering. See the [TanStack Router docs](https://tanstack.com/router/latest/docs/framework/react/routing/routing-concepts) for route concepts.
 
 ## Forms
 

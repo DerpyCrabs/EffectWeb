@@ -123,7 +123,7 @@ This has two consequences.
 
 **Unchanged data is skipped.** If a controller publishes `{ ...model, draft }`, `model.rows` is still the same array, so a `<RowList rows={model.rows} />` child does not run. Rebuilding the array makes `RowList` run and reconcile its list, though rows with unchanged items and dependencies can still be skipped.
 
-**Analyzable inline callbacks can also be skipped.** `onSelect={() => select(row.id)}` creates a new function each time the parent runs, and the compiler can record the values it reads (`select`, `row.id`) to compare them instead. Callbacks it cannot analyze are compared by function identity. An object literal or JSX passed as a prop is still a new value on every render.
+**Analyzable inline callbacks and literals can also be skipped.** `onSelect={() => select(row.id)}` creates a new function each time the parent runs, and the compiler can record the values it reads (`select`, `row.id`) to compare them instead. The same applies to an object or array literal written as a prop, such as `options={{ readOnly: locked }}` or `items={[first, second]}`: the child keeps the previous literal while the values it reads are unchanged. Callbacks and literals the compiler cannot analyze are compared by identity. JSX passed as a prop is still a new value on every render unless it is entirely literal.
 
 Nothing else triggers a render. Changing an object in place, or a variable outside the model, does not update the screen.
 

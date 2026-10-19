@@ -80,6 +80,7 @@ enum Kind<'a> {
 struct Value<'a> {
     kind: Kind<'a>,
     ownership: Ownership,
+    native_type: Option<&'static str>,
     reads: BTreeSet<SymbolId>,
     // Ambient objects are stable only while their reachable properties cannot change.
     ambient: BTreeSet<SymbolId>,
@@ -94,6 +95,7 @@ impl<'a> Value<'a> {
         Self {
             kind,
             ownership: Ownership::Borrowed,
+            native_type: None,
             reads: BTreeSet::new(),
             ambient: BTreeSet::new(),
             source: None,
@@ -554,12 +556,18 @@ impl<'a> Analyzer<'a, '_> {
                 receiver: None,
             })),
             Expression::ObjectExpression(n) => {
-                let mut v = Value::new(Kind::Object(n, bindings.clone()));
+                let mut v = Value::new(Kind::Object(
+                    n,
+                    self.container_bindings(n.span, bindings, depth + 1),
+                ));
                 v.ownership = Ownership::Shallow;
                 v
             }
             Expression::ArrayExpression(n) => {
-                let mut v = Value::new(Kind::Array(n, bindings.clone()));
+                let mut v = Value::new(Kind::Array(
+                    n,
+                    self.container_bindings(n.span, bindings, depth + 1),
+                ));
                 v.ownership = Ownership::Shallow;
                 v
             }
@@ -613,7 +621,11 @@ impl<'a> Analyzer<'a, '_> {
                             ]
                             .contains(&root.as_str()) =>
                     {
-                        Value::owned(false)
+                        let mut value = Value::owned(false);
+                        if root == "Intl" && path.as_slice() == ["Segmenter"] {
+                            value.native_type = Some("Intl.Segmenter");
+                        }
+                        value
                     }
                     _ => Value::unknown("the result of this constructor"),
                 }
@@ -651,6 +663,33 @@ impl<'a> Analyzer<'a, '_> {
             value.source = Some((e.span(), vec![]));
         }
         value
+    }
+    fn container_bindings(
+        &mut self,
+        span: Span,
+        bindings: &Rc<Bindings<'a>>,
+        depth: usize,
+    ) -> Rc<Bindings<'a>> {
+        // Container fields are resolved lazily, potentially after the allocating helper
+        // has returned. Preserve its locals' provenance before leaving that scope.
+        let locals = self
+            .index
+            .references(span)
+            .filter_map(|reference| reference.symbol)
+            .filter(|id| {
+                self.local(*id)
+                    && !bindings.contains_key(id)
+                    && self.index.declarators.contains_key(id)
+            })
+            .collect::<BTreeSet<_>>();
+        if locals.is_empty() {
+            return bindings.clone();
+        }
+        let mut captured = (**bindings).clone();
+        for id in locals {
+            captured.insert(id, self.symbol(id, bindings, depth + 1));
+        }
+        Rc::new(captured)
     }
     fn member(&mut self, mut object: Value<'a>, name: &str, depth: usize) -> Value<'a> {
         if depth > 80 {
@@ -901,6 +940,111 @@ impl<'a> Analyzer<'a, '_> {
         }
         Rc::new(bindings)
     }
+    // Prove the elements of a private, initially empty buffer from every insertion.
+    // Direct receiver uses and reads are allowed; aliases, argument escapes, indexed writes
+    // and unknown methods deliberately lose the proof rather than borrowing ownership.
+    fn private_collection_element(
+        &mut self,
+        receiver: &Value<'a>,
+        depth: usize,
+    ) -> Option<Value<'a>> {
+        if depth > 60 || receiver.ownership == Ownership::Borrowed {
+            return None;
+        }
+        let (origin, path) = receiver.source.as_ref()?;
+        if !path.is_empty() {
+            return None;
+        }
+        let (symbol, declaration) = self
+            .index
+            .declarators
+            .iter()
+            .find(|(_, d)| d.init.as_ref().is_some_and(|e| e.span() == *origin))?;
+        let symbol = *symbol;
+        if !self.local(symbol) {
+            return None;
+        }
+        let init = unwrap(declaration.init.as_ref()?);
+        let map = match init {
+            Expression::ArrayExpression(array) if array.elements.is_empty() => false,
+            Expression::NewExpression(call)
+                if call.arguments.is_empty()
+                    && matches!(unwrap(&call.callee),Expression::Identifier(id) if id.name=="Map" && self.index.symbol(id).is_none()) =>
+            {
+                true
+            }
+            _ => return None,
+        };
+        let calls = self.index.calls.clone();
+        let mut accepted = vec![];
+        let mut inserted = vec![];
+        for call in calls {
+            if let Expression::Identifier(callee) = unwrap(&call.callee)
+                && let Some((module, path)) = self
+                    .index
+                    .symbol(callee)
+                    .and_then(|id| self.index.imports.get(&id))
+                && self.framework(module)
+                && path.as_slice() == ["list"]
+                && let Some(argument) = call.arguments.first().and_then(Argument::as_expression)
+                && let Expression::Identifier(id) = unwrap(argument)
+                && self.index.symbol(id) == Some(symbol)
+            {
+                accepted.push(argument.span());
+                continue;
+            }
+            let (object, name) = match unwrap(&call.callee) {
+                Expression::StaticMemberExpression(member) => {
+                    (&member.object, member.property.name.as_str())
+                }
+                _ => continue,
+            };
+            let Expression::Identifier(id) = unwrap(object) else {
+                continue;
+            };
+            if self.index.symbol(id) != Some(symbol) {
+                continue;
+            }
+            accepted.push(object.span());
+            let positions: Vec<usize> = match (map, name) {
+                (true, "set") => vec![1],
+                (false, "push" | "unshift") => (0..call.arguments.len()).collect(),
+                (true, "get" | "has" | "delete" | "clear" | "entries" | "keys" | "values") => {
+                    vec![]
+                }
+                (
+                    false,
+                    "at" | "find" | "findLast" | "pop" | "shift" | "slice" | "filter" | "map"
+                    | "join" | "includes" | "indexOf" | "forEach",
+                ) => vec![],
+                _ => return None,
+            };
+            for position in positions {
+                let value = call.arguments.get(position)?.as_expression()?;
+                let bindings = self.bindings.clone();
+                inserted.push(self.resolve(value, &bindings, depth + 1));
+            }
+        }
+        for reference in self
+            .index
+            .refs
+            .iter()
+            .filter(|reference| reference.symbol == Some(symbol))
+        {
+            if !accepted
+                .iter()
+                .chain(self.index.collection_reads.iter())
+                .any(|span| span.contains_inclusive(reference.span))
+            {
+                return None;
+            }
+        }
+        if inserted.is_empty() {
+            None
+        } else {
+            Some(self.join(inserted))
+        }
+    }
     fn returned(
         &mut self,
         callee: Value<'a>,
@@ -1030,7 +1174,10 @@ impl<'a> Analyzer<'a, '_> {
             Kind::Member(ref receiver, ref method)
                 if matches!(method.as_str(), "at" | "get" | "find" | "findLast") =>
             {
-                let mut result = Value::data().with_reads(receiver);
+                let mut result = self
+                    .private_collection_element(receiver, depth + 1)
+                    .unwrap_or_else(Value::data)
+                    .with_reads(receiver);
                 result.ambient = receiver.ambient.clone();
                 if receiver.ownership == Ownership::Deep {
                     result.kind = Kind::Native;
@@ -1047,7 +1194,7 @@ impl<'a> Analyzer<'a, '_> {
                 if self.framework(module)
                     && matches!(
                         path.first().map(String::as_str),
-                        Some("domMount" | "domBinding")
+                        Some("domMount" | "domBinding" | "composeMounts")
                     ) =>
             {
                 Value::new(Kind::Compiled)
@@ -1076,6 +1223,11 @@ impl<'a> Analyzer<'a, '_> {
                     .collect(),
             )),
             Kind::Import(ref module, ref path)
+                if module == "class-variance-authority" && path.as_slice() == ["cva"] =>
+            {
+                Value::new(Kind::Api(module.clone(), path.clone(), vec![]))
+            }
+            Kind::Import(ref module, ref path)
                 if (module == "effect" && path.first().is_some_and(|name| name == "Schema")
                     || module == "effect/Schema")
                     && path.last().is_some_and(|name| {
@@ -1090,6 +1242,17 @@ impl<'a> Analyzer<'a, '_> {
                     }) =>
             {
                 Value::new(Kind::Api(module.clone(), path.clone(), vec![]))
+            }
+            // The native DOM factory returns a pure placement constructor, not an opaque value.
+            Kind::Import(ref module, ref path)
+                if self
+                    .options
+                    .import_source
+                    .as_deref()
+                    .is_some_and(|root| module.strip_prefix(root) == Some("/dom"))
+                    && path.as_slice() == ["markup"] =>
+            {
+                Value::new(Kind::Compiled)
             }
             // Framework view factories return compiled views, which render safely.
             Kind::Import(ref module, ref path)
@@ -1294,11 +1457,18 @@ impl<'a> Analyzer<'a, '_> {
                 // `model.actions.add(…)` calls a controller method; it is not `Set.add` on a snapshot.
                 let action=receiver.source.as_ref().is_some_and(|(_,path)|matches!(path.last(),Some(Some(name)) if name=="actions"));
                 if mutator(&method)&&!action{self.check_mutation(&receiver,span,&method,phase);if self.error.is_some(){return;}}
-                if !mutator(&method) && phase==Phase::Render&&!pure_method(&method)&&!supplied{self.fail(Issue::unknown(span,format!("the target of method {method}. Use a stable helper with immutable model inputs.")));}
+                if !mutator(&method) && phase==Phase::Render&&!pure_method(&method)&&!(receiver.native_type==Some("Intl.Segmenter")&&method=="segment")&&!supplied{self.fail(Issue::unknown(span,format!("the target of method {method}. Use a stable helper with immutable model inputs.")));}
                 for argument in arguments{if argument.callable(){let mut input=Value::data().with_reads(&receiver);
                     if receiver.ownership==Ownership::Deep { input.kind=Kind::Native;input.ownership=Ownership::Deep; }
                     input.source=receiver.source.clone().map(|(span,mut path)|{path.push(None);(span,path)});
-                    self.invoke(argument.clone(),&[input.clone(),input],span,phase);}}
+                    if matches!(method.as_str(), "reduce" | "reduceRight") {
+                        let seed=arguments.get(1).cloned().unwrap_or_else(||input.clone());
+                        let returned=self.returned(argument.clone(),&[seed.clone(),input.clone()],span,0);
+                        let accumulator=self.join(vec![seed,returned]);
+                        self.invoke(argument.clone(),&[accumulator,input],span,phase);
+                    } else {
+                        self.invoke(argument.clone(),&[input.clone(),input],span,phase);
+                    }}}
             }
             Kind::Compiled=>{},
             _ if phase==Phase::Render=>self.fail(Issue::unknown(span,"this value is callable and pure")),
@@ -1312,7 +1482,7 @@ impl<'a> Analyzer<'a, '_> {
                 .is_some_and(|root| target.ambient.contains(&root));
             return;
         }
-        if target.ownership != Ownership::Borrowed {
+        if target.ownership != Ownership::Borrowed || matches!(target.kind, Kind::Scalar(_)) {
             return;
         }
         if phase != Phase::Render && target.render_local {
@@ -1522,28 +1692,96 @@ impl<'a> Analyzer<'a, '_> {
     fn expression_value(&mut self, e: &'a Expression<'a>) -> Value<'a> {
         self.resolve(e, &self.bindings.clone(), 0)
     }
-    fn callable_fields(&self, value: &Value<'a>) -> bool {
+    fn callable_fields(&mut self, value: &Value<'a>) -> bool {
         match &value.kind {
-            Kind::Object(object, _) => object.properties.iter().any(|property| match property {
-                ObjectPropertyKind::ObjectProperty(property) => {
-                    property.kind != PropertyKind::Init
-                        || matches!(
-                            unwrap(&property.value),
-                            Expression::ArrowFunctionExpression(_)
-                                | Expression::FunctionExpression(_)
-                        )
-                }
-                ObjectPropertyKind::SpreadProperty(_) => true,
+            Kind::Object(object, bindings) => {
+                object.properties.iter().any(|property| match property {
+                    ObjectPropertyKind::ObjectProperty(property) => {
+                        property.kind != PropertyKind::Init
+                            || matches!(
+                                unwrap(&property.value),
+                                Expression::ArrowFunctionExpression(_)
+                                    | Expression::FunctionExpression(_)
+                            )
+                    }
+                    ObjectPropertyKind::SpreadProperty(spread) => {
+                        let value = self.resolve(&spread.argument, bindings, 0);
+                        !matches!(value.kind, Kind::Object(..)) || self.callable_fields(&value)
+                    }
+                })
+            }
+            Kind::Array(array, bindings) => array.elements.iter().any(|element| match element {
+                ArrayExpressionElement::SpreadElement(_) => true,
+                _ => element
+                    .as_expression()
+                    .is_some_and(|expression| self.resolve(expression, bindings, 0).callable()),
             }),
             Kind::Union(values) => values.iter().any(|value| self.callable_fields(value)),
             _ => false,
         }
     }
-    fn property_write(&mut self, target: &Value<'a>, name: Option<&str>, span: Span) {
+    // Only numeric keys are disjoint from native callable names. A local counter
+    // remains numeric only when every write preserves that fact.
+    fn numeric_index(
+        &self,
+        expression: &'a Expression<'a>,
+        proven: &mut HashSet<SymbolId>,
+        depth: usize,
+    ) -> bool {
+        if depth > 40 {
+            return false;
+        }
+        match unwrap(expression) {
+            Expression::NumericLiteral(_) | Expression::BigIntLiteral(_) => true,
+            Expression::UnaryExpression(n) => matches!(n.operator.as_str(), "+" | "-" | "~"),
+            Expression::BinaryExpression(n) => match n.operator.as_str() {
+                "-" | "*" | "/" | "%" | "**" | "<<" | ">>" | ">>>" | "&" | "|" | "^" => true,
+                "+" => {
+                    self.numeric_index(&n.left, proven, depth + 1)
+                        && self.numeric_index(&n.right, proven, depth + 1)
+                }
+                _ => false,
+            },
+            Expression::Identifier(id) => {
+                let Some(symbol) = self.index.symbol(id) else {
+                    return false;
+                };
+                if proven.contains(&symbol) {
+                    return true;
+                }
+                let Some(initial) = self.index.initializers.get(&symbol) else {
+                    return false;
+                };
+                if !self.numeric_index(initial, proven, depth + 1) {
+                    return false;
+                }
+                proven.insert(symbol);
+                let result = self.index.writes.iter().filter(|span| self.index.references(**span).any(|r| r.symbol == Some(symbol) && r.is_write)).all(|span| {
+                    if self.index.updates.iter().any(|n| n.argument.span()==*span && matches!(&n.argument,SimpleAssignmentTarget::AssignmentTargetIdentifier(id) if self.index.symbol(id)==Some(symbol))) {return true;}
+                    self.index.assignments.iter().any(|n| n.left.span()==*span && matches!(&n.left,AssignmentTarget::AssignmentTargetIdentifier(id) if self.index.symbol(id)==Some(symbol)) && match n.operator.as_str() {
+                        "=" | "+=" => self.numeric_index(&n.right, proven, depth+1),
+                        "-=" | "*=" | "/=" | "%=" | "**=" | "<<=" | ">>=" | ">>>=" | "&=" | "|=" | "^=" => true,
+                        _=>false,
+                    })
+                });
+                proven.remove(&symbol);
+                result
+            }
+            _ => false,
+        }
+    }
+    fn property_write(
+        &mut self,
+        target: &Value<'a>,
+        name: Option<&str>,
+        numeric_index: bool,
+        span: Span,
+    ) {
         if self.phase != Phase::Render {
             return;
         }
-        let native_method = matches!(target.kind, Kind::Native | Kind::Array(..))
+        let native_method = !numeric_index
+            && matches!(target.kind, Kind::Native | Kind::Array(..))
             && name.is_none_or(|name| pure_method(name) || mutator(name));
         let callable = match name {
             Some(name) => self.member(target.clone(), name, 0).callable(),
@@ -1559,7 +1797,7 @@ impl<'a> Analyzer<'a, '_> {
             AssignmentTarget::StaticMemberExpression(n) => {
                 self.visit_expression(&n.object);
                 let value = self.expression_value(&n.object);
-                self.property_write(&value, Some(&n.property.name), span);
+                self.property_write(&value, Some(&n.property.name), false, span);
                 self.check_mutation(&value, span, "assignment", self.phase);
             }
             AssignmentTarget::ComputedMemberExpression(n) => {
@@ -1573,6 +1811,7 @@ impl<'a> Analyzer<'a, '_> {
                         Kind::Scalar(name) => name.as_deref(),
                         _ => None,
                     },
+                    self.numeric_index(&n.expression, &mut HashSet::new(), 0),
                     span,
                 );
                 self.check_mutation(&value, span, "assignment", self.phase);

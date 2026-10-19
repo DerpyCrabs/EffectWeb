@@ -3,54 +3,103 @@ import { controlStyle } from './control-style.js';
 import { domBinding, modelOwner, observe, view } from 'effectweb';
 import type { Native } from './types.js';
 import { formatNumber, parseNumber, snapNumber } from './numeric.js';
+type CommitReason = 'input-blur' | 'keyboard' | 'increment-press' | 'decrement-press' | 'scrub';
+type CommitDetails = { readonly event: Event; readonly reason: CommitReason };
+const editors = new WeakMap<
+  object,
+  { input(text: string, composing?: boolean): void; finish(text: string): void }
+>();
+const commits = new WeakMap<object, (event: Event, reason: CommitReason) => void>();
+const commitNumberField = (field: object, event: Event, reason: CommitReason) =>
+  commits.get(field)?.(event, reason);
 export interface NumberFieldOptions {
-  readonly value?: number | undefined;
-  readonly defaultValue?: number | undefined;
+  readonly value?: number | null | undefined;
+  readonly defaultValue?: number | null | undefined;
   readonly min?: number | undefined;
   readonly max?: number | undefined;
-  readonly step?: number | undefined;
+  readonly step?: number | 'any' | undefined;
   readonly largeStep?: number | undefined;
   readonly locale?: string | undefined;
   readonly format?: Intl.NumberFormatOptions | undefined;
   readonly disabled?: boolean | undefined;
   readonly name?: string | undefined;
   readonly form?: string | undefined;
-  readonly onValueChange?: ((value: number) => void) | undefined;
+  readonly onValueChange?: ((value: number | null) => void) | undefined;
+  readonly onValueCommitted?: ((value: number | null, details: CommitDetails) => void) | undefined;
 }
 let numberIds = 0;
 /** Create a parent-owned localized number field with stepping and scrub actions. */
 export function createNumberField(initial: NumberFieldOptions = {}) {
   let options = initial;
-  const normalize = (value: number) =>
-    snapNumber(value, options.min ?? -Infinity, options.max ?? Infinity, options.step ?? 1);
-  const defaultValue = normalize(initial.defaultValue ?? 0);
+  const increment = () => (typeof options.step === 'number' ? options.step : 1);
+  const normalize = (value: number | null) =>
+    value === null
+      ? null
+      : options.step === 'any'
+        ? Math.min(options.max ?? Infinity, Math.max(options.min ?? -Infinity, value))
+        : snapNumber(value, options.min ?? -Infinity, options.max ?? Infinity, increment());
+  const defaultValue = normalize(initial.defaultValue ?? null);
+  const formatted = (value: number | null) =>
+    value === null ? '' : formatNumber(value, options.locale, options.format);
+  const initialValue = normalize(initial.value === undefined ? defaultValue : initial.value);
+  let editing = false;
   const owner = modelOwner({
-    value: normalize(initial.value ?? defaultValue),
+    value: initialValue,
+    inputValue: formatted(initialValue),
     disabled: initial.disabled ?? false,
   });
-  const setValue = (raw: number) => {
-    if (owner.read().disabled || !Number.isFinite(raw)) return;
-    const value = normalize(raw);
+  let pendingCommit: { value: number | null } | undefined;
+  const requestValue = (value: number | null) => {
+    if (owner.disposed || owner.read().disabled || (value !== null && !Number.isFinite(value)))
+      return;
     if (value === owner.read().value) return;
+    if (options.value !== undefined && pendingCommit?.value === value) return;
+    pendingCommit = { value };
     if (options.value === undefined) owner.patch({ value });
     options.onValueChange?.(value);
   };
-  const step = (count: number) => setValue(owner.read().value + count * (options.step ?? 1));
+  const setValue = (raw: number | null) => {
+    if (owner.disposed || owner.read().disabled) return;
+    editing = false;
+    requestValue(normalize(raw));
+    owner.patch({ inputValue: formatted(owner.read().value) });
+  };
+  const input = (text: string, composing = false) => {
+    if (owner.disposed || owner.read().disabled) return;
+    editing = true;
+    owner.patch({ inputValue: text });
+    if (composing) return;
+    const value = parseNumber(text, options.locale, options.format);
+    if (value !== null || text.trim() === '') {
+      if (value === owner.read().value && pendingCommit?.value !== value) pendingCommit = undefined;
+      requestValue(value);
+    }
+  };
+  const finish = (text: string) => {
+    if (owner.disposed || owner.read().disabled) return;
+    editing = false;
+    const value = parseNumber(text, options.locale, options.format);
+    if (value !== null)
+      requestValue(Math.min(options.max ?? Infinity, Math.max(options.min ?? -Infinity, value)));
+    else if (text.trim() === '') requestValue(null);
+    owner.patch({ inputValue: formatted(owner.read().value) });
+  };
+  const step = (count: number) => setValue((owner.read().value ?? 0) + count * increment());
   const press = createPressRepeat(step);
   owner.own(press);
   let scrub: { x: number; value: number; pointer: number } | undefined;
-  return {
+  const handle = {
     id: `number-field-${++numberIds}`,
     source: owner.source,
     lifetime: owner,
     press,
     startScrub: (element: HTMLElement, event: PointerEvent) => {
-      scrub = { x: event.clientX, value: owner.read().value, pointer: event.pointerId };
+      scrub = { x: event.clientX, value: owner.read().value ?? 0, pointer: event.pointerId };
       element.setPointerCapture(event.pointerId);
     },
     moveScrub: (event: PointerEvent) => {
       if (scrub && event.pointerId === scrub.pointer)
-        setValue(scrub.value + Math.round((event.clientX - scrub.x) / 4) * (options.step ?? 1));
+        setValue(scrub.value + Math.round((event.clientX - scrub.x) / 4) * increment());
     },
     endScrub: () => {
       scrub = undefined;
@@ -59,18 +108,46 @@ export function createNumberField(initial: NumberFieldOptions = {}) {
       return options;
     },
     setValue,
-    step: (count: number) => setValue(owner.read().value + count * (options.step ?? 1)),
-    reset: () => setValue(defaultValue),
-    format: () => formatNumber(owner.read().value, options.locale, options.format),
+    step: (count: number) => setValue((owner.read().value ?? 0) + count * increment()),
+    reset: () => {
+      setValue(defaultValue);
+      pendingCommit = undefined;
+    },
+    format: () => {
+      const value = owner.read().value;
+      return value === null ? '' : formatNumber(value, options.locale, options.format);
+    },
     parse: (text: string) => parseNumber(text, options.locale, options.format),
     sync: (next: NumberFieldOptions) => {
+      const previous = owner.read();
+      const formatChanged = next.locale !== options.locale || next.format !== options.format;
+      const value = next.value === undefined ? previous.value : next.value;
+      const acceptsEdit =
+        value === previous.value ||
+        value === parseNumber(previous.inputValue, options.locale, options.format);
       options = next;
+      if (!acceptsEdit) pendingCommit = undefined;
+      if (formatChanged || !acceptsEdit || next.disabled) editing = false;
       owner.patch({
-        value: normalize(next.value ?? owner.read().value),
+        value,
+        inputValue: editing ? previous.inputValue : formatted(value),
         disabled: next.disabled ?? false,
       });
     },
   };
+  editors.set(handle, { input, finish });
+  commits.set(handle, (event, reason) => {
+    const pending = pendingCommit;
+    pendingCommit = undefined;
+    if (pending && !owner.read().disabled)
+      options.onValueCommitted?.(pending.value, { event, reason });
+  });
+  owner.own(() => {
+    commits.delete(handle);
+    editors.delete(handle);
+    pendingCommit = undefined;
+  });
+  return handle;
 }
 export type NumberFieldHandle = ReturnType<typeof createNumberField>;
 /** The number field container; publishes disabled and invalid attributes. */
@@ -81,7 +158,7 @@ export const NumberFieldRoot = view<Native<'div'> & { readonly numberField: Numb
         {children}
         <input
           type="hidden"
-          value={state.value}
+          value={state.value ?? ''}
           name={numberField.options.name}
           form={numberField.options.form}
           disabled={state.disabled}
@@ -107,9 +184,9 @@ const acquireNumberForm = (element: HTMLInputElement, current: () => NumberField
     },
   };
 };
-/** The text input of a number field; formats with the handle locale, commits on change and blur, steps with arrow and page keys. */
+/** The text input of a number field; preserves localized edits, commits on blur, and steps with arrow and page keys. */
 export const NumberFieldInput = view<Native<'input'> & { readonly numberField: NumberFieldHandle }>(
-  ({ numberField, onChange, onBlur, onKeyDown, ...rest }) =>
+  ({ numberField, onInput, onChange, onBlur, onKeyDown, onCompositionEnd, ...rest }) =>
     observe(numberField.source, (state) => (
       <input
         {...rest}
@@ -118,31 +195,40 @@ export const NumberFieldInput = view<Native<'input'> & { readonly numberField: N
         role="spinbutton"
         inputmode="decimal"
         disabled={state.disabled || rest.disabled}
-        value={numberField.format()}
-        aria-valuenow={state.value}
+        value={state.inputValue}
+        aria-valuenow={state.value ?? undefined}
         aria-valuemin={numberField.options.min}
         aria-valuemax={numberField.options.max}
         aria-valuetext={numberField.format()}
+        onInput={(event) => {
+          onInput?.(event);
+          if (!event.defaultPrevented)
+            editors.get(numberField)?.input(event.currentTarget.value, event.isComposing);
+        }}
+        onCompositionEnd={(event) => {
+          onCompositionEnd?.(event);
+          if (!event.defaultPrevented) editors.get(numberField)?.input(event.currentTarget.value);
+        }}
         onChange={(event) => {
           onChange?.(event);
-          if (!event.defaultPrevented) {
-            const value = numberField.parse(event.currentTarget.value);
-            if (value !== null) numberField.setValue(value);
-            event.currentTarget.value = numberField.format();
-          }
+          if (!event.defaultPrevented) editors.get(numberField)?.input(event.currentTarget.value);
         }}
         onBlur={(event) => {
           onBlur?.(event);
-          if (!event.defaultPrevented) event.currentTarget.value = numberField.format();
+          if (!event.defaultPrevented) {
+            editors.get(numberField)?.finish(event.currentTarget.value);
+            commitNumberField(numberField, event, 'input-blur');
+          }
         }}
         onKeyDown={(event) => {
           onKeyDown?.(event);
-          if (event.defaultPrevented || state.disabled) return;
+          if (event.defaultPrevented || event.isComposing || state.disabled) return;
           const options = numberField.options;
+          const step = typeof options.step === 'number' ? options.step : 1;
           const amount =
             event.shiftKey || event.key.startsWith('Page')
-              ? (options.largeStep ?? (options.step ?? 1) * 10)
-              : (options.step ?? 1);
+              ? (options.largeStep ?? step * 10)
+              : step;
           const direction = (
             { ArrowUp: 1, ArrowDown: -1, PageUp: 1, PageDown: -1 } as Record<string, number>
           )[event.key];
@@ -157,8 +243,9 @@ export const NumberFieldInput = view<Native<'input'> & { readonly numberField: N
                 ? options.min!
                 : event.key === 'End'
                   ? options.max!
-                  : state.value + direction! * amount,
+                  : (state.value ?? 0) + direction! * amount,
             );
+            commitNumberField(numberField, event, 'keyboard');
           }
         }}
       />
@@ -187,8 +274,8 @@ const StepButton = view<StepProps & { readonly direction: number }>(
           state.disabled ||
           rest.disabled ||
           (direction > 0
-            ? state.value >= (numberField.options.max ?? Infinity)
-            : state.value <= (numberField.options.min ?? -Infinity))
+            ? state.value !== null && state.value >= (numberField.options.max ?? Infinity)
+            : state.value !== null && state.value <= (numberField.options.min ?? -Infinity))
         }
         aria-controls={numberField.id}
         use={domBinding(numberField, acquireHold)}
@@ -201,22 +288,44 @@ const StepButton = view<StepProps & { readonly direction: number }>(
           onPointerUp?.(event);
           if (event.defaultPrevented) return;
           numberField.press.stop(event.currentTarget);
+          commitNumberField(
+            numberField,
+            event,
+            direction > 0 ? 'increment-press' : 'decrement-press',
+          );
         }}
         onPointerCancel={(event) => {
           onPointerCancel?.(event);
           if (event.defaultPrevented) return;
           numberField.press.stop(event.currentTarget);
+          commitNumberField(
+            numberField,
+            event,
+            direction > 0 ? 'increment-press' : 'decrement-press',
+          );
         }}
         onLostPointerCapture={(event) => {
           onLostPointerCapture?.(event);
           if (event.defaultPrevented) return;
           numberField.press.stop(event.currentTarget);
+          commitNumberField(
+            numberField,
+            event,
+            direction > 0 ? 'increment-press' : 'decrement-press',
+          );
         }}
         onClick={(event) => {
           onClick?.(event);
           if (event.defaultPrevented) return;
           const repeated = numberField.press.consume(event.currentTarget);
-          if (!event.defaultPrevented && !repeated) numberField.step(direction);
+          if (!event.defaultPrevented && !repeated) {
+            numberField.step(direction);
+            commitNumberField(
+              numberField,
+              event,
+              direction > 0 ? 'increment-press' : 'decrement-press',
+            );
+          }
         }}
       />
     )),
@@ -255,6 +364,7 @@ export const NumberFieldScrubArea = view<
       onLostPointerCapture?.(event);
       if (event.defaultPrevented) return;
       numberField.endScrub();
+      commitNumberField(numberField, event, 'scrub');
     }}
   />
 ));

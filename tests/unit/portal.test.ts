@@ -1,6 +1,50 @@
 // @vitest-environment happy-dom
 import { expect, it } from 'vitest';
 
+it('updates empty and replaced portal ranges after moving between targets', async () => {
+  const { mountConditionalPortal } = await import('../fixtures/portalFixture');
+  const parent = document.createElement('main');
+  const first = document.createElement('aside');
+  const second = document.createElement('aside');
+  document.body.append(parent, first, second);
+  const source = mountConditionalPortal(parent, first);
+  source.update({ target: second, visible: true, label: 'moved' });
+  expect(first.childNodes).toHaveLength(0);
+  expect(second.querySelector(':scope > button')?.textContent).toBe('moved');
+  source.update({ target: first, visible: false, label: 'hidden' });
+  expect(second.childNodes).toHaveLength(0);
+  expect(first.querySelector('button')).toBeNull();
+  source.update({ target: first, visible: true, label: 'shown' });
+  expect(first.querySelector(':scope > button')?.textContent).toBe('shown');
+  source.dispose();
+  expect(first.childNodes).toHaveLength(0);
+  parent.remove();
+  first.remove();
+  second.remove();
+});
+
+it('assigns portalled content to shadow slots and preserves unrelated target children', async () => {
+  const { mountPortal } = await import('../fixtures/portalFixture');
+  const parent = document.createElement('main');
+  const target = document.createElement('div');
+  const sibling = document.createElement('span');
+  target.append(sibling);
+  const shadow = target.attachShadow({ mode: 'open' });
+  shadow.innerHTML = '<slot name="header"></slot>';
+  document.body.append(parent, target);
+  const source = mountPortal(parent, target);
+  const content = target.querySelector<HTMLElement>('[data-portal-content]')!;
+  content.slot = 'header';
+  expect(shadow.querySelector('slot')!.assignedElements()).toEqual([content]);
+  content.querySelector('button')!.click();
+  expect(content.querySelector('button')!.textContent).toBe('first:1');
+  source.dispose();
+  expect(target.childNodes).toHaveLength(1);
+  expect(target.firstChild).toBe(sibling);
+  parent.remove();
+  target.remove();
+});
+
 it('portal targets retain their child state and events through updates and movement', async () => {
   const result = await (async () => {
     const { mountPortal } = await import('../fixtures/portalFixture');
@@ -39,7 +83,7 @@ it('portal targets retain their child state and events through updates and movem
       text: button.textContent,
     };
     source.update(undefined, 'body');
-    const bodyDefault = content.parentElement?.parentElement === document.body;
+    const bodyDefault = content.parentElement === document.body;
     const finalText = button.textContent;
     source.dispose();
     button.click();

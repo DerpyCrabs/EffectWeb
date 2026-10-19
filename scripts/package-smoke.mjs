@@ -347,6 +347,7 @@ for (const file of [
   'nativeEventsFixture.tsx',
   'scopedRenderingFixture.tsx',
   'mountLifecycleFixture.tsx',
+  'packedAdaptersFixture.tsx',
 ]) {
   writeFileSync(join(temp, file), readFileSync(`tests/fixtures/${file}`));
 }
@@ -548,6 +549,23 @@ assert.ok(
 assert.ok(bundle.length < 160_000, `Icon consumer unexpectedly large: ${bundle.length} bytes`);
 // Build optional integrations separately so the existing core/icon bundle budget stays meaningful.
 writeFileSync(
+  join(temp, 'adapters.html'),
+  '<!doctype html><html><body><script type="module" src="/adapters-entry.ts"></script></body></html>',
+);
+writeFileSync(
+  join(temp, 'adapters-entry.ts'),
+  "import { packedComposedMounts, packedComposedErrors, packedRouter } from './packedAdaptersFixture'; Object.assign(window, { packedComposedMounts, packedComposedErrors, packedRouter });\n",
+);
+writeFileSync(
+  join(temp, 'vite.adapters.config.mjs'),
+  "import { effectweb } from '@effectweb/compiler/vite'; export default { base: '/adapters/', plugins: [effectweb()], build: { outDir: 'adapters-dist', rollupOptions: { input: 'adapters.html' } } };\n",
+);
+run(
+  process.execPath,
+  ['node_modules/vite/bin/vite.js', 'build', '--config', 'vite.adapters.config.mjs'],
+  temp,
+);
+writeFileSync(
   join(temp, 'json.html'),
   '<!doctype html><html><body><script type="module" src="/json-entry.ts"></script></body></html>',
 );
@@ -651,7 +669,7 @@ await Effect.runPromise(
 const server = createServer((request, response) => {
   const pathname = new URL(request.url, 'http://localhost').pathname;
   if (
-    !/^\/(?:assets\/[\w.-]+|index.html|(?:mixed|json)\/(?:assets\/[\w.-]+|mixed.html|json.html))?$/.test(
+    !/^\/(?:assets\/[\w.-]+|index.html|(?:mixed|json|adapters)\/(?:assets\/[\w.-]+|mixed.html|json.html|adapters.html))?$/.test(
       pathname,
     )
   ) {
@@ -660,11 +678,13 @@ const server = createServer((request, response) => {
   }
   try {
     response.setHeader('Content-Type', pathname.endsWith('.js') ? 'text/javascript' : 'text/html');
-    const integration = pathname.startsWith('/mixed/')
-      ? 'mixed'
-      : pathname.startsWith('/json/')
-        ? 'json'
-        : undefined;
+    const integration = pathname.startsWith('/adapters/')
+      ? 'adapters'
+      : pathname.startsWith('/mixed/')
+        ? 'mixed'
+        : pathname.startsWith('/json/')
+          ? 'json'
+          : undefined;
     response.end(
       readFileSync(
         join(
@@ -758,6 +778,44 @@ try {
     disposal: { beforeClose: 1, afterClose: 1 },
     empty: true,
   });
+  const adaptersPage = await browser.newPage();
+  adaptersPage.on('pageerror', (error) => errors.push(error.message));
+  await adaptersPage.goto(`http://127.0.0.1:${server.address().port}/adapters/adapters.html`);
+  const packedAdapters = await adaptersPage.evaluate(async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    try {
+      return {
+        mounts: await window.packedComposedMounts(host),
+        errors: await window.packedComposedErrors(host),
+        router: await window.packedRouter(host),
+      };
+    } finally {
+      host.remove();
+    }
+  });
+  assert.deepEqual(packedAdapters.mounts, {
+    pendingBoth: true,
+    pendingReplaced: true,
+    detached: true,
+    released: ['current', 'replaced'],
+  });
+  assert.equal(packedAdapters.errors.observed, 'application');
+  assert.equal(packedAdapters.errors.errors.length, 1);
+  assert.match(packedAdapters.errors.errors[0], /packed child failed/);
+  assert.equal(packedAdapters.errors.detached, true);
+  assert.deepEqual(packedAdapters.router, {
+    before: 'nested home',
+    after: 'nested next',
+    initialPath: '/',
+    finalPath: '/next',
+    published: true,
+    detached: true,
+    historySubscriptions: 0,
+    refused: true,
+    unchangedAfterClose: true,
+  });
+  await adaptersPage.close();
   const lifetimes = await page.evaluate(async () => {
     const host = document.createElement('div');
     document.body.append(host);

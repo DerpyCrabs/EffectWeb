@@ -1,3 +1,6 @@
+import { OverlayPortal, type OverlayPortalProps } from './overlay-portal.js';
+import type { PopupFocusOptions } from './popup-focus.js';
+import { composeMounts } from 'effectweb';
 import { domBinding, list, observe, view, type JSX } from 'effectweb';
 import { Positioner, Arrow } from './positioner.js';
 import { popupBinding, type PositionOptions } from './overlay.js';
@@ -73,7 +76,7 @@ export const SelectTrigger = view<SelectTriggerProps>(
       <button
         {...rest}
         type="button"
-        use={selectTriggerBinding(select)}
+        use={composeMounts([rest.use, selectTriggerBinding(select)])}
         disabled={state.disabled || rest.disabled}
         aria-controls={`${select.id}-popup`}
         aria-expanded={state.open}
@@ -103,7 +106,8 @@ export const SelectTrigger = view<SelectTriggerProps>(
     )),
 );
 export type SelectPopupProps = Native<'div'> &
-  PositionOptions & { readonly select: Handle; readonly alignItemWithTrigger?: boolean };
+  PositionOptions &
+  PopupFocusOptions & { readonly select: Handle; readonly alignItemWithTrigger?: boolean };
 const alignmentBinding = (input: { select: Handle; enabled: boolean; configure?: boolean }) =>
   domBinding(input, (element: HTMLElement, current) => {
     if (current().configure) current().select.configureAlignment?.(current().enabled);
@@ -169,10 +173,16 @@ export const SelectPopup = view<SelectPopupProps>(
     align,
     sideOffset,
     alignOffset,
+    collisionAvoidance,
+    anchor,
     alignItemWithTrigger = true,
+    initialFocus,
+    finalFocus,
     ...rest
   }) => (
-    <div use={alignmentBinding({ select, enabled: alignItemWithTrigger })}>
+    <div
+      use={composeMounts([rest.use, alignmentBinding({ select, enabled: alignItemWithTrigger })])}
+    >
       <div
         {...rest}
         id={`${select.id}-popup`}
@@ -180,14 +190,21 @@ export const SelectPopup = view<SelectPopupProps>(
         aria-multiselectable={select.multiple || undefined}
         popover="manual"
         tabindex={-1}
-        use={popupBinding({
-          handle: select.overlay,
-          kind: 'listbox',
-          side,
-          align,
-          sideOffset,
-          alignOffset,
-        })}
+        use={composeMounts([
+          rest.use,
+          popupBinding({
+            handle: select.overlay,
+            initialFocus,
+            finalFocus,
+            kind: 'listbox',
+            side,
+            align,
+            sideOffset,
+            alignOffset,
+            collisionAvoidance,
+            anchor,
+          }),
+        ])}
       >
         {children}
       </div>
@@ -426,3 +443,9 @@ export const SelectPositioner = view<
 export const SelectArrow = view<Native<'span'> & { readonly select: Handle }>(
   ({ select, ...rest }) => <Arrow {...rest} handle={select.overlay} />,
 );
+
+export type SelectPortalProps = Omit<OverlayPortalProps, 'handle'> & { readonly select: Handle };
+/** Mount popup content while open or exiting; keepMounted explicitly retains closed content. */
+export const SelectPortal = view<SelectPortalProps>(({ select, ...props }) => (
+  <OverlayPortal handle={select.overlay} {...props} />
+));

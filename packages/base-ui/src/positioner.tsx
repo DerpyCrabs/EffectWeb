@@ -1,4 +1,5 @@
 import { domBinding, view } from 'effectweb';
+import { resolvePositionAnchor } from './position-anchor.js';
 import { placeElement } from './positioning.js';
 import type { OverlayHandle, PositionOptions } from './overlay.js';
 import type { Native } from './types.js';
@@ -8,16 +9,32 @@ interface PositionerInput extends PositionOptions {
 const positionerBinding = (input: PositionerInput) =>
   domBinding(input, (element: HTMLElement, current) => {
     const sync = () => {
-      const { handle, side, align, sideOffset, alignOffset } = current();
-      handle.configurePosition({ side, align, sideOffset, alignOffset });
+      const {
+        handle,
+        anchor: suppliedAnchor,
+        side,
+        align,
+        sideOffset,
+        alignOffset,
+        collisionAvoidance,
+      } = current();
+      handle.configurePosition({
+        anchor: suppliedAnchor,
+        side,
+        align,
+        sideOffset,
+        alignOffset,
+        collisionAvoidance,
+      });
       const popup = handle.popup();
-      const anchor = handle.trigger();
+      const anchor = resolvePositionAnchor(suppliedAnchor, handle.trigger());
       if (!popup || !anchor || !handle.source.model().open) return;
       placeElement(anchor, popup, {
         side: side ?? 'bottom',
         align: align ?? 'center',
         offset: sideOffset ?? 4,
         alignOffset: alignOffset ?? 0,
+        collisionAvoidance,
       });
       element.dataset.side = popup.dataset.side;
       element.dataset.align = popup.dataset.align;
@@ -51,15 +68,26 @@ const positionerBinding = (input: PositionerInput) =>
   });
 /** Positions a popup against an anchor with side, alignment and offsets; flips and shifts inside the viewport. */
 export const Positioner = view<Native<'div'> & PositionerInput>(
-  ({ handle, side, align, sideOffset, alignOffset, ...rest }) => (
-    <div {...rest} use={positionerBinding({ handle, side, align, sideOffset, alignOffset })} />
+  ({ handle, anchor, side, align, sideOffset, alignOffset, collisionAvoidance, ...rest }) => (
+    <div
+      {...rest}
+      use={positionerBinding({
+        handle,
+        anchor,
+        side,
+        align,
+        sideOffset,
+        alignOffset,
+        collisionAvoidance,
+      })}
+    />
   ),
 );
 const arrowBinding = (handle: OverlayHandle) =>
   domBinding(handle, (element: HTMLElement, current) => {
     const sync = () => {
       const popup = current().popup();
-      const anchor = current().trigger();
+      const anchor = resolvePositionAnchor(current().position()?.anchor, current().trigger());
       if (!popup || !anchor) return;
       const box = popup.getBoundingClientRect();
       const target = anchor.getBoundingClientRect();

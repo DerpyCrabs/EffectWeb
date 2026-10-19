@@ -1,6 +1,29 @@
+import { composeMounts } from 'effectweb';
 import { controlStyle } from './control-style.js';
 import { domBinding, modelOwner, observe, view } from 'effectweb';
 import type { Native } from './types.js';
+// Read every dirty viewport before publishing scrollbar styles that invalidate layout.
+const measurements = new WeakMap<() => void, () => (() => void) | undefined>();
+const pendingMeasurements = new Set<() => void>();
+let measurementFrame: number | undefined;
+function scheduleMeasurement(measure: () => void) {
+  pendingMeasurements.add(measure);
+  if (measurementFrame !== undefined) return;
+  measurementFrame = requestAnimationFrame(() => {
+    measurementFrame = undefined;
+    const pending = [...pendingMeasurements];
+    pendingMeasurements.clear();
+    const publish = pending.map((measure) => measurements.get(measure)?.());
+    for (const update of publish) update?.();
+  });
+}
+function cancelMeasurement(measure: () => void) {
+  pendingMeasurements.delete(measure);
+  if (!pendingMeasurements.size && measurementFrame !== undefined) {
+    cancelAnimationFrame(measurementFrame);
+    measurementFrame = undefined;
+  }
+}
 export interface ScrollAreaOptions {
   readonly visibility?: 'auto' | 'always' | undefined;
   readonly mode?: 'overlay' | 'gutter' | undefined;
@@ -32,18 +55,28 @@ export function createScrollArea(options: ScrollAreaOptions = {}) {
     if (!holds.size)
       timer = setTimeout(() => owner.patch({ active: false }), options.hideDelay ?? 700);
   };
-  const measure = () => {
-    if (viewport)
-      owner.patch({
-        rtl: getComputedStyle(viewport).direction === 'rtl',
-        x: Math.abs(viewport.scrollLeft),
-        y: viewport.scrollTop,
-        width: viewport.clientWidth,
-        height: viewport.clientHeight,
-        scrollWidth: viewport.scrollWidth,
-        scrollHeight: viewport.scrollHeight,
-      });
+  const capture = () => {
+    if (!viewport || owner.disposed) return;
+    const element = viewport;
+    const snapshot = {
+      rtl: getComputedStyle(viewport).direction === 'rtl',
+      x: Math.abs(viewport.scrollLeft),
+      y: viewport.scrollTop,
+      width: viewport.clientWidth,
+      height: viewport.clientHeight,
+      scrollWidth: viewport.scrollWidth,
+      scrollHeight: viewport.scrollHeight,
+    };
+    return () => {
+      if (!owner.disposed && viewport === element) owner.patch(snapshot);
+    };
   };
+  const measure = () => capture()?.();
+  measurements.set(measure, capture);
+  owner.own(() => {
+    cancelMeasurement(measure);
+    measurements.delete(measure);
+  });
   owner.own(() => clearTimeout(timer));
   return {
     id: `scroll-area-${++scrollIds}`,
@@ -55,7 +88,8 @@ export function createScrollArea(options: ScrollAreaOptions = {}) {
     },
     attach: (element: HTMLElement | undefined) => {
       viewport = element;
-      measure();
+      if (viewport) scheduleMeasurement(measure);
+      else cancelMeasurement(measure);
     },
     measure,
     activity,
@@ -79,24 +113,44 @@ export type ScrollAreaPartProps = Native<'div'> & { readonly scrollArea: ScrollA
 const acquireViewport = (element: HTMLElement, current: () => ScrollAreaHandle) => {
   current().attach(element);
   const measure = () => current().measure();
+  let disposed = false;
+  const scheduleMeasure = () => {
+    if (!disposed) scheduleMeasurement(current().measure);
+  };
   const scroll = () => {
     measure();
     current().activity();
   };
-  const resize = new ResizeObserver(measure);
+  const resize = new ResizeObserver(scheduleMeasure);
+  const children = new Set<Element>();
   const observeChildren = () => {
-    resize.disconnect();
-    resize.observe(element);
-    for (const child of element.children) resize.observe(child);
-    measure();
+    for (const child of children)
+      if (child.parentElement !== element) {
+        resize.unobserve(child);
+        children.delete(child);
+      }
+    for (const child of element.children)
+      if (!children.has(child)) {
+        children.add(child);
+        resize.observe(child);
+      }
   };
-  const mutations = new MutationObserver(observeChildren);
+  const mutations = new MutationObserver((records) => {
+    if (disposed) return;
+    if (records.some((record) => record.type === 'childList' && record.target === element))
+      observeChildren();
+    scheduleMeasure();
+  });
   mutations.observe(element, { childList: true, subtree: true, characterData: true });
+  resize.observe(element);
   observeChildren();
   element.addEventListener('scroll', scroll);
   return {
     dispose: () => {
+      disposed = true;
+      cancelMeasurement(current().measure);
       resize.disconnect();
+      children.clear();
       mutations.disconnect();
       element.removeEventListener('scroll', scroll);
       current().attach(undefined);
@@ -154,12 +208,28 @@ export const ScrollAreaViewport = view<ScrollAreaPartProps>(
         { overflow: 'auto', scrollbarWidth: 'none', height: '100%', width: '100%' },
         style,
       )}
-      use={{ ...domBinding(scrollArea, acquireViewport), identity: scrollArea }}
+      use={composeMounts([
+        rest.use,
+        { ...domBinding(scrollArea, acquireViewport), identity: scrollArea },
+      ])}
       onKeyDown={(event) => {
         onKeyDown?.(event);
         if (event.defaultPrevented || event.target !== event.currentTarget) return;
-        const state = scrollArea.source.model();
         const key = event.key;
+        if (
+          [
+            'ArrowDown',
+            'ArrowUp',
+            'PageDown',
+            'PageUp',
+            'Home',
+            'End',
+            'ArrowLeft',
+            'ArrowRight',
+          ].includes(key)
+        )
+          scrollArea.measure();
+        const state = scrollArea.source.model();
         if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End'].includes(key)) {
           event.preventDefault();
           scrollArea.scroll(
@@ -202,6 +272,7 @@ type BarData = {
   readonly orientation: 'horizontal' | 'vertical';
 };
 function startBar(element: HTMLElement, event: PointerEvent, { scrollArea, orientation }: BarData) {
+  scrollArea.measure();
   const state = scrollArea.source.model();
   const vertical = orientation === 'vertical';
   const rect = element.getBoundingClientRect();
