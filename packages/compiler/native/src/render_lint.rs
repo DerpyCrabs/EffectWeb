@@ -1457,7 +1457,7 @@ impl<'a> Analyzer<'a, '_> {
                 // `model.actions.add(…)` calls a controller method; it is not `Set.add` on a snapshot.
                 let action=receiver.source.as_ref().is_some_and(|(_,path)|matches!(path.last(),Some(Some(name)) if name=="actions"));
                 if mutator(&method)&&!action{self.check_mutation(&receiver,span,&method,phase);if self.error.is_some(){return;}}
-                if !mutator(&method) && phase==Phase::Render&&!pure_method(&method)&&!(receiver.native_type==Some("Intl.Segmenter")&&method=="segment")&&!supplied{self.fail(Issue::unknown(span,format!("the target of method {method}. Use a stable helper with immutable model inputs.")));}
+                if !(mutator(&method) || phase != Phase::Render || pure_method(&method) || supplied || receiver.native_type==Some("Intl.Segmenter")&&method=="segment"){self.fail(Issue::unknown(span,format!("the target of method {method}. Use a stable helper with immutable model inputs.")));}
                 for argument in arguments{if argument.callable(){let mut input=Value::data().with_reads(&receiver);
                     if receiver.ownership==Ownership::Deep { input.kind=Kind::Native;input.ownership=Ownership::Deep; }
                     input.source=receiver.source.clone().map(|(span,mut path)|{path.push(None);(span,path)});
