@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "form",
+  "type": "registry:ui",
+  "title": "Form",
+  "dependencies": [
+    "@effectweb/base-ui@0.14.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/form.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/form.tsx",
+      "content": "import { FormFieldError, FormRoot, type FormHandle } from '@effectweb/base-ui';\nimport { view } from 'effectweb';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\n\nexport {\n  createForm,\n  formFieldBinding,\n  type FormHandle,\n  type FormOptions,\n} from '@effectweb/base-ui/form';\n/** A form with external field errors: invalid controls are focused before submit and errors clear as the user edits. */\nexport const Form = view<Native<'form'> & Styled & { readonly form: FormHandle }>(\n  ({ form, class: className, children, ...rest }) => (\n    <FormRoot form={form} data-slot=\"form\" class={cn('flex flex-col gap-6', className)} {...rest}>\n      {children}\n    </FormRoot>\n  ),\n);\n/** The message for a field's form error, in the Field error style. */\nexport const FormMessage = view<\n  Omit<Parameters<typeof FormFieldError>[0], 'class'> & { readonly class?: string | undefined }\n>(({ class: className, ...rest }) => (\n  <FormFieldError\n    data-slot=\"form-message\"\n    class={cn('text-sm font-normal text-destructive', className)}\n    {...rest}\n  />\n));\n"
+    }
+  ]
+}

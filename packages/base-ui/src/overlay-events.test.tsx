@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { view as bindingView, type DomMount } from 'effectweb';
+import { renderView } from 'effectweb/testing';
 import { mount, view } from 'effectweb';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createOverlay, popupBinding, type OverlayChangeEventDetails } from './overlay.js';
@@ -7,7 +9,7 @@ afterEach(() => {
   for (const dispose of cleanup.splice(0)) dispose();
   document.body.replaceChildren();
 });
-function fixture(onOpenChange?: (open: boolean, details: OverlayChangeEventDetails) => void) {
+async function fixture(onOpenChange?: (open: boolean, details: OverlayChangeEventDetails) => void) {
   const handle = createOverlay({ onOpenChange });
   const trigger = document.createElement('button');
   const element = document.createElement('div');
@@ -27,18 +29,16 @@ function fixture(onOpenChange?: (open: boolean, details: OverlayChangeEventDetai
   element.getAnimations = () => [];
   handle.attachTrigger(trigger);
   const input = { handle, kind: 'popover' as const };
-  const binding = popupBinding(input).acquire(element, () => input);
-  if (!binding || typeof binding !== 'object' || !('dispose' in binding))
-    throw new Error('No popup lifetime');
+  const binding = await mountTestBinding(element, popupBinding(input));
   cleanup.push(() => {
     binding.dispose();
     handle.lifetime.dispose();
   });
   return { handle, element, outside, trigger };
 }
-it('lets the owner cancel outside press and focus-out without publishing a closed state', () => {
+it('lets the owner cancel outside press and focus-out without publishing a closed state', async () => {
   const changes: OverlayChangeEventDetails[] = [];
-  const p = fixture((open, details) => {
+  const p = await fixture((open, details) => {
     changes.push(details);
     if (!open && (details.reason === 'outside-press' || details.reason === 'focus-out'))
       details.cancel();
@@ -59,8 +59,8 @@ it('lets the owner cancel outside press and focus-out without publishing a close
   expect(p.handle.source.model().open).toBe(true);
   expect(published).not.toHaveBeenCalled();
 });
-it('uses the Escape event and allows its propagation when requested', () => {
-  const p = fixture((_open, details) => {
+it('uses the Escape event and allows its propagation when requested', async () => {
+  const p = await fixture((_open, details) => {
     if (details.reason === 'escape-key') details.allowPropagation();
   });
   p.handle.setOpen(true);
@@ -91,8 +91,8 @@ it('controlled requests wait for synchronization, and uncontrolled cancellation 
   uncontrolled.lifetime.dispose();
 });
 
-it('lets a descendant consume Escape before the popup dismisses', () => {
-  const p = fixture();
+it('lets a descendant consume Escape before the popup dismisses', async () => {
+  const p = await fixture();
   let recording = true;
   const rendered = mount(
     p.element,
@@ -145,3 +145,30 @@ it('canceling a pending delayed open stays closed without redundant change event
     vi.useRealTimers();
   }
 });
+
+/** Keep the preconfigured test target while running its binding through a real use lifetime. */
+async function mountTestBinding<T extends Element>(element: T, binding: DomMount<T>) {
+  let acquired!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    acquired = resolve;
+  });
+  const target = bindingView<DomMount<T>>((current) => (
+    <span
+      use={{
+        ...current,
+        acquire: (
+          _host: Element,
+          input: () => unknown,
+          lifetime: Parameters<DomMount<T>['acquire']>[2],
+        ) => {
+          const work = current.acquire(element, input, lifetime);
+          acquired();
+          return work;
+        },
+      }}
+    />
+  ));
+  const rendered = renderView(document.createElement('div'), target, binding);
+  await ready;
+  return rendered;
+}

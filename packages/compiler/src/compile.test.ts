@@ -6,6 +6,7 @@ import { compile as compileSource, diagnose } from './compile';
 type Markup = { tag: string; props: Record<string, unknown> };
 type Shape = [string, Record<string, unknown> | null | 0, unknown[]];
 const runtime = {
+  profileFunction: (callback: unknown) => callback,
   captured: (callback: unknown, _values: unknown[]) => callback,
   view: (render: unknown) => render,
   slot: (render: unknown) => render,
@@ -671,4 +672,18 @@ it('does not infer snapshot semantics for arbitrary helper parameters', () => {
       `const Row = view(p => <li/>); function helper(store) { const read = () => store.value; return <Row read={read}/>; }`,
     ),
   ).not.toContain('.captured(');
+});
+
+it('locates profiling callbacks without wrapping shadowed or unrelated imports', () => {
+  const source = `import {view as render, mapSource} from 'effectweb';
+    export const App=render(m=><b>{m.title}</b>);
+    const selected=mapSource(source, m=>m.title);
+    function unrelated(render){ return render(x=>x); }`;
+  const dev = compileSource(source, 'profile.tsx', { development: true, profile: true }).code;
+  expect(compileSource(source, 'profile.tsx', { development: true }).code).not.toContain(
+    'profileFunction',
+  );
+  expect(dev.match(/\.profileFunction\(/gu)).toHaveLength(2);
+  expect(dev).toMatch(/"file":\s*"profile\.tsx"/u);
+  expect(compileSource(source, 'profile.tsx').code).not.toContain('profileFunction');
 });

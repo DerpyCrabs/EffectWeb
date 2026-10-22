@@ -61,9 +61,14 @@ Work started by a view must belong to something that outlives the event and can 
 | Testing a view, a transition or a request race      | `renderView`, `controlledEffect` from `effectweb/testing` | [Testing](/docs/testing/)                           |
 | Routing, large forms, tables, authentication, icons | the `@effectweb/*` adapter packages                       | [Integrations](/docs/integrations/)                 |
 
+## Investigating expensive updates
+
+Use [owned DOM measurements](/docs/dom-measurement/) when cooperating bindings need to read geometry before writing. To find which work needs changing, enable [development profiling](/docs/profiling/) and measure a realistic action before adding caches or changing update boundaries.
+
 ## Import paths
 
 - `effectweb`: everything an application normally needs.
 - `effectweb/advanced`: building adapters (`projectionSource`, `shareValue`), custom render comparison (`memoView`) and views loaded on demand (`lazyView`). Use it only when nothing in `effectweb` fits.
 - `effectweb/testing`: test helpers.
+- `effectweb/profiling`: opt-in development capture and report APIs; the Vite `profile` option installs the browser interface.
 - `effectweb/dom` is the compiler's output target. Do not import it.

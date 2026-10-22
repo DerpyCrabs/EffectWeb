@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { view as bindingView, type DomMount } from 'effectweb';
+import { renderView } from 'effectweb/testing';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mount, modelOwner } from 'effectweb';
 import { ComboboxItem, createCombobox } from './combobox.js';
@@ -34,7 +36,7 @@ it('keeps explicit option IDs in keyboard focus and skips disabled mounted optio
   state.dispose();
   combo.lifetime.dispose();
 });
-it('keeps hovered popovers open across the trigger-popup gap and cancels disposed timers', () => {
+it('keeps hovered popovers open across the trigger-popup gap and cancels disposed timers', async () => {
   vi.useFakeTimers();
   const popover = createPopover();
   const trigger = document.createElement('button'),
@@ -43,9 +45,7 @@ it('keeps hovered popovers open across the trigger-popup gap and cancels dispose
   popover.attachPopup(popup);
   const props = { popover, openOnHover: true, delay: 150, closeDelay: 150 };
   const binding = popoverHoverBinding(props);
-  const work = binding.acquire(trigger, () => props);
-  if (!work || typeof work !== 'object' || !('dispose' in work))
-    throw new Error('missing lifecycle');
+  const work = await mountTestBinding(trigger, binding);
   trigger.dispatchEvent(new PointerEvent('pointerenter', { pointerType: 'mouse' }));
   vi.advanceTimersByTime(150);
   expect(popover.source.model().open).toBe(true);
@@ -120,3 +120,30 @@ it('keeps checkbox menus open by default and supports closing on selection', asy
   props.dispose();
   menu.lifetime.dispose();
 });
+
+/** Keep the preconfigured test target while running its binding through a real use lifetime. */
+async function mountTestBinding<T extends Element>(element: T, binding: DomMount<T>) {
+  let acquired!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    acquired = resolve;
+  });
+  const target = bindingView<DomMount<T>>((current) => (
+    <span
+      use={{
+        ...current,
+        acquire: (
+          _host: Element,
+          input: () => unknown,
+          lifetime: Parameters<DomMount<T>['acquire']>[2],
+        ) => {
+          const work = current.acquire(element, input, lifetime);
+          acquired();
+          return work;
+        },
+      }}
+    />
+  ));
+  const rendered = renderView(document.createElement('div'), target, binding);
+  await ready;
+  return rendered;
+}

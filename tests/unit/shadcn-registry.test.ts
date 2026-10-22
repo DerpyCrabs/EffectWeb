@@ -81,7 +81,7 @@ it('emits exactly one UI item per family plus the five shared items', () => {
     .filter((file) => file.endsWith('.tsx'))
     .map((file) => file.slice(0, -4))
     .sort();
-  expect(families).toHaveLength(48);
+  expect(families).toHaveLength(55);
   expect(
     items
       .filter((item) => item.type === 'registry:ui')
@@ -106,7 +106,7 @@ it('emits exactly one UI item per family plus the five shared items', () => {
 });
 it('strips file content from the catalog but retains it in each item', () => {
   const rendered = renderRegistry();
-  expect(rendered.size).toBe(54);
+  expect(rendered.size).toBe(61);
   expect(rendered.get('registry.json')).not.toContain('"content":');
   expect(rendered.get('registry.json')).toContain('"name": "effectweb"');
   expect(rendered.get('button.json')).toContain('"content":');
@@ -114,7 +114,7 @@ it('strips file content from the catalog but retains it in each item', () => {
 it('detects missing, stale and nested orphaned files and repairs them', () => {
   const directory = mkdtempSync(join(tmpdir(), 'effectweb-registry-test-'));
   temporary.push(directory);
-  expect(checkRegistry(directory)).toHaveLength(54);
+  expect(checkRegistry(directory)).toHaveLength(61);
   writeRegistry(directory);
   expect(checkRegistry(directory)).toEqual([]);
   writeFileSync(join(directory, 'button.json'), '{}');

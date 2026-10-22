@@ -34,6 +34,7 @@ export const modules = [
     'effectweb/testing',
     'Helpers for testing views, programs and cancellation.',
   ],
+  ['runtime', 'profiling', 'effectweb/profiling', 'Opt-in bounded performance attribution.'],
   ['query', 'index', '@effectweb/query', 'Cached server data.'],
   [
     'compiler',
@@ -127,7 +128,19 @@ export const referencePages = [
       ],
       ['Showing results', ['available', 'resourceError']],
       ['Sources', ['observe', 'mapSource', 'atomSource', 'clock', 'Source']],
-      ['DOM', ['domMount', 'domBinding', 'composeMounts', 'Portal', 'DomMount', 'PortalProps']],
+      [
+        'DOM',
+        [
+          'domMount',
+          'domBinding',
+          'composeMounts',
+          'Portal',
+          'DomMount',
+          'DomLifetime',
+          'DomMeasurement',
+          'PortalProps',
+        ],
+      ],
       ['Mounting and services', ['mount', 'makeMount', 'errorBoundary', 'Mounted']],
     ],
   },
@@ -142,6 +155,12 @@ export const referencePages = [
     title: 'effectweb/testing',
     description: 'Helpers for testing views, programs and cancellation.',
     entries: ['effectweb/testing'],
+  },
+  {
+    slug: 'profiling',
+    title: 'effectweb/profiling',
+    description: 'Opt-in performance capture, bounded reports and source attribution.',
+    entries: ['effectweb/profiling'],
   },
   {
     slug: 'query',

@@ -1,6 +1,7 @@
 export { Effect } from 'effect';
 // oxlint-disable-next-line no-restricted-imports -- Browser regressions execute both development and production compiler output against the DOM primitives.
 export {
+  profileFunction,
   compiled,
   markup,
   still,

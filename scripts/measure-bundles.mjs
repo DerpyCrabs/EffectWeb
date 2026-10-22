@@ -1,4 +1,5 @@
 import { build } from 'vite';
+import { build as buildEsbuild } from 'esbuild';
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -49,6 +50,35 @@ try {
   if (process.argv.includes('--check')) {
     // Includes Effect cancellation/settlement, owned content and native control/event bindings.
     assert.ok(report.unusedView.gzip < report.view.gzip + 100, 'Unused views retain runtime code');
+  }
+  // Rolldown removes unused Effect barrel exports that esbuild currently retains. Exercise
+  // both bundlers so small adapters and basic mounting do not retain unused Effect APIs.
+  for (const [name, gzipLimit] of [
+    ['keycloak', 20_000],
+    ['tanstack-form', 30_000],
+    ['mount', 20_000],
+  ]) {
+    const output = await buildEsbuild({
+      stdin: {
+        contents:
+          name === 'mount'
+            ? `import { makeMount } from 'effectweb'; window.mount = makeMount;`
+            : `import * as adapter from '@effectweb/${name}'; window.adapter = adapter;`,
+        resolveDir: process.cwd(),
+      },
+      tsconfigRaw: {},
+      bundle: true,
+      minify: true,
+      write: false,
+      format: 'esm',
+      platform: 'browser',
+      define: { 'process.env.NODE_ENV': '"production"' },
+    });
+    const code = output.outputFiles[0].contents;
+    const gzip = gzipSync(code).length;
+    report[`esbuild-${name}`] = { bytes: code.length, gzip };
+    if (process.argv.includes('--check'))
+      assert.ok(gzip < gzipLimit, `${name} esbuild bundle exceeds ${gzipLimit} gzip bytes`);
   }
   console.log(JSON.stringify(report, null, 2));
 } finally {

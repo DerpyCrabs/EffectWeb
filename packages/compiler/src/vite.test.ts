@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,6 +30,7 @@ function buildConsumer(root: string) {
   });
 }
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const root of directories.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -95,4 +96,40 @@ it('compiles JavaScript JSX view markers before a downstream JSX plugin sees the
     .filter((item) => item.type === 'chunk');
   expect(chunks.map((chunk) => chunk.code).join('\n')).toContain('markup');
   expect(chunks.map((chunk) => chunk.code).join('\n')).not.toContain('jsx-runtime');
+});
+
+it('installs profiling only in opt-in development and defines production hooks off', () => {
+  const plugin = effectweb({ profile: true });
+  plugin.configResolved({ command: 'serve' });
+  expect(plugin.transformIndexHtml()).toBeDefined();
+  expect(plugin.resolveId('virtual:effectweb-profiler')).toBe('\0virtual:effectweb-profiler');
+  expect(plugin.load('\0virtual:effectweb-profiler')).toContain('installProfiler');
+  plugin.configResolved({ command: 'build' });
+  expect(plugin.transformIndexHtml()).toBeUndefined();
+  expect(plugin.resolveId('virtual:effectweb-profiler')).toBeUndefined();
+  expect(plugin.config({}, { command: 'build' }).define.__EFFECTWEB_PROFILE_ENABLED__).toBe(
+    'false',
+  );
+  const ordinary = effectweb();
+  ordinary.configResolved({ command: 'serve' });
+  expect(ordinary.transformIndexHtml()).toBeUndefined();
+  expect(ordinary.config({}, { command: 'serve' }).define.__EFFECTWEB_PROFILE_ENABLED__).toBe(
+    'false',
+  );
+});
+
+it('supports agent opt-in without source edits while honoring explicit disable and production', () => {
+  vi.stubEnv('EFFECTWEB_PROFILE', '1');
+  const enabled = effectweb();
+  enabled.configResolved({ command: 'serve' });
+  expect(enabled.transformIndexHtml()).toBeDefined();
+  expect(enabled.config({}, { command: 'build' }).define.__EFFECTWEB_PROFILE_ENABLED__).toBe(
+    'false',
+  );
+  const disabled = effectweb({ profile: false });
+  disabled.configResolved({ command: 'serve' });
+  expect(disabled.transformIndexHtml()).toBeUndefined();
+  expect(disabled.config({}, { command: 'serve' }).define.__EFFECTWEB_PROFILE_ENABLED__).toBe(
+    'false',
+  );
 });

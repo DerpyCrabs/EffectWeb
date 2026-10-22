@@ -115,3 +115,43 @@ it('validates identities for sparse-array positions as well as present elements'
 it('names the row that has no id instead of reporting a duplicate identity', () => {
   expect(() => entities([{ id: 'a' }, {} as { id: string }])).toThrow(/row at index 1 has no id/u);
 });
+
+it('reuses validated identity work across rendering and sharing, scoped to the collection', async () => {
+  const { identitiesOf } = await import('./collection.js');
+  let reads = 0;
+  const domain = collection<{ id: number }>((item) => {
+    reads++;
+    return item.id;
+  });
+  const items = [{ id: 4 }, { id: 9 }];
+  const rows = domain.from(items);
+  expect(identitiesOf(rows)).toEqual([4, 9]);
+  expect(identitiesOf(rows)).toBe(identitiesOf(domain.from(items)));
+  expect(reads).toBe(2);
+  const next = items.map((item) => ({ ...item }));
+  expect(domain.share(items, next)).toBe(items);
+  expect(identitiesOf(domain.from(next))).toEqual([4, 9]);
+  expect(reads).toBe(4);
+  const positions = collection<{ id: number }>((_, index) => index);
+  expect(identitiesOf(positions.from(items))).toEqual([0, 1]);
+  expect(identitiesOf(positions.from(items).slice(1))).toEqual([0]);
+  expect(identitiesOf(positions.from(items).filter((item) => item.id === 9))).toEqual([0]);
+});
+
+it('preserves custom Rows identity receivers and validates untrusted rows', async () => {
+  const { identitiesOf } = await import('./collection.js');
+  for (const validated of [true, undefined] as const) {
+    const rows = {
+      ...entities([{ id: 1 }, { id: 2 }]),
+      prefix: 'custom',
+      identity(item: { id: number }) {
+        return `${this.prefix}:${item.id}`;
+      },
+    };
+    if (!validated) delete rows.validated;
+    expect(identitiesOf(rows)).toEqual(['custom:1', 'custom:2']);
+  }
+  const duplicate = { ...entities([{ id: 1 }]), items: [{ id: 2 }, { id: 2 }] };
+  delete duplicate.validated;
+  expect(() => identitiesOf(duplicate)).toThrow('indices 0 and 1');
+});

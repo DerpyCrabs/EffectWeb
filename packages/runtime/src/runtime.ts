@@ -1,5 +1,4 @@
 import * as Context from 'effect/Context';
-import * as Clock from 'effect/Clock';
 import * as Effect from 'effect/Effect';
 import type * as Fiber from 'effect/Fiber';
 import * as FiberSet from 'effect/FiberSet';
@@ -13,7 +12,6 @@ import type { OwnedCommand } from './program.js';
  */
 export interface UiRuntime<R> {
   readonly context: Context.Context<R>;
-  readonly clock: Clock.Clock;
   /** Execute work with a fresh resource scope and the captured application context. */
   readonly runFork: <A, E>(effect: Effect.Effect<A, E, R | Scope.Scope>) => Fiber.Fiber<A, E>;
   readonly provide: <A, E>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E>;
@@ -58,7 +56,6 @@ function createRuntime<R>(
         : { ...value, effect: provide(Effect.scoped(value.effect!)) };
   return {
     context,
-    clock: Context.get(context, Clock.Clock),
     runFork: (effect) => run(Effect.scoped(effect)),
     provide,
     provideScoped: (effect) =>

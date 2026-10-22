@@ -56,7 +56,7 @@ export const RenameForm = component(
 
 ## Large forms
 
-`@effectweb/tanstack-form` wraps TanStack Form Core. It tracks values, validation errors, dirty state and submission, and publishes them as an immutable snapshot.
+`@effectweb/tanstack-form` wraps TanStack Form Core. The form owns the draft, its validators, listeners and submission; EffectWeb publishes TanStack's state as an immutable snapshot.
 
 ```ts check
 import { Effect } from 'effect';
@@ -70,14 +70,18 @@ export function profileForm(save: (values: { name: string }) => Effect.Effect<vo
   const form = owner.own(
     createForm({
       defaultValues: { name: '' },
-      validate: (values) => (values.name.trim() ? {} : { name: 'Enter a name' }),
-      onSubmit: save,
+      validators: {
+        onSubmit: ({ value }) =>
+          value.name.trim() ? undefined : { fields: { name: 'Enter a name' } },
+      },
+      onSubmit: ({ value }) => save(value),
       onError: (error) => (error instanceof Error ? error.message : 'Could not save'),
     }),
   );
   return {
     source: form.source,
-    setName: (name: string) => form.setField('name', name),
+    setName: (name: string) => form.handleChange('name', name),
+    blurName: () => form.handleBlur('name'),
     submit: () => owner.run(submitKey, form.submit(), 'drop'),
     reset: () => form.reset(),
     lifetime: owner,
@@ -85,45 +89,34 @@ export function profileForm(save: (values: { name: string }) => Effect.Effect<vo
 }
 ```
 
-The view reads `values`, `errors`, `dirty`, `submitting` and `submitError` from `form.source`. Markup and styling stay in your app. `reset()` and `dispose()` abort a submission in progress.
+The snapshot is TanStack's form state: `values`, `errors`, `errorMap`, `fieldMeta[path]` with `errors`, `isTouched`, `isBlurred`, `isDirty`, `isValidating` and `isValid`, plus `isValid`, `canSubmit`, `isSubmitting`, `isSubmitted`, `isSubmitSuccessful` and `submissionAttempts`. `submitError` holds the message of a failed save until the next edit, reset or submission. Markup and styling stay in your app. `reset()` and `dispose()` interrupt a submission in progress.
 
-Use `validate` for synchronous checks and `validateAsync` for requests such as checking whether a username is taken. See below for field state and cancellation.
+`validators` take every TanStack cause: `onMount`, `onChange`, `onBlur`, `onSubmit`, `onDynamic`, each with an `Async` variant debounced by `asyncDebounceMs`, as functions or Standard Schema validators. `listeners` and `canSubmitWhenInvalid` are TanStack's too. `onSubmit` may return an Effect; it is interrupted when the submission is.
 
 See the [form API](/docs/api-integrations/#effectweb-tanstack-form) for every option.
 
-## Async validation and field state
+## Fields
 
-Add `validateAsync` for checks that require a request. It returns an Effect containing field-path errors. Synchronous validation runs first; submission waits for both and saves only a valid draft. Request failures appear in `validationError`, separately from `submitError`.
+`createField` mounts one field of a form, the counterpart of TanStack's `useField`. Field validators and listeners run with the form's validators of the same cause, and the field's meta joins the form snapshot.
 
 ```ts check
-import { Effect } from 'effect';
-import { createForm } from '@effectweb/tanstack-form';
+import { createField, createForm } from '@effectweb/tanstack-form';
 
-declare const users: {
-  available: (name: string) => Effect.Effect<boolean, Error>;
-  save: (values: { name: string }) => Effect.Effect<void, Error>;
-}; // @hide
+declare const users: { available: (name: string) => Promise<boolean> }; // @hide
 
-export const form = createForm({
-  defaultValues: { name: '' },
-  validate: ({ name }) => (name.trim() ? {} : { name: 'Enter a name' }),
-  validateAsync: ({ name }) =>
-    users
-      .available(name)
-      .pipe(Effect.map((available) => (available ? {} : { name: 'Already taken' }))),
-  onSubmit: users.save,
-  onError: String,
+export const form = createForm({ defaultValues: { name: '', tags: [] as string[] } });
+export const name = createField(form, {
+  name: 'name',
+  asyncDebounceMs: 300,
+  validators: {
+    onChange: ({ value }) => (value.trim() ? undefined : 'Enter a name'),
+    onChangeAsync: async ({ value }) =>
+      (await users.available(value)) ? undefined : 'Already taken',
+  },
 });
+export const tags = createField(form, { name: 'tags' });
 ```
 
-`form.validate()` returns an Effect of `boolean`. Run it on blur or through an owner’s debounced `replace` task while typing. Edits, reset, disposal, caller interruption and a newer validation cancel the previous check; obsolete results never replace current errors. `submit()` always checks the current draft again. An explicit `validate()` during submission returns `false` without interrupting the save.
+A field publishes `{ value, meta }`. Bind an input with `handleChange` and `handleBlur`; array fields add `pushValue`, `insertValue`, `replaceValue`, `removeValue`, `swapValues`, `moveValue` and `clearValues`. The form offers the same array helpers by path, and `handleChange(path, value)` and `handleBlur(path)` for inputs without a field of their own. Dispose a field with the view that renders it.
 
-The snapshot exposes:
-
-- `validating` and `validationError` for the whole draft’s async check;
-- `fields[path].touched`, `.dirty` and `.error` for each edited, touched or invalid field;
-- `errors[path]` for all current field errors.
-
-Call `setTouched(path)` on blur without changing the value. Editing also marks a field touched and dirty. Dirty means edited since reset, even if the value is changed back. A field absent from `fields` is untouched, pristine and has no known error. Show an error when the field is touched or the form has been submitted. Reset clears field state and validation results.
-
-Validators receive a detached draft. Validation covers the whole form, including cross-field rules; individual field validators and automatic debounce are not built in. While submission is running, edits are ignored, so disable inputs with `submitting`.
+Validators receive TanStack's arguments and run against the live draft; snapshots and values returned by `values()` and `getValue()` are detached copies. Every snapshot is frozen, so keep edits on the form.

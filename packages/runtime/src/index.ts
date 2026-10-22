@@ -12,6 +12,8 @@ export {
   domBinding,
   domMount,
   type DomMount,
+  type DomLifetime,
+  type DomMeasurement,
   type PortalProps,
 } from './mount.js';
 export { available, resourceError } from './result.js';

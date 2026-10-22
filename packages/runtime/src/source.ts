@@ -1,3 +1,4 @@
+import { profiling, profileCall, profileUnchanged } from './profile.js';
 import { protectSnapshot } from './snapshot.js';
 import { reportError, reportSafely } from './errors.js';
 
@@ -79,8 +80,21 @@ export function mapSource<A, B>(
     // A parent may observe other inputs before a producer reuses a snapshot, including
     // through a wrapper's independent publications. Preserve its comparator history.
     read.lineage.generation = {};
-    const next = protectSnapshot(project(input)) as B;
-    if (!initialized || !equals(current, next)) current = next;
+    if (profiling) {
+      profileCall(
+        project,
+        'projection',
+        initialized ? 'input identity changed' : 'initial read',
+        () => {
+          const next = protectSnapshot(project(input)) as B;
+          if (!initialized || !equals(current, next)) current = next;
+          else profileUnchanged();
+        },
+      );
+    } else {
+      const next = protectSnapshot(project(input)) as B;
+      if (!initialized || !equals(current, next)) current = next;
+    }
     previousInput = input;
     initialized = true;
     return current;
@@ -190,7 +204,9 @@ export function projectionSource<Model>(options: {
     options.refresh?.();
     if (disposed) return;
     const version = revision;
-    const value = options.project();
+    const value = profiling
+      ? profileCall(options.project, 'projection', 'explicit invalidation', options.project)
+      : options.project();
     const next = protectSnapshot(
       options.reconcile ? options.reconcile(published, value) : value,
     ) as Model;

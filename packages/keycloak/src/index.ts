@@ -1,4 +1,4 @@
-import { Effect } from 'effect';
+import * as Effect from 'effect/Effect';
 import type Keycloak from 'keycloak-js';
 import type { KeycloakInitOptions } from 'keycloak-js';
 

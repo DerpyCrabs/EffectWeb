@@ -15,6 +15,8 @@ export interface CompilerOptions {
   importSource?: string;
   runtimeModule?: string;
   development?: boolean;
+  /** Add callback source metadata for profiling, only in development output. */
+  profile?: boolean;
   onDiagnostic?: (diagnostic: Diagnostic) => void;
 }
 export interface CompilerResult {

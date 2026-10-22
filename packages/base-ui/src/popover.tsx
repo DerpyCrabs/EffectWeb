@@ -167,10 +167,11 @@ export function popoverHoverBinding(
     const leave = (event: PointerEvent) => {
       if (!current().openOnHover || inside(event.relatedTarget)) return;
       clear();
-      timer = setTimeout(
-        () => current().popover.hide({ reason: 'trigger-hover', event }),
-        current().closeDelay ?? 0,
-      );
+      timer = setTimeout(() => {
+        // Keyboard focus can enter after pointerleave scheduled this close.
+        if (!inside(element.ownerDocument.activeElement))
+          current().popover.hide({ reason: 'trigger-hover', event });
+      }, current().closeDelay ?? 0);
     };
     const popupEnter = (event: PointerEvent) => {
       if (

@@ -51,6 +51,30 @@ export const reasons = {
     'Run a pure message-to-transition function with owned commands. Use when transitions benefit from exhaustive message unions and direct unit tests; pass context when commands require services. Without commands, use modelOwner.',
   mapSource:
     'Derive an observable snapshot from an existing Source. Construct it once outside rendering to preserve subscription identity.',
+  DomLifetime:
+    'The DOM binding lifetime that owns coordinated measurements. Create a measurement during setup so replacement or disposal cancels pending reads and writes automatically.',
+  DomMeasurement:
+    'Schedule or cancel one owned synchronous read/write measurement. Repeated schedules coalesce; participating bindings read before they write in their owning Window.',
+  startProfile:
+    'Start an opt-in bounded performance capture. No source values or DOM nodes are retained; another active capture must be stopped first.',
+  profileSnapshot:
+    'Read a detached report of the current capture without stopping it. Counts distinguish evaluated projections, unchanged results, DOM API calls and owned binding lifetimes.',
+  stopProfile:
+    'Finish the active capture, restore optional DOM instrumentation and return its report. Development instrumentation timings require production confirmation.',
+  installProfiler:
+    'Install the browser profiling API for development automation. The Vite profile option performs this setup; ordinary application code does not need to call it.',
+  ProfileOptions:
+    'Bound retained attribution sites and synchronous events, and explicitly opt into intrusive DOM API counters.',
+  ProfileReport:
+    'A detached versioned performance report with aggregates, optional synchronous parent spans, dropped-item counters and measurement limitations.',
+  ProfileEntry:
+    'Aggregated calls, errors, unchanged results, self and inclusive time, DOM API counts and lifecycle counts for one attribution site.',
+  ProfileEvent:
+    'A retained synchronous span linked to its attribution site and optional parent. It does not infer asynchronous causality.',
+  ProfileLocation:
+    'Compiler source coordinates and expression text for an attribution site. Reports contain source information, not application models or callback values.',
+  ProfileKind:
+    'The kind of attributed work: views, projections, publications, bindings, measurements or explicitly named actions.',
   clock:
     'Publish time as observable model data. Observe it instead of reading Date.now() while rendering, because a view has no hidden clock dependency.',
   projectionSource:

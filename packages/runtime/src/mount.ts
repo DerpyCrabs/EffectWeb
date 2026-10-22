@@ -1,3 +1,6 @@
+import { profiling, profileCall, profileResource } from './profile.js';
+import { measurementLifetime, type DomLifetime } from './dom-measurement.js';
+export type { DomLifetime, DomMeasurement } from './dom-measurement.js';
 import { reportError, reportSafely, type ReportError } from './errors.js';
 import * as Cause from 'effect/Cause';
 import * as Deferred from 'effect/Deferred';
@@ -16,11 +19,17 @@ type Work =
 export interface DomMount<T extends Element = Element> {
   readonly identity: unknown;
   readonly data: unknown;
-  readonly acquire: (element: T, input: () => unknown) => Work;
+  readonly acquire: (element: T, input: () => unknown, lifetime: DomLifetime) => Work;
 }
 /** Element-owned work. Changed acquisition functions replace and interrupt the prior lifetime. */
-export function domMount<T extends Element>(start: (element: T) => Work): DomMount<T> {
-  return { identity: start, data: undefined, acquire: (element) => start(element) };
+export function domMount<T extends Element>(
+  start: (element: T, lifetime: DomLifetime) => Work,
+): DomMount<T> {
+  return {
+    identity: start,
+    data: undefined,
+    acquire: (element, _input, lifetime) => start(element, lifetime),
+  };
 }
 /**
  * A DOM lifecycle that follows changing data. Setup runs once; return `{ update, dispose }` and
@@ -29,12 +38,12 @@ export function domMount<T extends Element>(start: (element: T) => Work): DomMou
  */
 export function domBinding<T extends Element, A>(
   data: A,
-  acquire: (element: T, input: () => A) => Work,
+  acquire: (element: T, input: () => A, lifetime: DomLifetime) => Work,
 ): DomMount<T> {
   return {
     identity: acquire,
     data,
-    acquire: (element, input) => acquire(element, input as () => A),
+    acquire: (element, input, lifetime) => acquire(element, input as () => A, lifetime),
   };
 }
 
@@ -167,6 +176,21 @@ export function prepareMount<T extends Element>(
 ): MountLifetime<T> {
   if (mount.identity === composedIdentity)
     return prepareComposedMount(element, mount, report, runtime, onClosed);
+  const profileTarget =
+    profiling &&
+    (typeof mount.identity === 'function' ||
+      (typeof mount.identity === 'object' && mount.identity !== null))
+      ? mount.identity
+      : mount.acquire;
+  let profileRelease: (() => void) | undefined;
+  let measurements: ReturnType<typeof measurementLifetime> | undefined;
+  const domLifetime: DomLifetime = {
+    measure: (work) => {
+      measurements ??= measurementLifetime(element, report);
+      if (disposed) measurements.dispose();
+      return measurements.lifetime.measure(work);
+    },
+  };
   let data = mount.data;
   let work: Exclude<Work, void> | undefined;
   let fiber: Fiber.Fiber<unknown, unknown> | undefined;
@@ -182,11 +206,13 @@ export function prepareMount<T extends Element>(
   const finish = () => {
     if (finished) return;
     finished = true;
+    profileRelease?.();
     Deferred.doneUnsafe(completed, Effect.void);
     onClosed?.();
   };
   const release = (exit: Exit.Exit<unknown, unknown> = Exit.void) => {
     closingExit ??= exit;
+    measurements?.dispose();
     if (released || work === undefined || (Effect.isEffect(work) && !fiber)) return;
     released = true;
     if (fiber) {
@@ -203,8 +229,16 @@ export function prepareMount<T extends Element>(
       });
     } else {
       try {
-        if (typeof work === 'function') work();
-        else if ('dispose' in work) work.dispose();
+        if (typeof work === 'function') {
+          if (profiling) profileCall(profileTarget, 'binding', 'dispose', work);
+          else work();
+        } else if ('dispose' in work) {
+          if (profiling)
+            profileCall(profileTarget, 'binding', 'dispose', () =>
+              (work as { dispose: () => void }).dispose(),
+            );
+          else work.dispose();
+        }
       } finally {
         finish();
       }
@@ -213,6 +247,7 @@ export function prepareMount<T extends Element>(
   const dispose = (exit: Exit.Exit<unknown, unknown> = Exit.void) => {
     if (disposed) return;
     disposed = true;
+    measurements?.dispose();
     if (!started) finish();
     else release(exit);
   };
@@ -223,7 +258,13 @@ export function prepareMount<T extends Element>(
       started = true;
       try {
         // Setup without a cleanup still settles close() through the synchronous release path.
-        work = mount.acquire(element, () => data) ?? noCleanup;
+        if (profiling) profileRelease = profileResource(profileTarget);
+        work =
+          (profiling
+            ? profileCall(profileTarget, 'binding', 'acquire', () =>
+                mount.acquire(element, () => data, domLifetime),
+              )
+            : mount.acquire(element, () => data, domLifetime)) ?? noCleanup;
         if (Effect.isEffect(work)) {
           const acquisition = Scope.provide(work, resourceScope);
           fiber = runtime
@@ -238,8 +279,13 @@ export function prepareMount<T extends Element>(
           });
         }
         if (disposed) release();
-        else if (changedDuringSetup && !fiber && typeof work === 'object' && 'update' in work)
-          work.update?.();
+        else if (changedDuringSetup && !fiber && typeof work === 'object' && 'update' in work) {
+          if (profiling)
+            profileCall(profileTarget, 'binding', 'update', () =>
+              (work as { update?: () => void }).update?.(),
+            );
+          else work.update?.();
+        }
       } catch (error) {
         dispose(Exit.die(error));
         if (work === undefined) finish();
@@ -254,8 +300,15 @@ export function prepareMount<T extends Element>(
     update(next: DomMount<T>) {
       if (disposed || next.identity !== mount.identity) return false;
       data = next.data;
+      measurements?.update();
       if (started && work === undefined) changedDuringSetup = true;
-      else if (!fiber && typeof work === 'object' && work && 'update' in work) work.update?.();
+      else if (!fiber && typeof work === 'object' && work && 'update' in work) {
+        if (profiling)
+          profileCall(profileTarget, 'binding', 'update', () =>
+            (work as { update?: () => void }).update?.(),
+          );
+        else work.update?.();
+      }
       return true;
     },
     dispose,

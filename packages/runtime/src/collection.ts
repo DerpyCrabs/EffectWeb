@@ -11,6 +11,17 @@ export interface Rows<A> {
   slice(start?: number, end?: number): Rows<A>;
 }
 
+// Keys are retained only with their immutable rows; custom Rows still validate at render time.
+const rowIdentities = new WeakMap<object, readonly Identity[]>();
+export function identitiesOf<A>(rows: Rows<A>): readonly Identity[] {
+  return (
+    rowIdentities.get(rows) ??
+    (rows.validated
+      ? Array.from(rows.items, (item, index) => rows.identity(item, index))
+      : validateIdentities(rows.items, (item, index) => rows.identity(item, index)))
+  );
+}
+
 /** Validate without retaining values. Positions are zero-based array indices. */
 export function validateIdentities<A, K>(
   items: readonly A[],
@@ -32,14 +43,17 @@ export function validateIdentities<A, K>(
 /** Cached, validated rows for one identity. Sharing lives in `collection` so lists do not pull it in. */
 function keyedRows<A>(identity: (item: A, index: number) => Identity) {
   const cache = new WeakMap<readonly A[], Rows<A>>();
-  const validated = new WeakSet<readonly A[]>();
+  const validated = new WeakMap<readonly A[], readonly Identity[]>();
   const validate = (items: readonly A[]) => {
-    if (validated.has(items)) return;
-    validateIdentities(items, identity);
-    validated.add(items);
+    let identities = validated.get(items);
+    if (!identities) {
+      identities = validateIdentities(items, identity);
+      validated.set(items, identities);
+    }
+    return identities;
   };
   const from = (items: readonly A[]): Rows<A> => {
-    validate(items);
+    const identities = validate(items);
     const cached = cache.get(items);
     if (cached) return cached;
     const rows: Rows<A> = {
@@ -50,6 +64,7 @@ function keyedRows<A>(identity: (item: A, index: number) => Identity) {
       filter: (predicate) => from(items.filter(predicate)),
       slice: (start, end) => from(items.slice(start, end)),
     };
+    rowIdentities.set(rows, identities);
     cache.set(items, rows);
     return rows;
   };
@@ -66,8 +81,8 @@ function makeCollection<A>(identity: (item: A, index: number) => Identity) {
     previous: readonly B[],
     next: readonly B[],
   ): readonly B[] {
-    validate(previous);
-    validate(next);
+    const previousKeys = validate(previous);
+    const nextKeys = validate(next);
     if (previous === next) return previous;
     let pairs = comparisons.get(previous);
     const cached = pairs?.get(next);
@@ -78,11 +93,11 @@ function makeCollection<A>(identity: (item: A, index: number) => Identity) {
     for (let index = 0; index < next.length; index++) {
       const item = next[index]!;
       if (index < previous.length && Object.is(previous[index], item)) continue;
-      const key = identity(item, index);
+      const key = nextKeys[index]!;
       let old = previous[index];
-      if (index >= previous.length || !Object.is(identity(old!, index), key)) {
+      if (index >= previous.length || !Object.is(previousKeys[index], key)) {
         if (!byIdentity) {
-          byIdentity = new Map(previous.map((value, i) => [identity(value, i), value]));
+          byIdentity = new Map(previous.map((value, i) => [previousKeys[i]!, value]));
         }
         old = byIdentity.get(key);
       }

@@ -4,6 +4,7 @@ mod list_captures;
 mod list_identity;
 mod lower;
 mod owned_work;
+mod profile_sites;
 mod render_lint;
 mod sourcemap;
 use oxc::{
@@ -297,6 +298,16 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
             &compiler.runtime,
         );
         compiler.edits = edits;
+        if options.development && options.profile {
+            compiler.edits.extend(profile_sites::insertions(
+                &program,
+                semantic.semantic.scoping(),
+                import_source,
+                source,
+                filename,
+                &compiler.runtime,
+            ));
+        }
         compiler.site_declarations = sites;
     }
     compiler.visit_program(&program);

@@ -87,6 +87,18 @@ export async function createContent(root, declarationsRoot) {
     guides,
   );
   await file('dom', 'DOM', 'Focus, measure and attach libraries to elements.', guides);
+  await file(
+    'dom-measurement',
+    'DOM measurements',
+    'Coordinate owned geometry reads before writes.',
+    guides,
+  );
+  await file(
+    'profiling',
+    'Profiling for agents',
+    'Find expensive updates with bounded source-attributed reports.',
+    guides,
+  );
   await file('services', 'App setup', 'Mount the app, provide services and handle errors.', guides);
   await file(
     'testing',

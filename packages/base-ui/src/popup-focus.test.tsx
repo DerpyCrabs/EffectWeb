@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { view as bindingView, type DomMount } from 'effectweb';
+import { renderView } from 'effectweb/testing';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createOverlay, popupBinding } from './overlay.js';
 import type { PopupFocusOptions } from './popup-focus.js';
@@ -9,7 +11,7 @@ afterEach(() => {
   document.body.replaceChildren();
   vi.restoreAllMocks();
 });
-function popup(
+async function popup(
   finalFocus?: PopupFocusOptions['finalFocus'],
   initialFocus?: PopupFocusOptions['initialFocus'],
 ) {
@@ -33,9 +35,7 @@ function popup(
   handle.attachTrigger(trigger);
   let input = { handle, kind: 'menu' as const, finalFocus, initialFocus };
   const binding = popupBinding(input);
-  const work = binding.acquire(element, () => input);
-  if (!work || typeof work !== 'object' || !('dispose' in work))
-    throw new Error('Expected popup lifetime');
+  const work = await mountTestBinding(element, binding);
   disposals.push(() => {
     work.dispose();
     handle.lifetime.dispose();
@@ -48,12 +48,12 @@ function popup(
     trigger,
     update(next: PopupFocusOptions['finalFocus']) {
       input = { ...input, finalFocus: next };
-      work.update?.();
+      work.update(popupBinding(input));
     },
   };
 }
-it('defaults to the trigger but allows a current explicit focus target', () => {
-  const p = popup();
+it('defaults to the trigger but allows a current explicit focus target', async () => {
+  const p = await popup();
   p.handle.setOpen(true);
   expect(document.activeElement).toBe(p.element);
   p.handle.hide();
@@ -63,9 +63,9 @@ it('defaults to the trigger but allows a current explicit focus target', () => {
   p.handle.hide();
   expect(document.activeElement).toBe(p.editor);
 });
-it('evaluates the latest callback before default restoration and respects false', () => {
+it('evaluates the latest callback before default restoration and respects false', async () => {
   const first = vi.fn(() => true);
-  const p = popup(first);
+  const p = await popup(first);
   const callback = vi.fn(() => {
     p.editor.focus();
     return false;
@@ -77,8 +77,8 @@ it('evaluates the latest callback before default restoration and respects false'
   expect(callback).toHaveBeenCalledWith('keyboard');
   expect(document.activeElement).toBe(p.editor);
 });
-it('reports pointer interaction and honors an element returned by finalFocus', () => {
-  const p = popup();
+it('reports pointer interaction and honors an element returned by finalFocus', async () => {
+  const p = await popup();
   const callback = vi.fn(() => p.editor);
   p.update(callback);
   p.handle.setOpen(true);
@@ -87,9 +87,9 @@ it('reports pointer interaction and honors an element returned by finalFocus', (
   expect(callback).toHaveBeenCalledWith('touch');
   expect(document.activeElement).toBe(p.editor);
 });
-it('does not redirect focus when an outside pointer dismisses the popup', () => {
+it('does not redirect focus when an outside pointer dismisses the popup', async () => {
   const callback = vi.fn(() => true);
-  const p = popup(callback);
+  const p = await popup(callback);
   p.handle.setOpen(true);
   p.editor.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
   p.editor.focus();
@@ -98,8 +98,8 @@ it('does not redirect focus when an outside pointer dismisses the popup', () => 
   expect(document.activeElement).toBe(p.editor);
 });
 
-it('restores focus once when an open popup is removed', () => {
-  const p = popup();
+it('restores focus once when an open popup is removed', async () => {
+  const p = await popup();
   const callback = vi.fn(() => p.editor);
   p.update(callback);
   p.handle.setOpen(true);
@@ -108,17 +108,17 @@ it('restores focus once when an open popup is removed', () => {
   expect(document.activeElement).toBe(p.editor);
 });
 
-it('preserves trigger focus when initialFocus is false', () => {
-  const p = popup(undefined, false);
+it('preserves trigger focus when initialFocus is false', async () => {
+  const p = await popup(undefined, false);
   p.trigger.focus();
   p.handle.setOpen(true);
   expect(document.activeElement).toBe(p.trigger);
 });
-it('uses explicit opening targets and reports the opening interaction', () => {
+it('uses explicit opening targets and reports the opening interaction', async () => {
   const input = document.createElement('input');
   document.body.append(input);
   const initial = vi.fn(() => input);
-  const p = popup(undefined, initial);
+  const p = await popup(undefined, initial);
   p.handle.setOpen(true, {
     reason: 'trigger-press',
     event: new PointerEvent('pointerdown', { pointerType: 'touch' }),
@@ -126,15 +126,42 @@ it('uses explicit opening targets and reports the opening interaction', () => {
   expect(initial).toHaveBeenCalledWith('touch');
   expect(document.activeElement).toBe(input);
 });
-it('falls back to default focus when an initial-focus callback returns null', () => {
-  const p = popup(undefined, () => null);
+it('falls back to default focus when an initial-focus callback returns null', async () => {
+  const p = await popup(undefined, () => null);
   p.handle.setOpen(true);
   expect(document.activeElement).toBe(p.element);
 });
-it('preserves focus chosen by an initial-focus callback returning undefined', () => {
-  const p = popup(undefined, () => {
+it('preserves focus chosen by an initial-focus callback returning undefined', async () => {
+  const p = await popup(undefined, () => {
     p.editor.focus();
   });
   p.handle.setOpen(true);
   expect(document.activeElement).toBe(p.editor);
 });
+
+/** Keep the preconfigured test target while running its binding through a real use lifetime. */
+async function mountTestBinding<T extends Element>(element: T, binding: DomMount<T>) {
+  let acquired!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    acquired = resolve;
+  });
+  const target = bindingView<DomMount<T>>((current) => (
+    <span
+      use={{
+        ...current,
+        acquire: (
+          _host: Element,
+          input: () => unknown,
+          lifetime: Parameters<DomMount<T>['acquire']>[2],
+        ) => {
+          const work = current.acquire(element, input, lifetime);
+          acquired();
+          return work;
+        },
+      }}
+    />
+  ));
+  const rendered = renderView(document.createElement('div'), target, binding);
+  await ready;
+  return rendered;
+}

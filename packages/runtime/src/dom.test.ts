@@ -395,6 +395,53 @@ it('skips a child view whose props have identical fields, and renders it when on
   stop.dispose();
 });
 
+it('keeps repeated child placements independent and uses their latest event props', () => {
+  const seen: string[] = [];
+  const Child = view<{ label: string; choose: (label: string) => void }>((props) =>
+    jsx('button', { onClick: () => props.choose(props.label), children: props.label }),
+  );
+  const first = (label: string) => void seen.push(`first:${label}`);
+  const second = (label: string) => void seen.push(`second:${label}`);
+  const { host, owner, errors, stop } = mounted({ label: 'left', choose: first }, (model) =>
+    jsx('div', {
+      children: [
+        jsx(Child, { label: model.label, choose: model.choose }),
+        jsx(Child, { label: 'right', choose: first }),
+      ],
+    }),
+  );
+  const buttons = [...host.querySelectorAll('button')];
+  buttons.forEach((button) => button.click());
+  owner.patch({ choose: second });
+  buttons.forEach((button) => button.click());
+  owner.patch({ label: 'updated' });
+  buttons.forEach((button) => button.click());
+  expect([...host.querySelectorAll('button')]).toEqual(buttons);
+  expect(seen).toEqual([
+    'first:left',
+    'first:right',
+    'second:left',
+    'first:right',
+    'second:updated',
+    'first:right',
+  ]);
+  expect(errors).toEqual([]);
+  stop.dispose();
+  buttons.forEach((button) => button.click());
+  expect(seen).toHaveLength(6);
+});
+
+it('reports missing message authority when an untyped caller places a sending child', () => {
+  const Child = view<{}, 'press'>((_model, send) =>
+    jsx('button', { onClick: () => send('press'), children: 'send' }),
+  );
+  const { host, errors, stop } = mounted({}, () => jsx(Child, {}));
+  host.querySelector('button')!.click();
+  expect(errors).toHaveLength(1);
+  expect(String(errors[0])).toContain('This view sends messages but has no dispatcher');
+  stop.dispose();
+});
+
 it('reruns list rows only when a captured value changes', () => {
   let renders = 0;
   const { host, owner, stop } = mounted(
@@ -486,3 +533,117 @@ it.each(['keydown', 'keyup'] as const)(
     owner.dispose();
   },
 );
+
+it('binds later holes after expanding content and skipping static subtrees', () => {
+  const site: SiteNode = [
+    'section',
+    { title: 'static root' },
+    [
+      1,
+      ['aside', null, [['strong', null, ['static']]]],
+      ['div', 0, ['before ', 1, ['i', null, ['after']]]],
+    ],
+  ];
+  const compiled = block(site);
+  const render = (text: string, expanded: boolean) =>
+    compiled(expanded ? [b(null, 'one'), b(null, 'two')] : 'plain', { title: text }, text);
+  const { host, owner, errors, stop } = mounted({ text: 'first', expanded: true }, (model) =>
+    render(model.text, model.expanded),
+  );
+  const aside = host.querySelector('aside');
+  const tail = host.querySelector('div');
+  expect(host.querySelector('section')!.title).toBe('static root');
+  expect(texts(host, 'b')).toEqual(['one', 'two']);
+  expect(tail!.textContent).toBe('before firstafter');
+  owner.patch({ text: 'second', expanded: false });
+  expect(host.querySelector('aside')).toBe(aside);
+  expect(host.querySelector('div')).toBe(tail);
+  expect(tail!.title).toBe('second');
+  expect(tail!.textContent).toBe('before secondafter');
+  expect(errors).toEqual([]);
+  stop.dispose();
+});
+
+for (const tracksIndex of [false, true]) {
+  it(`preserves row nodes and order across filtering, insertion and reorder (index=${tracksIndex})`, () => {
+    const records = Array.from({ length: 8 }, (_, id) => ({ id }));
+    const { host, owner, errors, stop } = mounted({ rows: records }, (model) =>
+      jsx('ul', {
+        children: (
+          list as (
+            rows: ReturnType<typeof entities<{ id: number }>>,
+            render: (row: { id: number }, index: number) => ReturnType<typeof jsx>,
+            captures: readonly unknown[],
+            indexUsed: boolean,
+          ) => ReturnType<typeof jsx>
+        )(
+          entities(model.rows),
+          (row, index) =>
+            jsx('li', { 'data-id': row.id, children: tracksIndex ? `${row.id}:${index}` : row.id }),
+          [],
+          tracksIndex,
+        ),
+      }),
+    );
+    const nodes = new Map(
+      [...host.querySelectorAll('li')].map((node) => [Number(node.dataset.id), node]),
+    );
+    for (const ids of [
+      [1, 3, 5, 7],
+      [3, 7],
+      [3, 7, 0],
+      [2, 3, 6, 7, 0],
+      [0, 7, 6, 3, 2],
+      [7, 3],
+      [3, 7],
+    ]) {
+      owner.patch({ rows: ids.map((id) => records[id]!) });
+      const rendered = [...host.querySelectorAll('li')];
+      expect(rendered.map((node) => Number(node.dataset.id))).toEqual(ids);
+      expect(rendered.map((node) => node.textContent)).toEqual(
+        ids.map((id, index) => (tracksIndex ? `${id}:${index}` : String(id))),
+      );
+      for (const node of rendered) {
+        const id = Number(node.dataset.id);
+        if (nodes.has(id)) expect(node).toBe(nodes.get(id));
+      }
+      nodes.clear();
+      for (const node of rendered) nodes.set(Number(node.dataset.id), node);
+    }
+    expect(errors).toEqual([]);
+    stop.dispose();
+  });
+}
+
+it('recovers row order after a new row throws during reconciliation', () => {
+  const records = Array.from({ length: 4 }, (_, id) => ({ id }));
+  const { host, owner, errors, stop } = mounted({ rows: records.slice(0, 3) }, (model) =>
+    jsx('ul', {
+      children: (
+        list as (
+          rows: ReturnType<typeof entities<{ id: number }>>,
+          render: (row: { id: number }, index: number) => ReturnType<typeof jsx>,
+          captures: readonly unknown[],
+          indexUsed: boolean,
+        ) => ReturnType<typeof jsx>
+      )(
+        entities(model.rows),
+        (row) => {
+          if (row.id === 3) throw new Error('cannot render row');
+          return jsx('li', { children: row.id });
+        },
+        [],
+        false,
+      ),
+    }),
+  );
+  const first = host.querySelectorAll('li')[0];
+  const second = host.querySelectorAll('li')[1];
+  owner.patch({ rows: [records[1]!, records[0]!, records[3]!] });
+  expect(errors).toHaveLength(1);
+  owner.patch({ rows: [records[1]!, records[0]!] });
+  expect(texts(host, 'li')).toEqual(['1', '0']);
+  expect(host.querySelectorAll('li')[0]).toBe(second);
+  expect(host.querySelectorAll('li')[1]).toBe(first);
+  stop.dispose();
+});

@@ -16,6 +16,8 @@ pub struct Options {
     #[serde(default)]
     pub development: bool,
     #[serde(default)]
+    pub profile: bool,
+    #[serde(default)]
     pub diagnostics_only: bool,
     #[serde(default)]
     pub lint: bool,

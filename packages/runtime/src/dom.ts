@@ -1,8 +1,16 @@
+import {
+  profiling,
+  profileCall,
+  profileFunction,
+  profileSetInput,
+  profileCause,
+} from './profile.js';
+export { profileFunction };
 import attributeData from './dom-attributes.json' with { type: 'json' };
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
 
-import { keyed, validateIdentities } from './collection.js';
+import { keyed, identitiesOf } from './collection.js';
 import { runAll, reportError, reportSafely, type ReportError } from './errors.js';
 import { eventEffects } from './event-effects.js';
 // Internal listener ownership, available to runtime contract checks.
@@ -125,11 +133,16 @@ export class Scope<M, E> {
   }
   /** Source notifications cannot reenter a partially replaced child during DOM disposal. */
   publish(value: M) {
-    afterDom(() => this.set(value));
+    afterDom(() =>
+      profiling
+        ? profileCall('mounted source', 'publication', 'source notification', () => this.set(value))
+        : this.set(value),
+    );
   }
   set(value: M) {
     if (this.disposed) return;
     commitDom(() => {
+      if (profiling) profileSetInput(this, this.value, value);
       this.value = value;
       for (const job of this.jobs) {
         if (this.disposed) break;
@@ -327,15 +340,30 @@ const foreignContentMessage =
 /* @__NO_SIDE_EFFECTS__ */
 export function view<M, E = never>(render: (model: M, send: Send<E>) => JSX.Element): View<M, E> {
   return compiled((scope, parent, before) => {
+    if (profiling) {
+      const slot = new ContentSlot(parent, before, scope.report, scope.settlement);
+      let initial = true;
+      scope.cleanups.push(() => slot.dispose());
+      scope.watch(
+        () => [scope.value],
+        () => {
+          const cause = initial ? 'initial render' : profileCause(scope);
+          initial = false;
+          profileCall(render, 'view', cause, () => slot.set(render(scope.value as M, scope.send)));
+        },
+      );
+      return slot;
+    }
     const read = () => render(scope.value as M, scope.send);
     return text(scope, parent, before, () => [scope.value], read);
   });
 }
 /* @__NO_SIDE_EFFECTS__ */
 export function compiled<M, E>(build: Build<M, E>): View<M, E> {
+  let content: ContentDefinition | undefined;
   const definition: View<M, E> = Object.assign(
     (props: M | MessageViewPlacement) =>
-      new SlotPlacement(viewContent(definition), { model: props, send: unboundSend }),
+      new SlotPlacement((content ??= viewContent(definition)), props),
     { build, [jsxComponent]: true as const },
   );
   return definition;
@@ -418,17 +446,11 @@ function sameFields(previous: unknown, next: unknown): boolean {
   for (const _ in before) count--;
   return count === 0;
 }
-const viewDefinitions = new WeakMap<object, ContentDefinition>();
 function viewContent<M, E>(definition: View<M, E>): ContentDefinition {
-  let content = viewDefinitions.get(definition);
-  if (!content) {
-    content = {
-      mount: (parent, before, value, report, settlement) =>
-        new ViewContent(definition, parent, before, value as ViewInput<M, E>, report, settlement),
-    };
-    viewDefinitions.set(definition, content);
-  }
-  return content;
+  return {
+    mount: (parent, before, value, report, settlement) =>
+      new ViewContent(definition, parent, before, value as M, report, settlement),
+  };
 }
 
 /**
@@ -511,30 +533,22 @@ function contentDefinition<A>(build: Build<A, never>): ContentDefinition {
       new DefinedContent(build, parent, before, value as A, report, settlement),
   };
 }
-type ViewInput<M, E> = { readonly model: M; readonly send: Send<E> };
-/** A placed view: its model scope, bound to the dispatcher of the latest placement. */
+/** A child view receives its model directly; message authority belongs to its owner. */
 class ViewContent<M, E> extends BuiltContent<M, E> {
   constructor(
     definition: View<M, E>,
     parent: Node,
     before: Node | null,
-    private input: ViewInput<M, E>,
+    model: M,
     report: ReportError,
     settlement: Settlement,
   ) {
     super();
-    const scope = new Scope<M, E>(
-      input.model,
-      (message: E) => this.input.send(message),
-      report,
-      settlement,
-    );
+    const scope = new Scope<M, E>(model, unboundSend, report, settlement);
     this.place(scope, definition.build, parent, before);
   }
   override set(value: unknown) {
-    const input = value as ViewInput<M, E>;
-    this.input = input;
-    const next = input.model;
+    const next = value as M;
     const scope = this.scope;
     // JSX builds a new props object on every render. Views are pure, so props whose
     // fields are all identical render the same content and are skipped.
@@ -710,15 +724,56 @@ function buildSkeleton(site: SiteNode, svg: boolean): Element | undefined {
   return node;
 }
 
+interface BindingPlan {
+  readonly attrs: SiteNode[1];
+  readonly children: readonly { skip: number; nested: BindingPlan | undefined }[];
+}
+const bindingPlans = new WeakMap<SiteNode, BindingPlan>();
+function bindingPlan(site: SiteNode): BindingPlan {
+  const cached = bindingPlans.get(site);
+  if (cached) return cached;
+  const children: { skip: number; nested: BindingPlan | undefined }[] = [];
+  let skip = 0;
+  for (const child of site[2]) {
+    if (child === 1) {
+      children.push({ skip, nested: undefined });
+      skip = 0;
+      continue;
+    }
+    if (typeof child !== 'string' && !(child instanceof MarkupPlacement)) {
+      const nested = bindingPlan(child as SiteNode);
+      if (nested.attrs === 0 || nested.children.length) {
+        children.push({ skip, nested });
+        skip = 0;
+        continue;
+      }
+    }
+    skip++;
+  }
+  const plan = { attrs: site[1], children };
+  bindingPlans.set(site, plan);
+  return plan;
+}
+
 // Properties a user or a form reset can change without a publication. A bound one is written
 // back from the model after handled edits and resets. A form-associated custom element (a
 // hyphenated name) resets its own value through formResetCallback, so its value is a control too.
-const isControl = (element: Element, name: string) =>
-  (name === 'value' &&
-    (['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName) ||
-      element.localName.includes('-'))) ||
-  (name === 'checked' && element.tagName === 'INPUT') ||
-  (name === 'selected' && element.tagName === 'OPTION');
+const isControl = (element: Element, name: string) => {
+  switch (name) {
+    case 'value': {
+      const tag = element.tagName;
+      return (
+        tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || element.localName.includes('-')
+      );
+    }
+    case 'checked':
+      return element.tagName === 'INPUT';
+    case 'selected':
+      return element.tagName === 'OPTION';
+    default:
+      return false;
+  }
+};
 
 /** Content that is shown as text: a position holding it needs no slot. */
 const plain = (value: unknown): value is string | number | bigint | boolean | null | undefined =>
@@ -793,7 +848,7 @@ class ElementMount implements MountedContent {
         this.holes = [];
         this.placed = input;
         try {
-          this.bindBlock(site, this.node, input, true);
+          this.bindBlock(bindingPlan(site), this.node, input, true);
         } catch (error) {
           this.disposed = true;
           detached(() => this.release());
@@ -873,9 +928,9 @@ class ElementMount implements MountedContent {
     if (binding) binding.set(binding.value);
   }
   /** Bind the dynamic positions of a cloned site, in source order. */
-  private bindBlock(site: SiteNode, node: Element, value: BlockPlacement, root: boolean) {
+  private bindBlock(plan: BindingPlan, node: Element, value: BlockPlacement, root: boolean) {
     const holes = this.holes!;
-    const [, attrs, children] = site;
+    const { attrs, children } = plan;
     const values = value.values;
     if (attrs === 0) {
       const mount = root
@@ -890,10 +945,10 @@ class ElementMount implements MountedContent {
       this.attrs = attrs;
       this.applied = attrs ?? noAttributes;
     }
-    let dom = node.firstChild;
-    for (let index = 0; index < children.length; index++) {
-      const child = children[index]!;
-      if (child === 1) {
+    let dom = children.length ? node.firstChild : null;
+    for (const child of children) {
+      for (let skip = child.skip; skip > 0; skip--) dom = dom!.nextSibling;
+      if (!child.nested) {
         const position = this.cursor++;
         const shown = values[position];
         if (plain(shown)) {
@@ -914,8 +969,7 @@ class ElementMount implements MountedContent {
         dom = slot.end.nextSibling;
         continue;
       }
-      if (typeof child !== 'string' && !(child instanceof MarkupPlacement))
-        this.bindBlock(child as SiteNode, dom as Element, value, false);
+      this.bindBlock(child.nested, dom as Element, value, false);
       dom = dom!.nextSibling;
     }
   }
@@ -2585,6 +2639,7 @@ export function keyedRows<M, E, A>(
   const end = document.createComment('');
   parent.insertBefore(end, before);
   const rows = new Map<A | Identity, Row<A>>();
+  let reconciled = true;
   let previousList: Rows<A> | readonly A[] | undefined;
   let previousOuter: readonly unknown[] = [];
   let previousIdentities: readonly (A | Identity)[] = [];
@@ -2609,13 +2664,16 @@ export function keyedRows<M, E, A>(
   };
   const update = () => {
     if (scope.disposed) return;
+    const completed = reconciled;
+    reconciled = false;
     const target = end.parentNode!;
     const next = read();
     const nextOuter = outer();
     const outerChanged = !equal(previousOuter, nextOuter);
-    if (next === previousList) {
+    if (completed && next === previousList) {
       if (outerChanged) for (const row of rows.values()) row.update(row.item, row.index);
       previousOuter = nextOuter;
+      reconciled = true;
       return;
     }
     const collection = 'items' in next ? next : undefined;
@@ -2642,17 +2700,16 @@ export function keyedRows<M, E, A>(
       previousOuter = nextOuter;
       previousIdentities = [];
       ordered = [];
+      reconciled = true;
       return;
     }
     // Rows of a collection were validated when the collection produced them.
     const identities: readonly (A | Identity)[] = collection
-      ? collection.validated
-        ? Array.from(items, (item, index) => collection.identity(item, index))
-        : validateIdentities(items, (item, index) => collection.identity(item, index))
+      ? identitiesOf(collection)
       : valueIdentities(items);
     const tracksIndex = typeof indexUsed === 'function' ? indexUsed() : indexUsed;
     // The same rows in the same order: an edit, with nothing to add, remove or move.
-    if (identities.length === previousIdentities.length) {
+    if (completed && identities.length === previousIdentities.length) {
       let same = true;
       for (let index = 0; index < identities.length; index++)
         if (identities[index] !== previousIdentities[index]) {
@@ -2671,6 +2728,7 @@ export function keyedRows<M, E, A>(
         previousList = next;
         previousOuter = nextOuter;
         previousIdentities = identities;
+        reconciled = true;
         return;
       }
     }
@@ -2714,12 +2772,17 @@ export function keyedRows<M, E, A>(
     // New rows are built into one detached fragment and enter the document together.
     let fragment: DocumentFragment | undefined;
     const nextOrdered: Row<A>[] = [];
+    let previousIndex = -1;
+    let appended = false;
+    // Failed rendering can leave row indices ahead of the actual DOM order.
+    let orderChanged = !completed;
     try {
       for (let index = 0; index < items.length; index++) {
         const key = identities[index]!;
         const row = rows.get(key);
         const item = items[index]!;
         if (!row) {
+          appended = true;
           fragment ??= buildFragment(target);
           const mark = fragment.lastChild;
           let created: Row<A>;
@@ -2737,27 +2800,20 @@ export function keyedRows<M, E, A>(
           created.range ??= boundRange(fragment, mark);
           rows.set(key, created);
           nextOrdered[index] = created;
-        } else if (outerChanged || row.item !== item || (tracksIndex && row.index !== index)) {
-          nextOrdered[index] = row;
-          row.update(item, index);
-          if (scope.disposed) return;
         } else {
-          // Positions still change when the current renderer does not read them.
-          row.index = index;
+          // New rows enter at the end; retained rows need moves only if their relative
+          // order changes or they follow a new row in the requested order.
+          if (appended || row.index < previousIndex) orderChanged = true;
+          previousIndex = row.index;
           nextOrdered[index] = row;
+          if (outerChanged || row.item !== item || (tracksIndex && row.index !== index)) {
+            row.update(item, index);
+            if (scope.disposed) return;
+          } else row.index = index;
         }
       }
     } finally {
       if (fragment?.firstChild && !scope.disposed) target.insertBefore(fragment, end);
-    }
-    // Retained prefixes are already ordered. New tail rows were appended above and
-    // removed tail rows were disposed, so edits, appends and truncations need no moves.
-    let orderChanged = false;
-    for (let index = 0; index < Math.min(previousIdentities.length, identities.length); index++) {
-      if (previousIdentities[index] !== identities[index]) {
-        orderChanged = true;
-        break;
-      }
     }
     if (orderChanged) {
       const positions = new Map(previousIdentities.map((key, index) => [key, index]));
@@ -2790,6 +2846,7 @@ export function keyedRows<M, E, A>(
     previousOuter = nextOuter;
     previousIdentities = identities;
     ordered = nextOrdered;
+    reconciled = true;
   };
   scope.jobs.push(update);
   scope.cleanups.push(() => {
@@ -2882,6 +2939,30 @@ export function viewRegion<M, E>(
     });
 }
 
+// Acquisitions wait for the publication to finish inserting content, then start together in one
+// microtask, deepest element first: a binding that measures its element at acquisition sees
+// the bindings of every descendant already applied, whatever order the markup registered them.
+const pendingAcquisitions: Array<{ element: Element; acquire: () => void }> = [];
+let acquisitionsQueued = false;
+function depth(element: Element) {
+  let count = 0;
+  for (let node: Node | null = element.parentNode; node; node = node.parentNode) count++;
+  return count;
+}
+function scheduleAcquisition(element: Element, acquire: () => void) {
+  pendingAcquisitions.push({ element, acquire });
+  if (acquisitionsQueued) return;
+  acquisitionsQueued = true;
+  queueMicrotask(() => {
+    acquisitionsQueued = false;
+    // An acquisition that republishes schedules replacements for the next microtask, as a
+    // single deferred acquisition did, so reentrant starts cannot chain inside one drain.
+    const batch = pendingAcquisitions.splice(0);
+    const depths = new Map(batch.map((entry) => [entry, depth(entry.element)] as const));
+    batch.sort((a, b) => depths.get(b)! - depths.get(a)!);
+    for (const entry of batch) entry.acquire();
+  });
+}
 export function attach<M, E, T extends Element>(
   scope: Scope<M, E>,
   element: T,
@@ -2902,7 +2983,7 @@ export function attach<M, E, T extends Element>(
     active?.dispose();
     active = undefined;
     if (!mount) return;
-    queueMicrotask(() => {
+    scheduleAcquisition(element, () => {
       if (!scope.disposed && token === generation) {
         const finished = scope.settlement.begin();
         try {

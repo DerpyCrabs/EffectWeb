@@ -374,7 +374,9 @@ const scrollBinding = (input: { select: Handle; direction: number }) =>
     let timer: ReturnType<typeof setInterval> | undefined;
     const popup = () => current().select.overlay.popup();
     const sync = () => {
-      const target = popup();
+      // A retained closed popup still receives every captured window scroll; reading its
+      // scroll geometry there would force layout for an arrow nobody can see.
+      const target = current().select.source.model().open ? popup() : null;
       const available =
         !!target &&
         (current().direction < 0

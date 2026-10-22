@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { view as bindingView, type DomMount } from 'effectweb';
+import { renderView } from 'effectweb/testing';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createOverlay, popupBinding, type PositionOptions } from './overlay.js';
 import { createPresence } from './presence.js';
@@ -9,7 +11,7 @@ afterEach(() => {
   document.body.replaceChildren();
   vi.useRealTimers();
 });
-it('positions a virtual anchor without replacing the focus-restoration trigger', () => {
+it('positions a virtual anchor without replacing the focus-restoration trigger', async () => {
   const trigger = document.createElement('button'),
     popup = document.createElement('div');
   popup.tabIndex = -1;
@@ -39,9 +41,7 @@ it('positions a virtual anchor without replacing the focus-restoration trigger',
     align: 'start' as const,
     sideOffset: 0,
   });
-  const work = popupBinding(input()).acquire(popup, input);
-  if (!work || typeof work !== 'object' || !('dispose' in work))
-    throw new Error('Expected lifetime');
+  const work = await mountTestBinding(popup, popupBinding(input()));
   cleanups.push(() => {
     work.dispose();
     handle.lifetime.dispose();
@@ -51,7 +51,7 @@ it('positions a virtual anchor without replacing the focus-restoration trigger',
   expect(popup.style.top).toBe('150px');
   expect(handle.trigger()).toBe(trigger);
   anchor = () => ({ getBoundingClientRect: () => new DOMRect(310, 220, 0, 0) });
-  work.update?.();
+  work.update(popupBinding(input()));
   expect(popup.style.left).toBe('310px');
   expect(popup.style.top).toBe('220px');
   handle.hide();
@@ -94,7 +94,7 @@ it('reports completed transitions, cancels interrupted exits and never completes
   await vi.runAllTimersAsync();
   expect(complete).toHaveBeenCalledTimes(1);
 });
-it('calls the overlay completion callback after close so a host can advance its queue', () => {
+it('calls the overlay completion callback after close so a host can advance its queue', async () => {
   const popup = document.createElement('div');
   document.body.append(popup);
   let open = false;
@@ -111,9 +111,7 @@ it('calls the overlay completion callback after close so a host can advance its 
   const complete = vi.fn(),
     handle = createOverlay({ onOpenChangeComplete: complete });
   const input = { handle, kind: 'popover' as const };
-  const work = popupBinding(input).acquire(popup, () => input);
-  if (!work || typeof work !== 'object' || !('dispose' in work))
-    throw new Error('Expected lifetime');
+  const work = await mountTestBinding(popup, popupBinding(input));
   cleanups.push(() => {
     work.dispose();
     handle.lifetime.dispose();
@@ -140,7 +138,7 @@ it('keeps initially closed popups out of layout despite author display and prese
   popup.getAnimations = () => [];
   const handle = createOverlay(),
     input = { handle, kind: 'popover' as const };
-  const work = popupBinding(input).acquire(popup, () => input);
+  const work = await mountTestBinding(popup, popupBinding(input));
   if (!work || typeof work !== 'object' || !('dispose' in work)) throw Error('Expected lifetime');
   cleanups.push(() => {
     work.dispose();
@@ -175,7 +173,7 @@ it('keeps initially closed popups out of layout despite author display and prese
   handle.setOpen(true);
   expect(popup.style.display).toBe('flex');
 });
-it('restores author style when a closed popup binding is released', () => {
+it('restores author style when a closed popup binding is released', async () => {
   const popup = document.createElement('div');
   popup.style.setProperty('display', 'grid', 'important');
   document.body.append(popup);
@@ -183,7 +181,7 @@ it('restores author style when a closed popup binding is released', () => {
   popup.getAnimations = () => [];
   const handle = createOverlay(),
     input = { handle, kind: 'tooltip' as const };
-  const work = popupBinding(input).acquire(popup, () => input);
+  const work = await mountTestBinding(popup, popupBinding(input));
   if (!work || typeof work !== 'object' || !('dispose' in work)) throw Error('Expected lifetime');
   expect(popup.style.display).toBe('none');
   work.dispose();
@@ -232,3 +230,30 @@ it('reports an asynchronous completion failure through the element window', asyn
     vi.unstubAllGlobals();
   }
 });
+
+/** Keep the preconfigured test target while running its binding through a real use lifetime. */
+async function mountTestBinding<T extends Element>(element: T, binding: DomMount<T>) {
+  let acquired!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    acquired = resolve;
+  });
+  const target = bindingView<DomMount<T>>((current) => (
+    <span
+      use={{
+        ...current,
+        acquire: (
+          _host: Element,
+          input: () => unknown,
+          lifetime: Parameters<DomMount<T>['acquire']>[2],
+        ) => {
+          const work = current.acquire(element, input, lifetime);
+          acquired();
+          return work;
+        },
+      }}
+    />
+  ));
+  const rendered = renderView(document.createElement('div'), target, binding);
+  await ready;
+  return rendered;
+}

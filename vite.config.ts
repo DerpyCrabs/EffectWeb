@@ -50,7 +50,7 @@ const sourceAliases = sourcePackages.flatMap((directory) => {
 export default defineConfig({
   resolve: { alias: sourceAliases },
   // Tailwind serves the shadcn fixture's CSS; it touches nothing that does not import it.
-  plugins: [effectweb(), tailwindcss()],
+  plugins: [effectweb({ profile: true }), tailwindcss()],
   // Scan dynamically imported browser fixtures and the excluded linked runtime's dependencies.
   // Foreign .jsx fixtures use stubs supplied only by the package smoke test.
   optimizeDeps: {

@@ -1,6 +1,6 @@
 {
   "name": "effectweb",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Immutable Effect models and compiled JSX with direct DOM rendering",
   "homepage": "https://github.com/DerpyCrabs/EffectWeb",
   "bugs": {
@@ -47,6 +47,10 @@
     "./dom": {
       "types": "./dist/dom.d.ts",
       "import": "./dist/dom.js"
+    },
+    "./profiling": {
+      "types": "./dist/profiling.d.ts",
+      "import": "./dist/profiling.js"
     }
   },
   "publishConfig": {

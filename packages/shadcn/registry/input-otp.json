@@ -1,0 +1,22 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "input-otp",
+  "type": "registry:ui",
+  "title": "Input Otp",
+  "dependencies": [
+    "@effectweb/base-ui@0.14.0",
+    "@effectweb/lucide@0.14.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/input-otp.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/input-otp.tsx",
+      "content": "import {\n  createOtpField,\n  OtpFieldHiddenInput,\n  OtpFieldRoot,\n  OtpFieldSlot,\n  type OtpFieldHandle,\n  type OtpFieldOptions,\n} from '@effectweb/base-ui';\nexport { createOtpField, type OtpFieldHandle } from '@effectweb/base-ui/otp-field';\nimport Minus from '@effectweb/lucide/icons/minus';\nimport { controllerView, modelOwner, view, type JSX } from 'effectweb';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\n\nexport interface InputOTPProps extends OtpFieldOptions {\n  /** The form field name of the whole code. */\n  readonly name?: string | undefined;\n  readonly class?: string | undefined;\n  readonly containerClass?: string | undefined;\n  readonly children: (otp: OtpFieldHandle) => JSX.Element;\n}\nfunction otpController(props: InputOTPProps) {\n  const owner = modelOwner({ props });\n  const handle = createOtpField({\n    id: props.id,\n    length: props.length,\n    pattern: props.pattern,\n    defaultValue: props.defaultValue,\n    disabled: props.disabled,\n    readOnly: props.readOnly,\n    get value() {\n      return owner.read().props.value;\n    },\n    onValueChange: (value) => owner.read().props.onValueChange?.(value),\n    onComplete: (value) => owner.read().props.onComplete?.(value),\n  });\n  owner.own(handle.lifetime);\n  return {\n    source: owner.source,\n    handle,\n    lifetime: owner,\n    receive: (next: InputOTPProps) => {\n      owner.patch({ props: next });\n      if (next.value !== undefined) handle.sync({ value: next.value });\n      if (next.disabled !== undefined) handle.sync({ disabled: next.disabled });\n    },\n  };\n}\n/** A one-time code input: `children` places groups and slots around the shared handle. */\nexport const InputOTP = controllerView(\n  { controller: otpController },\n  view((model) => (\n    <OtpFieldRoot\n      otpField={model.actions.handle}\n      data-slot=\"input-otp\"\n      class={cn(\n        'flex items-center gap-2 has-disabled:opacity-50',\n        model.props.containerClass,\n        model.props.class,\n      )}\n    >\n      {model.props.children(model.actions.handle)}\n      {model.props.name ? (\n        <OtpFieldHiddenInput otpField={model.actions.handle} name={model.props.name} />\n      ) : null}\n    </OtpFieldRoot>\n  )),\n);\n/** Slots that visually join into one box. */\nexport const InputOTPGroup = view<Native<'div'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <div data-slot=\"input-otp-group\" class={cn('flex items-center', className)} {...rest}>\n      {children}\n    </div>\n  ),\n);\n/** One character box of the code. */\nexport const InputOTPSlot = view<\n  Omit<Parameters<typeof OtpFieldSlot>[0], 'class' | 'otpField'> & {\n    readonly otp: OtpFieldHandle;\n    readonly class?: string | undefined;\n  }\n>(({ otp, class: className, ...rest }) => (\n  <OtpFieldSlot\n    otpField={otp}\n    data-slot=\"input-otp-slot\"\n    class={cn(\n      'relative flex h-9 w-9 items-center justify-center border-y border-r border-input bg-transparent text-center text-sm shadow-xs transition-all outline-none first:rounded-l-md first:border-l last:rounded-r-md aria-invalid:border-destructive focus:z-10 focus:border-ring focus:ring-[3px] focus:ring-ring/50 focus:aria-invalid:border-destructive focus:aria-invalid:ring-destructive/20 disabled:cursor-not-allowed dark:bg-input/30 dark:focus:aria-invalid:ring-destructive/40',\n      className,\n    )}\n    {...rest}\n  />\n));\n/** A dash between slot groups. */\nexport const InputOTPSeparator = view<Native<'div'> & Styled>(({ class: className, ...rest }) => (\n  <div data-slot=\"input-otp-separator\" role=\"separator\" class={className} {...rest}>\n    <Minus />\n  </div>\n));\n"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "button-group",
+  "type": "registry:ui",
+  "title": "Button Group",
+  "dependencies": [
+    "class-variance-authority"
+  ],
+  "registryDependencies": [
+    "@effectweb/separator",
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/button-group.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/button-group.tsx",
+      "content": "import { view } from 'effectweb';\nimport { cn } from '@/lib/utils';\nimport { cva, type VariantProps } from 'class-variance-authority';\nimport { Separator } from '@/components/ui/separator';\nimport type { Native, Styled } from '@/lib/types';\n\n/** Classes for a group of adjoining buttons, horizontal or vertical. */\nexport const buttonGroupVariants = cva(\n  \"flex w-fit items-stretch has-[>[data-slot=button-group]]:gap-2 [&>*]:focus-visible:relative [&>*]:focus-visible:z-10 has-[select[aria-hidden=true]:last-child]:[&>[data-slot=select-trigger]:last-of-type]:rounded-r-md [&>[data-slot=select-trigger]:not([class*='w-'])]:w-fit [&>input]:flex-1\",\n  {\n    variants: {\n      orientation: {\n        horizontal:\n          '[&>*:not(:first-child)]:rounded-l-none [&>*:not(:first-child)]:border-l-0 [&>*:not(:last-child)]:rounded-r-none',\n        vertical:\n          'flex-col [&>*:not(:first-child)]:rounded-t-none [&>*:not(:first-child)]:border-t-0 [&>*:not(:last-child)]:rounded-b-none',\n      },\n    },\n    defaultVariants: { orientation: 'horizontal' },\n  },\n);\n/** Buttons, inputs and select triggers joined into one control. */\nexport const ButtonGroup = view<Native<'div'> & Styled & VariantProps<typeof buttonGroupVariants>>(\n  ({ class: className, orientation, children, ...rest }) => (\n    <div\n      role=\"group\"\n      data-slot=\"button-group\"\n      data-orientation={orientation ?? 'horizontal'}\n      class={cn(buttonGroupVariants({ orientation }), className)}\n      {...rest}\n    >\n      {children}\n    </div>\n  ),\n);\n/** Static text that sits inside a button group. */\nexport const ButtonGroupText = view<Native<'div'> & Styled>(\n  ({ class: className, children, ...rest }) => (\n    <div\n      class={cn(\n        \"flex items-center gap-2 rounded-md border bg-muted px-4 text-sm font-medium shadow-xs [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4\",\n        className,\n      )}\n      {...rest}\n    >\n      {children}\n    </div>\n  ),\n);\n/** A divider between the controls of a button group. */\nexport const ButtonGroupSeparator = view<Parameters<typeof Separator>[0]>(\n  ({ class: className, orientation, ...rest }) => (\n    <Separator\n      data-slot=\"button-group-separator\"\n      orientation={orientation ?? 'vertical'}\n      class={cn(\n        'relative m-0! self-stretch bg-input data-[orientation=vertical]:h-auto',\n        className,\n      )}\n      {...rest}\n    />\n  ),\n);\n"
+    }
+  ]
+}

@@ -195,6 +195,7 @@ assert.deepEqual(Object.keys(runtimeManifest.exports).sort(), [
   './jsx',
   './jsx-dev-runtime',
   './jsx-runtime',
+  './profiling',
   './testing',
 ]);
 assert.ok(existsSync(join(temp, 'node_modules/effectweb/docs/README.md')));
@@ -541,6 +542,11 @@ const bundle = readdirSync(join(temp, 'dist/assets'))
   .map((name) => readFileSync(join(temp, 'dist/assets', name), 'utf8'))
   .join('\n');
 assert.ok(bundle.includes('lucide-camera'), 'Named import missing from bundle');
+assert.ok(!bundle.includes('__EFFECTWEB_PROFILE__'), 'Profiler browser API leaked into production');
+assert.ok(
+  !bundle.includes('An EffectWeb profile is already active'),
+  'Profiler capture implementation leaked into production',
+);
 assert.ok(!bundle.includes('lucide-a-arrow-down'), 'Unused icon leaked into the bundle');
 assert.ok(
   !bundle.includes('Could not load Lucide icon'),

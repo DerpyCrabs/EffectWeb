@@ -4,11 +4,15 @@ import type { RouterHistory } from '@tanstack/history';
 import {
   isNotFound,
   replaceEqualDeep,
+  setupScrollRestoration,
   type AnyRoute,
   type AnyRouter,
   type MakeRouteMatchUnion,
+  type MatchRouteOptions,
   type NotFoundError,
+  type ParsedLocation,
   type RouterState,
+  type ToOptions,
 } from '@tanstack/router-core';
 import { component, errorBoundary, list, mapSource, observe, view, type JSX } from 'effectweb';
 import type { Source, View } from 'effectweb';
@@ -129,6 +133,9 @@ export function createRouterController<Router extends AnyRouter>(
   });
   listeners.add(source.changed);
   source.start();
+  // Window and element scroll positions per location, when the router asks for them.
+  if (router.options.scrollRestoration && typeof document !== 'undefined')
+    setupScrollRestoration(router);
   // Router Core waits for the UI to show the committed matches before it resolves a navigation.
   // The publication microtask is that commit; a transition that publishes nothing settles after it.
   router.startTransition = (run, expected) => {
@@ -352,3 +359,28 @@ const RouteMount = component(
   { init: (props: MountProps) => ({ boundary: routeBoundary(props.scope) }) },
   view(({ boundary: Boundary, props }) => <Boundary {...props} />),
 );
+
+/** Whether the current history entry has an earlier entry in this session to go back to. */
+export const canGoBack = (location: ParsedLocation) =>
+  (location.state as { __TSR_index?: number }).__TSR_index !== 0;
+
+/**
+ * Whether a destination matches the current (or pending) location, as a source: the
+ * matched params, or `false`. The counterpart of TanStack's `useMatchRoute`.
+ */
+export function matchRoute<Router extends AnyRouter>(
+  controller: RouterController<Router>,
+  to: ToOptions<Router>,
+  options?: MatchRouteOptions,
+): Source<false | Record<string, string>> {
+  return mapSource(
+    controller.source,
+    () => controller.router.matchRoute(to as never, options) as false | Record<string, string>,
+    (previous, next) =>
+      previous === next ||
+      (previous !== false &&
+        next !== false &&
+        Object.keys(previous).length === Object.keys(next).length &&
+        Object.keys(previous).every((key) => previous[key] === next[key])),
+  );
+}

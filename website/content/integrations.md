@@ -11,13 +11,14 @@ These packages connect existing libraries to EffectWeb. The library keeps its ow
 - `createRouter(options)` creates the router with full type inference. Routes come from `createRootRoute`, `createRoute` and, with the TanStack Router generator, `createFileRoute`; a route's `component`, `pendingComponent`, `errorComponent` and `notFoundComponent` are views. `lazyRouteComponent(() => import('./Page'), 'Page')` loads one on first placement.
 - `createRouterController(router)` mounts the router; call `start()` once and `dispose()` when the application ends. Inside an Effect scope, `mountRouter(router)` does both and returns the same controller.
 - `<RouterView controller={controller} />` renders the matched tree. Each route view receives `scope`: `scope.match` publishes its params, search and loader data, `scope.location` the current location, `scope.navigate` navigates, and `scope.outlet(props)` places the next matched route with extra props for its view. Augment `RouteViewProps` to type those props.
-- `const Link = createLink(router)` creates typed links. A `/files/$name` route is linked as `<Link to="/files/$name" params={{ name }}>`. The result is a real anchor, so middle-click and "copy link" work; pass `active` from your route model for `aria-current`.
+- `const Link = createLink(router)` creates typed links. A `/files/$name` route is linked as `<Link to="/files/$name" params={{ name }}>`. The result is a real anchor, so middle-click and "copy link" work. A link matching the current location carries `data-status="active"` and `aria-current="page"`, tuned with `activeOptions`; it preloads its route per `preload` (`intent`, `viewport` or `render`) or the router's `defaultPreload`, and shows `data-transitioning` while its navigation resolves. `linkPreloadBinding` and `isActiveLocation` give custom anchors the same behavior.
+- `createBlocker(router, { shouldBlockFn, withResolver })` blocks navigation like TanStack's `useBlocker`; with a resolver, the published state turns `blocked` with `proceed` and `reset`. `matchRoute(controller, to)` publishes whether a destination matches, `canGoBack(location)` whether history can go back, and the router's `scrollRestoration` option restores window and element scroll positions.
 
 There is no server rendering. See the [TanStack Router docs](https://tanstack.com/router/latest/docs/framework/react/routing/routing-concepts) for route concepts.
 
 ## Forms
 
-`@effectweb/tanstack-form` wraps TanStack Form Core. See [Forms](/docs/forms/#large-forms) for a complete example.
+`@effectweb/tanstack-form` wraps TanStack Form Core: `createForm` publishes the form state and submits through an Effect, `createField` mounts a field with its own validators. See [Forms](/docs/forms/#large-forms) for a complete example.
 
 ## Tables
 
