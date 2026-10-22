@@ -4,8 +4,8 @@
   "type": "registry:ui",
   "title": "Accordion",
   "dependencies": [
-    "@effectweb/base-ui@0.14.0",
-    "@effectweb/lucide@0.14.0"
+    "@effectweb/base-ui@0.14.1",
+    "@effectweb/lucide@0.14.1"
   ],
   "registryDependencies": [
     "@effectweb/adapter",

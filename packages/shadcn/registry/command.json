@@ -4,7 +4,7 @@
   "type": "registry:ui",
   "title": "Command",
   "dependencies": [
-    "@effectweb/lucide@0.14.0"
+    "@effectweb/lucide@0.14.1"
   ],
   "registryDependencies": [
     "@effectweb/dialog",

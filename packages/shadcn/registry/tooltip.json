@@ -4,7 +4,7 @@
   "type": "registry:ui",
   "title": "Tooltip",
   "dependencies": [
-    "@effectweb/base-ui@0.14.0"
+    "@effectweb/base-ui@0.14.1"
   ],
   "registryDependencies": [
     "@effectweb/placement",
