@@ -1,6 +1,6 @@
 {
   "name": "@effectweb/base-ui",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "Headless UI parts and explicit controllers for EffectWeb",
   "license": "MIT",
   "repository": {
@@ -191,6 +191,6 @@
   },
   "peerDependencies": {
     "effect": "^4.0.0",
-    "effectweb": "0.14.0"
+    "effectweb": "0.14.1"
   }
 }

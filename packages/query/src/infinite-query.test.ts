@@ -5,7 +5,7 @@ import { fetchNextPage, infiniteQuery, infiniteResource } from './infinite-query
 import { querySource } from './observe.js';
 import { queryCache } from './cache.js';
 
-it('shares initial and next loads, seeds pages and refreshes retained parameters', async () => {
+it('shares initial and next loads, seeds pages and refreshes retained pages', async () => {
   const loads: number[] = [];
   const definition = infiniteQuery({
     name: 'files',
@@ -179,4 +179,66 @@ it('reads infinite queries through querySource and extends them with fetchNextPa
   expect(seen.at(-1)).toEqual([0, 1, 2, 3]);
   stop();
   cache.dispose();
+});
+
+it('rebuilds cursors after insertion and stops when a refreshed list shrinks', async () => {
+  let rows = ['a', 'b', 'c', 'd'];
+  const definition = infiniteQuery({
+    name: 'changing-cursors',
+    initial: null as string | null,
+    load: (_args: boolean, cursor: string | null) =>
+      Effect.sync(() => {
+        const start = cursor === null ? 0 : rows.indexOf(cursor) + 1;
+        const items = rows.slice(start, start + 2);
+        return { items, next: start + 2 < rows.length ? items.at(-1) : undefined };
+      }),
+    next: (page) => page.next,
+  });
+  const cache = queryCache();
+  await Effect.runPromise(cache.prefetch(definition.query, true));
+  await Effect.runPromise(fetchNextPage(cache, definition, true));
+  rows = ['x', ...rows];
+  const refreshed = await Effect.runPromise(
+    cache.prefetch(definition.query, true, { refresh: true }),
+  );
+  expect(refreshed.pages.map((page) => page.value.items)).toEqual([
+    ['x', 'a'],
+    ['b', 'c'],
+  ]);
+  expect(refreshed.next).toBe('c');
+  rows = ['x'];
+  const shortened = await Effect.runPromise(
+    cache.prefetch(definition.query, true, { refresh: true }),
+  );
+  expect(shortened.pages.map((page) => page.value.items)).toEqual([['x']]);
+  expect(shortened.next).toBeUndefined();
+  await Effect.runPromise(cache.close());
+});
+
+it('uses the fresh feed identity for subsequent pages and preserves the first seed parameter', async () => {
+  const params: { cursor: number; feedId?: string }[] = [];
+  const definition = infiniteQuery({
+    name: 'feed-cursors',
+    initial: { cursor: 0 } as { cursor: number; feedId?: string },
+    load: (_args: boolean, param: { cursor: number; feedId?: string }) =>
+      Effect.sync(() => {
+        params.push(param);
+        return { feedId: 'new', next: param.cursor + 1 };
+      }),
+    next: (page) => ({ cursor: page.next, feedId: page.feedId }),
+  });
+  const cache = queryCache();
+  cache.setQueryData(definition.query, true, {
+    pages: [
+      { param: { cursor: 0, feedId: 'seed' }, value: { feedId: 'old', next: 1 } },
+      { param: { cursor: 1, feedId: 'old' }, value: { feedId: 'old', next: 2 } },
+    ],
+    next: { cursor: 2, feedId: 'old' },
+  });
+  await Effect.runPromise(cache.prefetch(definition.query, true, { refresh: true }));
+  expect(params).toEqual([
+    { cursor: 0, feedId: 'seed' },
+    { cursor: 1, feedId: 'new' },
+  ]);
+  await Effect.runPromise(cache.close());
 });

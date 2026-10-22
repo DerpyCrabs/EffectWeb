@@ -122,6 +122,6 @@ export const messagesQuery = infiniteQuery({
 
 Read it with `querySource` like any query. The result has `pages` and `next`; `next === undefined` means there are no more pages. Call `fetchNextPage(cache, messagesQuery, args)` from an event handler to load the next one; after a failed page it loads that page again.
 
-Refreshing reloads the pages already loaded. Set `refresh: 'first'` to start again from the first page.
+Refreshing reloads up to the number of pages already loaded, starting with the retained first-page parameter and deriving each subsequent cursor from the freshly loaded page. It stops early when there is no next cursor. Set `refresh: 'first'` to start again from the first page.
 
 Caches live in memory. Persistence, sharing across tabs and authorization are up to the application.

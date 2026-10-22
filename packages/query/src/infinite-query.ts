@@ -24,7 +24,7 @@ export interface InfiniteQuery<Args, A, Param, E = never, R = never> {
   readonly next: (value: A, param: Param) => Param | undefined;
   readonly paramKey: (param: Param | undefined) => string;
 }
-/** Shared pages with explicit cursor identity. Refresh preserves retained page parameters by default. */
+/** Shared pages with explicit cursor identity. Refresh rebuilds retained pages sequentially from fresh cursors. */
 export function infiniteQuery<Args, A, Param, E = never, R = never>(
   definition: {
     readonly name: string;
@@ -76,18 +76,21 @@ export function infiniteQuery<Args, A, Param, E = never, R = never>(
     ...(config.staleTime !== undefined ? { staleTime: config.staleTime } : {}),
     ...(config.unused ? { unused: config.unused } : {}),
     load: (args: Args, previous?: InfiniteData<A, Param>) => {
-      const params =
-        config.refresh !== 'first' && previous?.pages.length
-          ? previous.pages.map((page) => page.param)
-          : [initial];
-      return Effect.forEach(params, (param) =>
-        config.load(args, param).pipe(Effect.map((value) => ({ param: param as Param, value }))),
-      ).pipe(
-        Effect.map((pages): InfiniteData<A, Param> => {
-          const last = pages[pages.length - 1]!;
-          return { pages, next: next(protectSnapshot(last.value) as A, last.param as Param) };
-        }),
-      );
+      return Effect.gen(function* () {
+        const count = config.refresh !== 'first' ? Math.max(1, previous?.pages.length ?? 0) : 1;
+        const pages: { param: Param; value: A }[] = [];
+        let param =
+          config.refresh !== 'first' && previous?.pages.length ? previous.pages[0]!.param : initial;
+        let cursor: Param | undefined;
+        for (let index = 0; index < count; index++) {
+          const value = yield* config.load(args, param);
+          pages.push({ param, value });
+          cursor = next(protectSnapshot(value) as A, param);
+          if (cursor === undefined) break;
+          param = cursor;
+        }
+        return { pages, next: cursor };
+      });
     },
   });
   return Object.freeze({ query: root, page, next, paramKey });
