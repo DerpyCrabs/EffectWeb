@@ -24,7 +24,7 @@ Run `npm run dev:site` to open the landing page, guides, recipes, and API refere
 - [`@effectweb/lucide`](packages/lucide): precompiled Lucide views, per-icon imports, optional Effect-based lazy loading, and raw SVG builders.
 - Adapters: [`@effectweb/tanstack-router`](packages/tanstack-router) (typed `<Link>`), [`@effectweb/tanstack-form`](packages/tanstack-form), [`@effectweb/tanstack-table`](packages/tanstack-table), [`@effectweb/keycloak`](packages/keycloak), [`@effectweb/json-render`](packages/json-render) and [`@effectweb/antd-icons`](packages/antd-icons).
 
-The runtime currently requires **Effect 4.0.0** and TypeScript 5.4 or newer. Compiler tooling requires Node.js 22.14+. The release workflow builds glibc Linux x64/arm64, macOS x64/arm64, and Windows x64 binaries. musl Linux and other architectures have no prebuilt package.
+The runtime supports **Effect 4.x** (`^4.0.0`), with compatibility verified against Effect 4.0.0 and 4.1.0, and requires TypeScript 5.4 or newer. Compiler tooling requires Node.js 22.14+. The release workflow builds glibc Linux x64/arm64, macOS x64/arm64, and Windows x64 binaries. musl Linux and other architectures have no prebuilt package.
 
 ## Vite setup
 
@@ -73,7 +73,7 @@ This package is a client-side renderer without SSR, hydration, or built-in routi
 
 ## Development
 
-Requires Rust 1.96+ with Cargo, rustfmt and Clippy, plus Node.js 22.14+.
+Requires Rust 1.97+ with Cargo, rustfmt and Clippy, plus Node.js 22.14+.
 
 ```sh
 npm ci

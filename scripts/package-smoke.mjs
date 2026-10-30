@@ -47,12 +47,12 @@ writeFileSync(
         ]),
       ),
       devDependencies: {
-        effect: '4.0.0',
-        vite: '8.3.1',
+        effect: '4.1.0',
+        vite: '8.3.5',
         typescript: '7.0.2',
-        oxlint: '1.86.0',
-        'oxlint-tsgolint': '7.0.2003',
-        '@effect/tsgo': '0.47.1',
+        oxlint: '1.90.0',
+        'oxlint-tsgolint': '7.0.2005',
+        '@effect/tsgo': '0.63.0',
       },
     },
     null,
@@ -552,7 +552,8 @@ assert.ok(
   !bundle.includes('Could not load Lucide icon'),
   'Dynamic registry leaked into the bundle',
 );
-assert.ok(bundle.length < 160_000, `Icon consumer unexpectedly large: ${bundle.length} bytes`);
+// Effect 4.1 adds runtime services; retain the unused-icon and registry guards above.
+assert.ok(bundle.length < 165_000, `Icon consumer unexpectedly large: ${bundle.length} bytes`);
 // Build optional integrations separately so the existing core/icon bundle budget stays meaningful.
 writeFileSync(
   join(temp, 'adapters.html'),

@@ -203,6 +203,12 @@ it('decodes JSX entities once while preserving expression strings and whitespace
   expect(output.props.title).toBe('&lt;');
   expect(content(output)).toBe('&lt;&lt; spaced after');
 });
+it('preserves lone surrogates in expression strings after parsing', () => {
+  const { output } = execute(String.raw`export const output=<p>{'\uD800'}{'\\ud800'}</p>;`) as {
+    output: Markup;
+  };
+  expect(content(output)).toBe('\uD800' + '\\ud800');
+});
 it('treats hyphenated JSX names as intrinsic tags regardless of their first letter', () => {
   const { output } = execute(`const X=7,widget=4;export const output=<X-widget title="value"/>;`);
   expect(output).toEqual({ tag: 'X-widget', props: { title: 'value' } });

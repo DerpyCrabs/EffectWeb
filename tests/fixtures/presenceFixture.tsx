@@ -66,7 +66,7 @@ export function mountPresenceFixture(host: HTMLElement, family: string, motion: 
   update = (open) => {
     owner.patch({ open });
     (
-      ({
+      {
         dialog,
         alertDialog,
         popover,
@@ -76,7 +76,7 @@ export function mountPresenceFixture(host: HTMLElement, family: string, motion: 
         combobox,
         collapsible,
         context,
-      }) as Record<string, { setOpen(open: boolean): void }>
+      } as Record<string, { setOpen(open: boolean): void }>
     )[family]?.setOpen(open);
     if (family === 'accordion') accordion.sync({ values: open ? ['one'] : [] });
     if (family === 'navigation') navigation.sync({ value: open ? 'one' : '' });

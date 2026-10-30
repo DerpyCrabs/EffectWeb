@@ -115,9 +115,9 @@ try {
         name: 'effectweb-registry-consumer',
         private: true,
         type: 'module',
-        dependencies: { ...local, effect: '4.0.0' },
+        dependencies: { ...local, effect: '4.1.0' },
         devDependencies: {
-          vite: '8.3.1',
+          vite: '8.3.5',
           typescript: '7.0.2',
           tailwindcss: '4.3.3',
           '@tailwindcss/vite': '4.3.3',

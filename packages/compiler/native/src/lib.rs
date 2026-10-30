@@ -83,7 +83,7 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
     // Every JSX file belongs to EffectWeb unless a pragma names another runtime. Files
     // without JSX opt in by importing the runtime, an adapter package, or a subpath.
     let opted_in = pragma.map_or_else(|| contains_jsx(&program) || program.body.iter().any(|statement| {
-        matches!(statement, Statement::ImportDeclaration(import) if import.source.value == import_source || import.source.value.starts_with(ADAPTER_SCOPE) || import.source.value.starts_with(&format!("{import_source}/")))
+        matches!(statement, Statement::ImportDeclaration(import) if import.source.value == import_source || import.source.value.starts_with(ADAPTER_SCOPE) || import.source.value.starts_with(format!("{import_source}/").as_str()))
     }), |pragma| pragma == import_source);
     if !opted_in {
         return serde_json::to_string(&Output {
@@ -116,7 +116,7 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                 continue;
             };
             let root = import.source.value == import_source;
-            let dom = root || import.source.value == format!("{import_source}/dom");
+            let dom = root || import.source.value == format!("{import_source}/dom").as_str();
             for specifier in import.specifiers.iter().flatten() {
                 let ImportDeclarationSpecifier::ImportSpecifier(specifier) = specifier else {
                     continue;

@@ -1,5 +1,6 @@
+// @vitest-environment happy-dom
 import { expect, it } from 'vitest';
-import { place } from './positioning.js';
+import { place, placeRect } from './positioning.js';
 const anchor = { x: 90, y: 90, width: 10, height: 10 };
 const popup = { x: 0, y: 0, width: 30, height: 20 };
 const viewport = { x: 0, y: 0, width: 100, height: 100 };
@@ -42,4 +43,23 @@ it('uses the requested perpendicular fallback only when neither preferred side f
       },
     ),
   ).toEqual({ x: 16, y: 10, side: 'left' });
+});
+
+it('measures popovers before transforms and excludes viewport scrollbars', () => {
+  const floating = document.createElement('div');
+  Object.defineProperties(document.documentElement, {
+    clientWidth: { configurable: true, value: 100 },
+    clientHeight: { configurable: true, value: 100 },
+  });
+  Object.defineProperties(floating, { offsetWidth: { value: 30 }, offsetHeight: { value: 20 } });
+  floating.getBoundingClientRect = () => ({ x: 0, y: 0, width: 15, height: 10 }) as DOMRect;
+  try {
+    placeRect(anchor, floating, { side: 'bottom', align: 'start' });
+    expect(floating.style.left).toBe('70px');
+    expect(floating.style.top).toBe('66px');
+    expect(floating.style.getPropertyValue('--positioner-width')).toBe('30px');
+  } finally {
+    Reflect.deleteProperty(document.documentElement, 'clientWidth');
+    Reflect.deleteProperty(document.documentElement, 'clientHeight');
+  }
 });

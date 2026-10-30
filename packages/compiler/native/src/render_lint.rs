@@ -484,7 +484,9 @@ impl<'a> Analyzer<'a, '_> {
         depth: usize,
     ) -> Option<String> {
         if !computed {
-            return key.static_name().map(|name| name.to_string());
+            return key
+                .static_name()
+                .and_then(|name| name.as_str().map(str::to_owned));
         }
         key.as_expression()
             .and_then(|e| match self.resolve(e, bindings, depth + 1).kind {
@@ -536,7 +538,9 @@ impl<'a> Analyzer<'a, '_> {
                 .receiver
                 .clone()
                 .unwrap_or_else(|| Value::unknown("an unbound this receiver")),
-            Expression::StringLiteral(n) => Value::new(Kind::Scalar(Some(n.value.to_string()))),
+            Expression::StringLiteral(n) => {
+                Value::new(Kind::Scalar(n.value.as_str().map(str::to_owned)))
+            }
             Expression::NumericLiteral(n) => Value::new(Kind::Scalar(Some(n.value.to_string()))),
             Expression::BooleanLiteral(_)
             | Expression::NullLiteral(_)
@@ -577,12 +581,15 @@ impl<'a> Analyzer<'a, '_> {
             }
             Expression::ComputedMemberExpression(n) => {
                 let object = self.resolve(&n.object, bindings, depth + 1);
-                let name = n.static_property_name().map(|s| s.to_string()).or_else(|| {
-                    match self.resolve(&n.expression, bindings, depth + 1).kind {
-                        Kind::Scalar(s) => s,
-                        _ => None,
-                    }
-                });
+                let name = n
+                    .static_property_name()
+                    .and_then(|s| s.as_str().map(str::to_owned))
+                    .or_else(
+                        || match self.resolve(&n.expression, bindings, depth + 1).kind {
+                            Kind::Scalar(s) => s,
+                            _ => None,
+                        },
+                    );
                 name.map(|name| self.member(object.clone(), &name, depth + 1))
                     .unwrap_or_else(|| Value::data().with_reads(&object))
             }
@@ -2166,8 +2173,8 @@ impl<'a> Visit<'a> for Analyzer<'a, '_> {
         self.visit_expression(&n.object);
         self.visit_expression(&n.expression);
         let object = self.expression_value(&n.object);
-        if let Some(name) = n.static_property_name() {
-            let value = self.member(object, &name, 0);
+        if let Some(name) = n.static_property_name().and_then(|name| name.as_str()) {
+            let value = self.member(object, name, 0);
             self.check_value(&value, n.span);
         }
     }

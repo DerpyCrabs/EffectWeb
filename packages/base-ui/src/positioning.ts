@@ -140,13 +140,6 @@ export const place = (
   return { x: Math.round(vertical ? cross : main), y: Math.round(vertical ? main : cross), side };
 };
 
-const box = (rect: DOMRect): Box => ({
-  x: rect.x,
-  y: rect.y,
-  width: rect.width,
-  height: rect.height,
-});
-
 /** Position a top-layer element (a popover) next to an anchor, in viewport coordinates. */
 export const placeRect = (
   rect: Box,
@@ -162,14 +155,19 @@ export const placeRect = (
 ): Side => {
   floating.style.margin = '0';
   floating.style.inset = 'auto';
-  const viewport: Box = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
-  const result = place(rect, box(floating.getBoundingClientRect()), viewport, options);
+  const viewport: Box = {
+    x: 0,
+    y: 0,
+    width: document.documentElement.clientWidth || window.innerWidth,
+    height: document.documentElement.clientHeight || window.innerHeight,
+  };
+  const dimensions = { width: floating.offsetWidth, height: floating.offsetHeight };
+  const result = place(rect, { x: 0, y: 0, ...dimensions }, viewport, options);
   floating.style.position = 'fixed';
   floating.style.left = `${result.x}px`;
   floating.style.top = `${result.y}px`;
   floating.dataset.side = result.side;
   floating.dataset.align = options.align ?? 'center';
-  const dimensions = floating.getBoundingClientRect();
   const availableHeight =
     result.side === 'bottom'
       ? viewport.height - result.y

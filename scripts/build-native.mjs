@@ -17,7 +17,7 @@ const result = spawnSync(
 );
 if (result.error)
   throw new Error(
-    'Framework development requires Rust 1.96+ and Cargo. Published packages do not.',
+    'Framework development requires Rust 1.97+ and Cargo. Published packages do not.',
     { cause: result.error },
   );
 if (result.status !== 0) throw new Error(`Cargo failed (${result.status}).`);

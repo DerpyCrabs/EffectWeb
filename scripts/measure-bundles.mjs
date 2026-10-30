@@ -56,7 +56,8 @@ try {
   for (const [name, gzipLimit] of [
     ['keycloak', 20_000],
     ['tanstack-form', 30_000],
-    ['mount', 20_000],
+    // Effect 4.1: 22,624 gzip bytes; the same entry with Effect 4.0 was 19,989.
+    ['mount', 23_000],
   ]) {
     const output = await buildEsbuild({
       stdin: {

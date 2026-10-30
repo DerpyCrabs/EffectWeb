@@ -66,7 +66,10 @@ fn decoded(value: &str) -> String {
     let allocator = Allocator::default();
     let mut decoded = None;
     decode_entities(value, &mut decoded, value.len(), &allocator);
-    decoded.map_or_else(|| value.into(), |value| value.into_str().to_owned())
+    decoded.map_or_else(
+        || value.into(),
+        |value| String::from_utf16_lossy(&value.into_js_str().encode_utf16().collect::<Vec<_>>()),
+    )
 }
 fn jsx_text(value: &str) -> String {
     let lines = value.replace('\r', "");
@@ -321,9 +324,9 @@ impl<'a> Visit<'a> for Lower<'_> {
                     }
                     let value = match &attribute.value {
                         None => "true".into(),
-                        Some(JSXAttributeValue::StringLiteral(value)) => {
-                            quote(&decoded(value.value.as_str()))
-                        }
+                        Some(JSXAttributeValue::StringLiteral(value)) => quote(&decoded(
+                            value.value.as_str().expect("JSX attribute text is UTF-8"),
+                        )),
                         Some(JSXAttributeValue::ExpressionContainer(container)) => {
                             static_attributes = false;
                             container

@@ -16,7 +16,9 @@ fn imported(program: &Program<'_>, import_source: &str, names: &[&str]) -> Vec<(
         let Statement::ImportDeclaration(import) = statement else {
             continue;
         };
-        let source = import.source.value.as_str();
+        let Some(source) = import.source.value.as_str() else {
+            continue;
+        };
         if source != import_source && !source.starts_with(&format!("{import_source}/")) {
             continue;
         }
@@ -100,7 +102,9 @@ impl<'a> Visit<'a> for MapRows {
             self.indexed.push(identity.span());
         }
         if let Some(member) = call.callee.without_parentheses().as_member_expression()
-            && member.static_property_name() == Some("map")
+            && member
+                .static_property_name()
+                .is_some_and(|name| name == "map")
             && let Some(callback) = call.arguments.first().and_then(Argument::as_expression)
             && returns_row(callback, jsx_row)
         {
@@ -158,7 +162,7 @@ fn derived_rows(expression: &Expression<'_>) -> bool {
                     call.arguments.first().and_then(Argument::as_expression),
                     Some(Expression::NumericLiteral(start)) if start.value == 0.0
                 );
-                match member.static_property_name() {
+                match member.static_property_name().and_then(|name| name.as_str()) {
                     Some("filter") => true,
                     Some("slice") => !prefix,
                     _ => derived_rows(member.object()),
@@ -396,7 +400,9 @@ impl InlineBindings {
             let Statement::ImportDeclaration(import) = statement else {
                 continue;
             };
-            let source = import.source.value.as_str();
+            let Some(source) = import.source.value.as_str() else {
+                continue;
+            };
             if source != import_source && !source.starts_with(&format!("{import_source}/")) {
                 continue;
             }

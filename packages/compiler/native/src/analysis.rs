@@ -159,6 +159,9 @@ impl<'a> Visit<'a> for Index<'a, '_> {
     fn enter_node(&mut self, kind: AstKind<'a>) {
         match kind {
             AstKind::ImportDeclaration(import) if !import.import_kind.is_type() => {
+                let Some(source) = import.source.value.as_str() else {
+                    return;
+                };
                 for specifier in import.specifiers.iter().flatten() {
                     let (id, path) = match specifier {
                         ImportDeclarationSpecifier::ImportSpecifier(specifier)
@@ -178,8 +181,7 @@ impl<'a> Visit<'a> for Index<'a, '_> {
                         ),
                         _ => continue,
                     };
-                    self.imports
-                        .insert(id, (import.source.value.to_string(), path));
+                    self.imports.insert(id, (source.to_owned(), path));
                 }
             }
             AstKind::JSXElement(element) => self.jsx.push(element.span),

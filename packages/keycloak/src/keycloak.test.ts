@@ -25,14 +25,14 @@ test('observes identity, keeps tokens private, and releases event handlers and r
       if (unavailable) throw new Error('Network unavailable');
       return true;
     },
-    clearToken: () => {
+    clearToken: async () => {
       client.authenticated = false;
       delete client.token;
       client.onAuthLogout?.();
     },
     login: async () => {},
     logout: async () => {
-      client.clearToken();
+      await client.clearToken();
     },
   };
   const scope = Scope.makeUnsafe();

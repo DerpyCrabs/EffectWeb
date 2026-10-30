@@ -38,8 +38,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: rustup toolchain install 1.96.0 --profile minimal
-      - run: rustup override set 1.96.0
+      - run: rustup toolchain install 1.97.0 --profile minimal
+      - run: rustup override set 1.97.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: packages/compiler/native -> target
