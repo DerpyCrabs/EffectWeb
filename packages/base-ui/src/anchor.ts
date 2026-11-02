@@ -1,3 +1,4 @@
+import { isHTMLElement } from './dom-host.js';
 import { domBinding } from 'effectweb';
 import type { OverlayHandle } from './overlay.js';
 const acquireAnchor = (
@@ -6,7 +7,7 @@ const acquireAnchor = (
 ) => {
   const { handle, kind } = current();
   const trigger = host.firstElementChild;
-  if (!(trigger instanceof HTMLElement)) return;
+  if (!isHTMLElement(trigger)) return;
   handle.attachTrigger(trigger);
   const attributes = ['aria-expanded', 'aria-haspopup', 'aria-controls'] as const;
   const previous = attributes.map((name) => trigger.getAttribute(name));

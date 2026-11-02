@@ -1,3 +1,4 @@
+import { ownerDocument } from './dom-document.js';
 import * as Cause from 'effect/Cause';
 import * as Effect from 'effect/Effect';
 import type { View } from './dom.js';
@@ -290,6 +291,11 @@ export type ViewController<Props, Model> = {
   readonly beforeDispose?: () => void;
   readonly lifetime: ControllerLifetime;
 };
+/** DOM ownership for this placement, captured without changing ambient browser globals. */
+export interface ControllerHost {
+  readonly document: Document;
+}
+
 /**
  * A controller created from the view's props and released with the view. Use it when a view
  * needs a controller object (`modelOwner`, queries, subscriptions) rather than named messages.
@@ -303,6 +309,7 @@ export function controllerView<Props, Model extends object, Controller extends o
     readonly update?: never;
     readonly controller: (
       props: Props,
+      host: ControllerHost,
     ) => Controller &
       ViewController<Props, Model> & {
         readonly actions?: 'Return actions directly: { source, save, dispose }; they reach the view as model.actions';
@@ -314,8 +321,8 @@ export function controllerView<Props, Model extends object, Controller extends o
   const controllers = new WeakMap<Program<Rendered, never>, ViewController<Props, Model>>();
   return programView<Props, Rendered, never>({
     ...(definition.identity ? { identity: definition.identity } : {}),
-    create(props) {
-      const controller = definition.controller(props);
+    create(props, _runtime, _report, host) {
+      const controller = definition.controller(props, host);
       const lifetime = controller.lifetime;
       const rendered = controllerSource(
         controller as unknown as { readonly source: Source<object> },
@@ -343,7 +350,12 @@ export function controllerView<Props, Model extends object, Controller extends o
 /** Mount an existing program without introducing a second state owner. Internal. */
 export function programView<Props, Model, Message>(definition: {
   identity?: (props: Props) => unknown;
-  create: (props: Props, runtime: UiRuntime<never>, report: ReportError) => Program<Model, Message>;
+  create: (
+    props: Props,
+    runtime: UiRuntime<never>,
+    report: ReportError,
+    host: ControllerHost,
+  ) => Program<Model, Message>;
   receive: (source: Program<Model, Message>, props: Props) => void;
   /** Capture DOM state before child disposal, on unmount or identity replacement. */
   beforeDispose?: (source: Program<Model, Message>) => void;
@@ -356,6 +368,7 @@ export function programView<Props, Model, Message>(definition: {
         initialProps,
         scope.settlement.runtime ?? defaultUiRuntime,
         scope.report,
+        { document: ownerDocument(parent) },
       );
       if (scope.disposed) {
         closeProgram(scope, source);

@@ -122,3 +122,15 @@ export const complete = (id: string) =>
     rows.map((row) => (row.id === id ? { ...row, done: true } : row)),
   );
 ```
+
+## Controllers in several documents
+
+A controller factory receives `host` as its second argument. `host.document` is the document
+containing that placement, including an iframe or another application window. Capture its
+`defaultView` for window-specific subscriptions instead of reading the runtime's global
+`window`. Asynchronous callbacks retain the captured host; opening or closing another view
+does not change it. Release subscriptions through the controller lifetime.
+
+DOM bindings obtain the same ownership through `element.ownerDocument`. Default portals
+mount into the body of their placement's document. Sharing a view definition or a model
+between documents does not share their DOM nodes or focus.

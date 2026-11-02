@@ -440,6 +440,8 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
     if (handle.source.model().open) handle.hide();
   };
   const doc = element.ownerDocument;
+  const window = doc.defaultView;
+  if (!window) throw new Error('Overlay requires an owning Window');
   const pointerInteraction = (event: PointerEvent) => {
     if (handle.source.model().open)
       closeInteraction =
@@ -462,7 +464,7 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
   element.addEventListener('focusout', focusout);
   window.addEventListener('resize', place);
   window.addEventListener('scroll', place, true);
-  const resize = new ResizeObserver(place);
+  const resize = new window.ResizeObserver(place);
   resize.observe(element);
   if (handle.trigger()) resize.observe(handle.trigger()!);
   const unsubscribe = handle.source.subscribe(sync);

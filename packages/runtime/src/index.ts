@@ -30,6 +30,7 @@ export {
   type FieldsPatch,
   type ViewController,
   type ControllerLifetime,
+  type ControllerHost,
   type ControllerModel,
 } from './component.js';
 

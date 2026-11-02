@@ -1,3 +1,4 @@
+import { ownerDocument, isElement, isFocusable } from './dom-document.js';
 import {
   profiling,
   profileCall,
@@ -459,8 +460,9 @@ function viewContent<M, E>(definition: View<M, E>): ContentDefinition {
  */
 function boundRange(fragment: DocumentFragment, mark: Node | null): ContentRange {
   const first = mark ? mark.nextSibling : fragment.firstChild;
-  if (first && first === fragment.lastChild && first instanceof Element)
+  if (first && first === fragment.lastChild && isElement(first))
     return { start: first, end: first };
+  const document = ownerDocument(fragment);
   const start = document.createComment('');
   const end = document.createComment('');
   fragment.insertBefore(start, first);
@@ -643,16 +645,36 @@ const untemplated = new Set([
 ]);
 // Elements that start loading or playing from their attributes, even outside the document.
 const loading = new Set(['iframe', 'video', 'audio', 'object', 'embed', 'script']);
-const templates = new WeakMap<object, { html?: Element | null; svg?: Element | null }>();
-function staticTemplate(tag: string, value: MarkupPlacement, svg: boolean): Element | undefined {
-  let entry = templates.get(value);
-  if (!entry) templates.set(value, (entry = {}));
+const templates = new WeakMap<
+  Document,
+  WeakMap<object, { html?: Element | null; svg?: Element | null }>
+>();
+function documentTemplates(document: Document) {
+  let cache = templates.get(document);
+  if (!cache) templates.set(document, (cache = new WeakMap()));
+  return cache;
+}
+function staticTemplate(
+  document: Document,
+  tag: string,
+  value: MarkupPlacement,
+  svg: boolean,
+): Element | undefined {
+  const cache = documentTemplates(document);
+  let entry = cache.get(value);
+  if (!entry) cache.set(value, (entry = {}));
   const key = svg ? 'svg' : 'html';
   let template = entry[key];
-  if (template === undefined) entry[key] = template = buildStatic(tag, value, svg) ?? null;
+  if (template === undefined)
+    entry[key] = template = buildStatic(document, tag, value, svg) ?? null;
   return template ?? undefined;
 }
-function buildStatic(tag: string, value: MarkupPlacement, svg: boolean): Element | undefined {
+function buildStatic(
+  document: Document,
+  tag: string,
+  value: MarkupPlacement,
+  svg: boolean,
+): Element | undefined {
   if (untemplated.has(tag) || tag.includes('-')) return undefined;
   const node = svg ? document.createElementNS(svgNamespace, tag) : document.createElement(tag);
   const attrs = value.attrs;
@@ -682,7 +704,7 @@ function buildStatic(tag: string, value: MarkupPlacement, svg: boolean): Element
       node.appendChild(document.createTextNode(String(item)));
     else if (item instanceof MarkupPlacement && item.still) {
       const childTag = item.definition.tag!;
-      const child = buildStatic(childTag, item, childTag === 'svg' || nested);
+      const child = buildStatic(document, childTag, item, childTag === 'svg' || nested);
       if (!child) return undefined;
       node.appendChild(child);
     } else return undefined;
@@ -691,15 +713,16 @@ function buildStatic(tag: string, value: MarkupPlacement, svg: boolean): Element
 }
 
 /** The detached element tree of a call site, cloned for every mount of that site. */
-function siteSkeleton(site: SiteNode, svg: boolean): Element | undefined {
-  let entry = templates.get(site);
-  if (!entry) templates.set(site, (entry = {}));
+function siteSkeleton(document: Document, site: SiteNode, svg: boolean): Element | undefined {
+  const cache = documentTemplates(document);
+  let entry = cache.get(site);
+  if (!entry) cache.set(site, (entry = {}));
   const key = svg ? 'svg' : 'html';
   let template = entry[key];
-  if (template === undefined) entry[key] = template = buildSkeleton(site, svg) ?? null;
+  if (template === undefined) entry[key] = template = buildSkeleton(document, site, svg) ?? null;
   return template ?? undefined;
 }
-function buildSkeleton(site: SiteNode, svg: boolean): Element | undefined {
+function buildSkeleton(document: Document, site: SiteNode, svg: boolean): Element | undefined {
   const [tag, attrs, children] = site;
   if (attrs && loading.has(tag)) return undefined;
   const node = svg ? document.createElementNS(svgNamespace, tag) : document.createElement(tag);
@@ -711,12 +734,12 @@ function buildSkeleton(site: SiteNode, svg: boolean): Element | undefined {
     else if (child === 1) node.appendChild(document.createTextNode(''));
     else if (child instanceof MarkupPlacement) {
       const tagName = child.definition.tag!;
-      const built = buildStatic(tagName, child, tagName === 'svg' || nested);
+      const built = buildStatic(document, tagName, child, tagName === 'svg' || nested);
       if (!built) return undefined;
       node.appendChild(built);
     } else {
       const shape = child as SiteNode;
-      const built = buildSkeleton(shape, shape[0] === 'svg' || nested);
+      const built = buildSkeleton(document, shape, shape[0] === 'svg' || nested);
       if (!built) return undefined;
       node.appendChild(built);
     }
@@ -839,7 +862,7 @@ class ElementMount implements MountedContent {
     let value: MarkupPlacement;
     if (input instanceof BlockPlacement) {
       const site = input.site;
-      const skeleton = siteSkeleton(site, svg);
+      const skeleton = siteSkeleton(ownerDocument(parent), site, svg);
       if (skeleton) {
         // Clone the site's static tree and bind only its dynamic positions.
         this.node = skeleton.cloneNode(true) as Element;
@@ -859,7 +882,9 @@ class ElementMount implements MountedContent {
       }
       value = expand(input, false);
     } else value = input;
-    const template = value.still ? staticTemplate(tag, value, svg) : undefined;
+    const template = value.still
+      ? staticTemplate(ownerDocument(parent), tag, value, svg)
+      : undefined;
     if (template) {
       this.node = template.cloneNode(true) as Element;
       this.select = false;
@@ -868,7 +893,7 @@ class ElementMount implements MountedContent {
       this.children = value.children;
       this.kind = Children.Static;
     } else {
-      const doc = parent.ownerDocument ?? document;
+      const doc = ownerDocument(parent);
       this.node = svg ? doc.createElementNS(svgNamespace, tag) : doc.createElement(tag);
       this.select = tag === 'select';
       try {
@@ -1309,7 +1334,7 @@ class ElementMount implements MountedContent {
     if (next === '' && this.kind === Children.None) return;
     this.clearChildren();
     if (next === '') return;
-    this.textNode = document.createTextNode(next);
+    this.textNode = ownerDocument(node).createTextNode(next);
     node.appendChild(this.textNode);
     this.kind = Children.Text;
   }
@@ -1448,7 +1473,7 @@ export interface PortalProps {
   readonly mount?: Element | undefined;
 }
 /** Owned content in an element target, defaulting to the document body. */
-export const Portal: View<PortalProps, never> = /* @__PURE__ */ compiled((scope) => {
+export const Portal: View<PortalProps, never> = /* @__PURE__ */ compiled((scope, parent) => {
   portal(
     scope,
     (child, parent, before) => {
@@ -1461,10 +1486,12 @@ export const Portal: View<PortalProps, never> = /* @__PURE__ */ compiled((scope)
       );
     },
     () => scope.value.mount,
+    ownerDocument(parent),
   );
 });
 
 function markers(parent: Node, before: Node | null) {
+  const document = ownerDocument(parent);
   const start = document.createComment('');
   const end = document.createComment('');
   parent.insertBefore(start, before);
@@ -1531,7 +1558,7 @@ function svgChildren(parent: Node): boolean {
   );
 }
 function buildFragment(parent: Node): DocumentFragment {
-  const fragment = (parent.ownerDocument ?? document).createDocumentFragment();
+  const fragment = ownerDocument(parent).createDocumentFragment();
   fragmentSvg.set(fragment, svgChildren(parent));
   return fragment;
 }
@@ -2166,7 +2193,7 @@ class ContentSlot implements ContentRange {
       } catch (error) {
         // Keep an anchor so this position can render again.
         if (!this.node && !this.container) {
-          this.node = document.createTextNode('');
+          this.node = ownerDocument(parent).createTextNode('');
           parent.insertBefore(this.node, before);
           this.parent = undefined;
         }
@@ -2194,7 +2221,7 @@ class ContentSlot implements ContentRange {
       const parent = last.parentNode!;
       this.content = undefined;
       if (!(this.container && next === '')) {
-        this.node = document.createTextNode(next);
+        this.node = ownerDocument(parent).createTextNode(next);
         parent.insertBefore(this.node, last.nextSibling);
       }
       previous.mounted.dispose();
@@ -2206,7 +2233,7 @@ class ContentSlot implements ContentRange {
       return;
     }
     if (this.container && next === '') return;
-    this.node = document.createTextNode(next);
+    this.node = ownerDocument(this.parent!).createTextNode(next);
     this.parent!.insertBefore(this.node, this.before);
     if (!this.container) this.parent = undefined;
   }
@@ -2280,7 +2307,7 @@ function mountArray(
   settlement: Settlement,
 ): MountedContent {
   // An empty array still needs a position; one marker ends the array's range.
-  const end = document.createComment('');
+  const end = ownerDocument(parent).createComment('');
   parent.insertBefore(end, before);
   const cells: ContentSlot[] = [];
   let disposed = false;
@@ -2636,7 +2663,7 @@ export function keyedRows<M, E, A>(
   indexUsed: boolean | (() => boolean),
   create: (item: A, index: number, fragment: DocumentFragment) => Row<A>,
 ): ContentRange {
-  const end = document.createComment('');
+  const end = ownerDocument(parent).createComment('');
   parent.insertBefore(end, before);
   const rows = new Map<A | Identity, Row<A>>();
   let reconciled = true;
@@ -2683,7 +2710,7 @@ export function keyedRows<M, E, A>(
     if (
       !items.length &&
       rows.size &&
-      target instanceof Element &&
+      isElement(target) &&
       target.firstChild === ordered[0]?.range!.start &&
       target.lastChild === end
     ) {
@@ -2742,7 +2769,7 @@ export function keyedRows<M, E, A>(
         }
       if (
         !survivor &&
-        target instanceof Element &&
+        isElement(target) &&
         target.firstChild === ordered[0]!.range!.start &&
         target.lastChild === end
       ) {
@@ -2824,8 +2851,8 @@ export function keyedRows<M, E, A>(
         const first = row.range!.start;
         const last = row.range!.end;
         if (!stationary.has(index) && last.nextSibling !== anchor) {
-          const focused =
-            document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+          const document = ownerDocument(target);
+          const focused = document.activeElement;
           let node: Node | null = first;
           while (node) {
             const following: Node | null = node.nextSibling;
@@ -2836,7 +2863,7 @@ export function keyedRows<M, E, A>(
             if (node === last) break;
             node = following;
           }
-          if (focused?.isConnected && document.activeElement !== focused)
+          if (isFocusable(focused) && focused.isConnected && document.activeElement !== focused)
             focused.focus({ preventScroll: true });
         }
         anchor = first;
@@ -3006,6 +3033,7 @@ export function portal<M, E>(
   scope: Scope<M, E>,
   build: Build<M, E>,
   mount: () => Element | undefined = () => undefined,
+  document: Document = globalThis.document,
 ) {
   let target: Element | undefined;
   let range: ContentRange | undefined;
@@ -3061,7 +3089,7 @@ export function portal<M, E>(
       undelegate = delegationHost(next);
       target = next;
       if (
-        focused instanceof HTMLElement &&
+        isFocusable(focused) &&
         focused.isConnected &&
         focused.ownerDocument.activeElement !== focused
       )

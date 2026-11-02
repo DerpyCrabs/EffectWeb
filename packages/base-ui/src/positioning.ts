@@ -153,13 +153,15 @@ export const placeRect = (
     readonly collisionAvoidance?: CollisionAvoidance | undefined;
   } = {},
 ): Side => {
+  const document = floating.ownerDocument;
+  const window = document.defaultView;
   floating.style.margin = '0';
   floating.style.inset = 'auto';
   const viewport: Box = {
     x: 0,
     y: 0,
-    width: document.documentElement.clientWidth || window.innerWidth,
-    height: document.documentElement.clientHeight || window.innerHeight,
+    width: document.documentElement.clientWidth || window?.innerWidth || 0,
+    height: document.documentElement.clientHeight || window?.innerHeight || 0,
   };
   const dimensions = { width: floating.offsetWidth, height: floating.offsetHeight };
   const result = place(rect, { x: 0, y: 0, ...dimensions }, viewport, options);
@@ -210,6 +212,5 @@ export const placeElement = (
   placeRect(anchor.getBoundingClientRect(), floating, {
     ...options,
     dir:
-      options.dir ??
-      direction(anchor instanceof Element ? anchor : (anchor.contextElement ?? floating)),
+      options.dir ?? direction('nodeType' in anchor ? anchor : (anchor.contextElement ?? floating)),
   });

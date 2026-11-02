@@ -1,3 +1,4 @@
+import { isHTMLElement } from './dom-host.js';
 export type CloseInteraction = 'mouse' | 'touch' | 'pen' | 'keyboard' | '';
 export interface PopupFocusOptions {
   readonly initialFocus?:
@@ -48,7 +49,7 @@ export function focusPopupInitially(
     if ('current' in target) (target.current ?? fallback)?.focus();
     else target.focus();
   } else if (
-    previous instanceof HTMLElement &&
+    isHTMLElement(previous) &&
     previous.ownerDocument.activeElement === beforeCallback &&
     beforeCallback !== previous
   ) {

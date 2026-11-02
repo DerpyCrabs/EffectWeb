@@ -1,3 +1,4 @@
+import { isHTMLElement } from './dom-host.js';
 import { domBinding } from 'effectweb';
 import type { OverlayHandle } from './overlay.js';
 interface TooltipHostInput {
@@ -7,7 +8,7 @@ interface TooltipHostInput {
 const acquireHost = (host: HTMLElement, current: () => TooltipHostInput) => {
   const handle = current().handle;
   const trigger = host.firstElementChild;
-  if (!(trigger instanceof HTMLElement)) return;
+  if (!isHTMLElement(trigger)) return;
   handle.attachTrigger(trigger);
   const previous = trigger.getAttribute('aria-describedby');
   trigger.setAttribute(

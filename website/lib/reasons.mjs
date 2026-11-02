@@ -164,6 +164,8 @@ Object.assign(reasons, {
   Rows: 'A row sequence carrying explicit identity. list consumes this contract to preserve resources when entity positions change.',
   Collection:
     'A reusable identity strategy and its row and structural-sharing operations. Use when several transformations must agree on what counts as the same entity.',
+  ControllerHost:
+    'The owning document passed as the second argument to a controller factory. Capture it for window-specific DOM events and services when one runtime mounts views in several documents.',
   ControllerLifetime:
     'What a placement releases with its controller: the owner it created, or any object with dispose and an optional awaited close. A placement calls dispose on removal and waits for close during awaited teardown. A lifetime does not collect other resources; give those to the owner with owner.own(resource).',
   ViewController:

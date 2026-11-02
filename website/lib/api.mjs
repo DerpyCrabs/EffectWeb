@@ -116,6 +116,7 @@ export const referencePages = [
           'ModelFields',
           'ViewController',
           'ControllerLifetime',
+          'ControllerHost',
           'ControllerModel',
           'OwnedRun',
           'DisposableOwner',
