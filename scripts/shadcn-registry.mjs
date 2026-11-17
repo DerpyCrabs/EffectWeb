@@ -198,7 +198,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     } else console.log('registry is current');
   } else {
     writeRegistry();
-    console.log('registry built: 53 items, 54 files');
+    console.log(`registry built: ${buildItems().length} items`);
     if (process.argv.includes('--serve')) {
       const index = process.argv.indexOf('--port');
       const server = await serveRegistry(index < 0 ? 4517 : Number(process.argv[index + 1]));

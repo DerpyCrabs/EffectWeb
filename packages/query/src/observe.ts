@@ -9,7 +9,11 @@ import type { InfiniteData, InfiniteQuery } from './infinite-query.js';
 
 /** One owned selection and immutable observation of a shared query resource. */
 export interface QueryResource<Args, A, E = never> {
-  select(this: void, args: Args | undefined): void;
+  select(
+    this: void,
+    ...selection: [args: Args | undefined] | ([Args] extends [true] ? [] : never)
+  ): void;
+  clear(this: void): void;
   read(this: void): AsyncResult.AsyncResult<A, E>;
   subscribe(this: void, listener: (result: AsyncResult.AsyncResult<A, E>) => void): () => void;
   refresh(this: void): void;
@@ -85,37 +89,41 @@ export function queryResource<Args, A, E, R>(
     generation = -1;
     notify();
   });
-  return {
-    select(args: Args | undefined) {
-      if (disposed || internal.disposed()) return;
-      const nextGeneration = internal.generation();
-      const nextKey = args === undefined ? undefined : encodeQueryArguments(definition, args);
-      if (nextKey === key && nextGeneration === generation) return;
-      const selected = ++revision;
-      disconnect();
-      // Releasing the previous query can run finalizers that select or dispose again.
-      if (disposed || selected !== revision) return;
-      key = nextKey;
-      generation = nextGeneration;
-      const next = args === undefined ? undefined : internal.query(definition, args);
-      if (disposed || selected !== revision) return;
-      entry = next;
-      if (next) {
-        // Subscription setup itself can execute a synchronous Effect and reenter selection.
-        const releaseUse = internal.retain(next);
-        const unsubscribe = internal.subscribe(next, notify);
-        const release = () => {
-          unsubscribe();
-          releaseUse();
-        };
-        if (disposed || selected !== revision) {
-          release();
-          return;
-        }
-        stop = release;
+  const select = (args: Args | undefined) => {
+    if (disposed || internal.disposed()) return;
+    const nextGeneration = internal.generation();
+    const nextKey = args === undefined ? undefined : encodeQueryArguments(definition, args);
+    if (nextKey === key && nextGeneration === generation) return;
+    const selected = ++revision;
+    disconnect();
+    // Releasing the previous query can run finalizers that select or dispose again.
+    if (disposed || selected !== revision) return;
+    key = nextKey;
+    generation = nextGeneration;
+    const next = args === undefined ? undefined : internal.query(definition, args);
+    if (disposed || selected !== revision) return;
+    entry = next;
+    if (next) {
+      // Subscription setup itself can execute a synchronous Effect and reenter selection.
+      const releaseUse = internal.retain(next);
+      const unsubscribe = internal.subscribe(next, notify);
+      const release = () => {
+        unsubscribe();
+        releaseUse();
+      };
+      if (disposed || selected !== revision) {
+        release();
+        return;
       }
-      notify();
+      stop = release;
+    }
+    notify();
+  };
+  return {
+    select(...selection) {
+      select(selection.length ? selection[0] : (true as Args));
     },
+    clear: () => select(undefined),
     read,
     subscribe(listener: (result: AsyncResult.AsyncResult<A, E>) => void) {
       if (disposed) return () => {};
@@ -202,20 +210,21 @@ const sources = new WeakMap<QueryCache<never>, Map<object, Map<string, SharedSou
 export function querySource<Args, A, Param, E, R>(
   cache: QueryCache<R>,
   definition: InfiniteQuery<Args, A, Param, E, NoInfer<R> | Scope.Scope>,
-  args: Args,
+  ...selection: [args: NoInfer<Args>] | ([Args] extends [true] ? [] : never)
 ): Source<AsyncResult.AsyncResult<InfiniteData<A, Param>, E>>;
 export function querySource<Args, A, E, R>(
   cache: QueryCache<R>,
   definition: Query<Args, A, E, NoInfer<R> | Scope.Scope>,
-  args: Args,
+  ...selection: [args: NoInfer<Args>] | ([Args] extends [true] ? [] : never)
 ): Source<AsyncResult.AsyncResult<A, E>>;
 export function querySource<Args, A, E, R>(
   cache: QueryCache<R>,
   requested:
     | Query<Args, A, E, NoInfer<R> | Scope.Scope>
     | { readonly query: Query<Args, A, E, NoInfer<R> | Scope.Scope> },
-  args: Args,
+  ...selection: [args: Args] | []
 ): Source<AsyncResult.AsyncResult<A, E>> {
+  const args = selection.length ? selection[0] : (true as Args);
   // An infinite query is read through its aggregate query of retained pages.
   const definition =
     'query' in requested && 'page' in requested

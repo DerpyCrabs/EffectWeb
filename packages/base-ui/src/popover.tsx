@@ -1,3 +1,4 @@
+import { viewWindow } from 'effectweb';
 import { OverlayPortal, type OverlayPortalProps } from './overlay-portal.js';
 import type { PopupFocusOptions } from './popup-focus.js';
 import { composeMounts } from 'effectweb';
@@ -153,7 +154,7 @@ export function popoverHoverBinding(
       timer = undefined;
     };
     const inside = (target: EventTarget | null) =>
-      target instanceof Node &&
+      target instanceof viewWindow(element).Node &&
       (element.contains(target) || current().popover.popup()?.contains(target));
     const enter = (event: PointerEvent) => {
       const props = current();

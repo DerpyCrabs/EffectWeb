@@ -296,6 +296,14 @@ export interface ControllerHost {
   readonly document: Document;
 }
 
+/** Window that owns this controller placement or DOM element. */
+export function viewWindow(host: ControllerHost | Element): NonNullable<Document['defaultView']> {
+  const document = 'ownerDocument' in host ? host.ownerDocument : host.document;
+  const window = document.defaultView;
+  if (!window) throw new Error('UI requires a document with an owning Window');
+  return window;
+}
+
 /**
  * A controller created from the view's props and released with the view. Use it when a view
  * needs a controller object (`modelOwner`, queries, subscriptions) rather than named messages.

@@ -1,4 +1,4 @@
-import { domBinding, observe, view } from 'effectweb';
+import { domBinding, observe, view, viewWindow } from 'effectweb';
 import { createStateController, type ControllerOptions } from './controller.js';
 import type { FieldHandle } from './field.js';
 import type { Native } from './types.js';
@@ -35,7 +35,10 @@ const acquireErrors = (form: HTMLFormElement, current: () => FormHandle) => {
     // A new set of external errors focuses the first control it names.
     const name = Object.keys(state.errors).find((key) => state.errors[key]);
     const control = name && form.elements.namedItem(name);
-    if (control instanceof HTMLElement && !control.contains(document.activeElement))
+    if (
+      control instanceof viewWindow(form).HTMLElement &&
+      !control.contains(form.ownerDocument.activeElement)
+    )
       control.focus();
   };
   let unsubscribe = handle.source.subscribe(focusFirst);
@@ -62,10 +65,11 @@ export const FormRoot = view<Native<'form'> & { readonly form: FormHandle }>(
           const element = event.currentTarget;
           if (!element.noValidate && !element.checkValidity()) {
             event.preventDefault();
+            const window = viewWindow(element);
             const invalid = [...element.elements].find((control): control is HTMLInputElement =>
-              control instanceof HTMLInputElement ||
-              control instanceof HTMLSelectElement ||
-              control instanceof HTMLTextAreaElement
+              control instanceof window.HTMLInputElement ||
+              control instanceof window.HTMLSelectElement ||
+              control instanceof window.HTMLTextAreaElement
                 ? !control.validity.valid
                 : false,
             );

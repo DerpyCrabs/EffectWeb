@@ -1,6 +1,6 @@
 # @effectweb/antd-icons
 
-EffectWeb adapter for the outlined and filled icons from `@ant-design/icons-svg`, using the upstream SVG definitions without React.
+EffectWeb adapter for the outlined, filled and two-tone icons from `@ant-design/icons-svg`, using the upstream SVG definitions without React.
 
 ```tsx
 import DeleteOutlined from '@effectweb/antd-icons/icons/DeleteOutlined';

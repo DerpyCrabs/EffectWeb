@@ -11,11 +11,11 @@ import {
   type LinkOptions,
   type ParsedLocation,
 } from '@tanstack/router-core';
-import { domBinding, mapSource, observe, type JSX, type Source } from 'effectweb';
+import { composeMounts, domBinding, mapSource, observe, type JSX, type Source } from 'effectweb';
 import { jsxComponent } from 'effectweb/jsx';
 import { routerPublications } from './router.js';
 
-type Anchor = Omit<JSX.IntrinsicElements['a'], 'href' | 'onClick' | 'target' | 'children'>;
+type Anchor = Omit<JSX.IntrinsicElements['a'], 'href' | 'target' | 'children'>;
 export type LinkProps<
   Router extends AnyRouter,
   From extends string = string,
@@ -82,7 +82,7 @@ export function linkTarget(router: AnyRouter, props: Target) {
       : props.reloadDocument || external
         ? publicHref
         : history.createHref(publicHref!);
-  const onClick = (event: ClickEvent) => {
+  const onClick = (event: ClickEvent, started?: (pending: Promise<void>) => void) => {
     const plain =
       event.button === 0 &&
       !event.metaKey &&
@@ -105,9 +105,10 @@ export function linkTarget(router: AnyRouter, props: Target) {
     )
       return;
     event.preventDefault();
-    router.navigate(props as never).catch((error: unknown) => {
+    const pending = router.navigate(props as never).catch((error: unknown) => {
       console.error('Router navigation failed', error);
     });
+    started?.(pending);
   };
   return { href, onClick, external, location };
 }
@@ -155,6 +156,7 @@ export function isActiveLocation(
 }
 
 type Location = ParsedLocation<Record<string, unknown>>;
+const transitions = new WeakMap<HTMLAnchorElement, Promise<unknown>>();
 const locations = new WeakMap<AnyRouter, Source<Location>>();
 /** The router's current location as a source; publications follow every router store write. */
 export function routerLocation(router: AnyRouter): Source<Location> {
@@ -170,11 +172,7 @@ export function routerLocation(router: AnyRouter): Source<Location> {
         return () => listeners.delete(notify);
       },
     };
-    source = mapSource(
-      raw,
-      (location) => location,
-      (a, b) => a.href === b.href,
-    );
+    source = mapSource(raw, (value) => value);
     locations.set(router, source);
   }
   return source;
@@ -186,6 +184,7 @@ interface PreloadInput {
   readonly options: Target;
   readonly preload: Preload | undefined;
   readonly delay: number;
+  readonly href?: string | undefined;
   readonly disabled: boolean;
 }
 const viewportMargin = { rootMargin: '100px' };
@@ -193,7 +192,10 @@ const viewportMargin = { rootMargin: '100px' };
 // intersection, `render` runs once when the link appears.
 const acquirePreload = (element: HTMLElement, current: () => PreloadInput) => {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let rendered = false;
+  let rendered: string | undefined;
+  const win = element.ownerDocument.defaultView!;
+  let proximity = false;
+  let inside = false;
   let observer: IntersectionObserver | undefined;
   const run = () => {
     const { router, options, disabled } = current();
@@ -218,14 +220,38 @@ const acquirePreload = (element: HTMLElement, current: () => PreloadInput) => {
       }, delay);
     }
   };
+  const move = (event: PointerEvent) => {
+    const { router, options } = current();
+    const distance =
+      options.preloadIntentProximity ?? router.options.defaultPreloadIntentProximity ?? 0;
+    const box = element.getBoundingClientRect();
+    const near =
+      event.clientX >= box.left - distance &&
+      event.clientX <= box.right + distance &&
+      event.clientY >= box.top - distance &&
+      event.clientY <= box.bottom + distance;
+    if (near && !inside) intent();
+    if (!near && inside) clear();
+    inside = near;
+  };
   const touch = () => {
     if (current().preload === 'intent') run();
   };
   const sync = () => {
-    const { preload, disabled } = current();
+    const { preload, disabled, router, options, href } = current();
+    const track =
+      preload === 'intent' &&
+      !disabled &&
+      (options.preloadIntentProximity ?? router.options.defaultPreloadIntentProximity ?? 0) > 0;
+    if (track !== proximity) {
+      proximity = track;
+      inside = false;
+      if (track) win.addEventListener('pointermove', move);
+      else win.removeEventListener('pointermove', move);
+    }
     if (preload === 'viewport' && !disabled) {
-      if (!observer && typeof IntersectionObserver !== 'undefined') {
-        observer = new IntersectionObserver((entries) => {
+      if (!observer && typeof win.IntersectionObserver !== 'undefined') {
+        observer = new win.IntersectionObserver((entries) => {
           if (entries.some((entry) => entry.isIntersecting)) run();
         }, viewportMargin);
         observer.observe(element);
@@ -234,10 +260,13 @@ const acquirePreload = (element: HTMLElement, current: () => PreloadInput) => {
       observer?.disconnect();
       observer = undefined;
     }
-    if (preload === 'render' && !disabled && !rendered) {
-      rendered = true;
-      run();
-    }
+    if (preload === 'render' && !disabled) {
+      const destination = href ?? router.buildLocation(options as never).href;
+      if (destination !== rendered) {
+        rendered = destination;
+        run();
+      }
+    } else rendered = undefined;
     if (preload !== 'intent') clear();
   };
   element.addEventListener('pointerenter', intent);
@@ -250,6 +279,7 @@ const acquirePreload = (element: HTMLElement, current: () => PreloadInput) => {
     update: sync,
     dispose: () => {
       clear();
+      win.removeEventListener('pointermove', move);
       observer?.disconnect();
       element.removeEventListener('pointerenter', intent);
       element.removeEventListener('focus', intent);
@@ -274,16 +304,16 @@ export function createLink<Router extends AnyRouter>(router: Router) {
     this: never,
     props: LinkProps<Router, From, To>,
   ): JSX.Element {
-    const target = linkTarget(router, props as never);
     const attributes = { ...(props as Record<string, unknown>) };
     for (const name of options) delete attributes[name];
     const disabled = !!props.disabled;
-    const preload: Preload | undefined =
-      props.reloadDocument || target.external
-        ? false
-        : ((props.preload ?? router.options.defaultPreload) as Preload | undefined);
-    const delay = props.preloadDelay ?? router.options.defaultPreloadDelay ?? 0;
     return observe(location, (current) => {
+      const target = linkTarget(router, props as never);
+      const preload: Preload | undefined =
+        props.reloadDocument || target.external
+          ? false
+          : ((props.preload ?? router.options.defaultPreload) as Preload | undefined);
+      const delay = props.preloadDelay ?? router.options.defaultPreloadDelay ?? 0;
       const active =
         props.active ??
         (!target.external &&
@@ -299,22 +329,35 @@ export function createLink<Router extends AnyRouter>(router: Router) {
           {...(attributes as Anchor)}
           href={target.href}
           target={props.target}
-          use={linkPreloadBinding({ router, options: props as never, preload, delay, disabled })}
+          use={composeMounts([
+            props.use,
+            linkPreloadBinding({
+              router,
+              options: props as never,
+              preload,
+              delay,
+              disabled,
+              href: target.href,
+            }),
+          ])}
           data-status={active ? 'active' : undefined}
           aria-current={active ? 'page' : undefined}
           role={disabled ? 'link' : undefined}
           aria-disabled={disabled ? 'true' : undefined}
           onClick={(event) => {
             const element = event.currentTarget;
-            const before = router.state.location.href;
-            target.onClick(event);
-            if (!event.defaultPrevented || router.state.location.href === before) return;
-            // The navigation was taken over; mark the anchor until the router resolves it.
-            element.dataset.transitioning = 'transitioning';
-            const stop = router.subscribe('onResolved', () => {
-              stop();
-              delete element.dataset.transitioning;
+            const result = props.onClick?.(event);
+            target.onClick(event, (navigation) => {
+              transitions.set(element, navigation);
+              element.dataset.transitioning = 'transitioning';
+              void navigation.then(() => {
+                if (transitions.get(element) === navigation) {
+                  transitions.delete(element);
+                  delete element.dataset.transitioning;
+                }
+              }, console.error);
             });
+            return result;
           }}
         >
           {props.children}

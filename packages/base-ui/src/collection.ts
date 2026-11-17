@@ -71,7 +71,7 @@ export function rove(
   if (activate) items[index]?.click();
 }
 
-import { domBinding } from 'effectweb';
+import { domBinding, viewWindow } from 'effectweb';
 const acquireRoving = (root: HTMLElement, current: () => string) => {
   const sync = () => {
     const items = enabledItems(root, current());
@@ -90,7 +90,8 @@ const acquireRoving = (root: HTMLElement, current: () => string) => {
       if (item.tabIndex !== value) item.tabIndex = value;
     }
   };
-  const observer = new MutationObserver(sync);
+  const window = viewWindow(root);
+  const observer = new window.MutationObserver(sync);
   observer.observe(root, {
     childList: true,
     subtree: true,

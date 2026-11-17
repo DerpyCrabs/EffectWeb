@@ -20,7 +20,7 @@ export const userQuery = query({
 });
 ```
 
-The cache key is the query's name plus **all** of its arguments. There is no separate key to keep in sync, so you cannot forget a filter or a page size; the types reject a `key` field. Arguments must be plain data: objects, arrays, strings, numbers, booleans. Services such as an API client come from the Effect environment, not from arguments. A query whose `load` takes no arguments is read with `true` as its argument: `querySource(cache, settingsQuery, true)`, `settings.select(true)`.
+The cache key is the query's name plus **all** of its arguments. There is no separate key to keep in sync, so you cannot forget a filter or a page size; the types reject a `key` field. Arguments must be plain data: objects, arrays, strings, numbers, booleans. Services such as an API client come from the Effect environment, not from arguments. For a query whose `load` takes no arguments, use `querySource(cache, settingsQuery)` or `settings.select()`. Calling `settings.clear()` disconnects the selection. Explicit `true` and `select(undefined)` remain supported.
 
 ## Create the cache
 
@@ -121,6 +121,8 @@ export const messagesQuery = infiniteQuery({
 ```
 
 Read it with `querySource` like any query. The result has `pages` and `next`; `next === undefined` means there are no more pages. Call `fetchNextPage(cache, messagesQuery, args)` from an event handler to load the next one; after a failed page it loads that page again.
+
+For bidirectional feeds, supply a `previous(value, param)` cursor resolver and call `fetchPreviousPage(cache, definition, args)` or `resource.fetchPreviousPage()`. An undefined cursor marks the boundary. Concurrent forward and backward loads merge at their respective ends. Seeds created before adding the resolver derive their previous cursor from the first retained page when passed to `resource.seed`.
 
 Refreshing reloads up to the number of pages already loaded, starting with the retained first-page parameter and deriving each subsequent cursor from the freshly loaded page. It stops early when there is no next cursor. Set `refresh: 'first'` to start again from the first page.
 

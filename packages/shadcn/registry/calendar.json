@@ -4,7 +4,7 @@
   "type": "registry:ui",
   "title": "Calendar",
   "dependencies": [
-    "@effectweb/lucide@0.15.0"
+    "@effectweb/lucide@0.16.0"
   ],
   "registryDependencies": [
     "@effectweb/button",

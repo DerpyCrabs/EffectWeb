@@ -21,7 +21,7 @@ const acquireImage = (element: HTMLImageElement, current: () => AvatarHandle) =>
     if (current().source.model().loaded !== loaded) current().sync({ loaded });
   };
   sync();
-  return { update: sync, dispose: () => {} };
+  return { update: sync };
 };
 const imageBinding = (avatar: AvatarHandle) => domBinding(avatar, acquireImage);
 /** The avatar image; reports loading and errors to the handle so the fallback can take over. */

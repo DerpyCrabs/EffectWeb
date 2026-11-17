@@ -34,6 +34,8 @@ Tokens stay inside the SDK and never appear in snapshots. Tokens are refreshed i
 
 `@effectweb/json-render` renders a JSON UI spec using components you register. Build the catalog with `defineCatalog` and `@effectweb/json-render/schema`, bind implementations with `defineRegistry`, and render with `<Renderer spec={…} state={…} registry={…} dispatch={…} />`.
 
+Repeated children resolve `$item`, `$index` and item bindings in their own row scope. Set `repeat.key` to preserve row identity on reorder. Components receive named slot content through `slots`. Changes to watched JSON pointers dispatch their configured actions after the initial render.
+
 The renderer emits actions; your app decides whether and how to run them. Unknown components can show a fallback, and missing nodes are skipped, so partially streamed specs render. There is no built-in widget set.
 
 ## Icons
@@ -59,6 +61,7 @@ export const Toolbar = view<{}>(() => (
 
 - Lucide names are kebab-case (`camera`, `circle-help`); Ant Design names are PascalCase (`DeleteOutlined`). Browse the [Lucide](https://lucide.dev/icons/) and [Ant Design](https://ant.design/components/icon) catalogs.
 - Lucide props: `size` (default 24), `color` (default `currentColor`), `strokeWidth` (default 2). Ant Design icons default to `1em`.
+- Ant Design includes Outlined, Filled and TwoTone modules. A TwoTone icon accepts `twoToneColor` as a primary color or an explicit primary and secondary pair.
 - Icons are decorative unless you give them a `title` or `aria-label`. An icon-only button needs its own `aria-label`, as above.
 - For an icon chosen at runtime, `loadIcon(name)` from `@effectweb/lucide/dynamic` loads it as an Effect; check the name first with `isIconName`.
 - `@effectweb/lucide/data` and `@effectweb/lucide/build` expose the raw SVG data and builders, for favicons and other non-component uses.

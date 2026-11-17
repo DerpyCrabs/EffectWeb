@@ -91,6 +91,8 @@ function makeCollection<A>(identity: (item: A, index: number) => Identity) {
     let result: B[] | undefined;
     let equal = previous.length === next.length;
     for (let index = 0; index < next.length; index++) {
+      // With every previous key matched in order, validation guarantees the tail is new.
+      if (index >= previous.length && !byIdentity) break;
       const item = next[index]!;
       if (index < previous.length && Object.is(previous[index], item)) continue;
       const key = nextKeys[index]!;

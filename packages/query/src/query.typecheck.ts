@@ -4,7 +4,7 @@ import { queryCache } from './cache.js';
 import { infiniteQuery, infiniteResource } from './infinite-query.js';
 import { available, modelOwner } from 'effectweb';
 import * as AsyncResult from 'effect/reactivity/AsyncResult';
-import { observeQuery } from './observe.js';
+import { observeQuery, querySource } from './observe.js';
 
 export function queryTypes() {
   interface Filter {
@@ -16,6 +16,10 @@ export function queryTypes() {
     load: (args) => Effect.succeed(args.nested.status),
   });
   const cache = queryCache();
+  // @ts-expect-error A filtered query needs an argument.
+  observeQuery(modelOwner({}), cache, data, () => {}).select();
+  // @ts-expect-error A filtered query source needs an argument.
+  querySource(cache, data);
   const valid = cache.prefetch(data, { id: 'a', nested: { status: 'open' } });
   const projected = {
     name: 'bad',

@@ -12,7 +12,7 @@ test('observes identity, keeps tokens private, and releases event handlers and r
   const client: KeycloakClient = {
     authenticated: false,
     token: 'secret',
-    tokenParsed: { preferred_username: 'tester' },
+    tokenParsed: { preferred_username: 'tester', name: 'Test User' },
     realmAccess: { roles: ['reader'] },
     onAuthLogout: original,
     init: async () => {
@@ -43,7 +43,7 @@ test('observes identity, keeps tokens private, and releases event handlers and r
   expect(auth.source.model()).toEqual({
     authenticated: true,
     username: 'tester',
-    name: 'tester',
+    name: 'Test User',
     roles: ['reader'],
     refreshError: undefined,
   });

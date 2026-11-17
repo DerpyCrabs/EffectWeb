@@ -17,11 +17,13 @@ import { protectSnapshot } from 'effectweb/advanced';
 export interface InfiniteData<A, Param> {
   readonly pages: readonly { readonly param: Param; readonly value: A }[];
   readonly next: Param | undefined;
+  readonly previous?: Param | undefined;
 }
 export interface InfiniteQuery<Args, A, Param, E = never, R = never> {
   readonly query: Query<Args, InfiniteData<A, Param>, E, R>;
   readonly page: Query<{ args: Args; param: Param }, A, E, R>;
   readonly next: (value: A, param: Param) => Param | undefined;
+  readonly previous?: ((value: A, param: Param) => Param | undefined) | undefined;
   readonly paramKey: (param: Param | undefined) => string;
 }
 /** Shared pages with explicit cursor identity. Refresh rebuilds retained pages sequentially from fresh cursors. */
@@ -31,6 +33,7 @@ export function infiniteQuery<Args, A, Param, E = never, R = never>(
     readonly initial: Param;
     readonly load: (args: Args, param: Param) => Effect.Effect<A, E, R | Scope.Scope>;
     readonly next: (value: A, param: Param) => Param | undefined;
+    readonly previous?: (value: A, param: Param) => Param | undefined;
     readonly refresh?: 'retained' | 'first';
     readonly groups?: readonly QueryGroup[];
     /** Freshness applies to both the aggregate and individual page queries. */
@@ -59,6 +62,13 @@ export function infiniteQuery<Args, A, Param, E = never, R = never>(
     paramKey(result);
     return result;
   };
+  const previous =
+    config.previous &&
+    ((value: A, param: Param) => {
+      const cursor = config.previous!(value, param);
+      paramKey(cursor);
+      return cursor;
+    });
   const page = query<{ args: Args; param: Param }, A, E, R>({
     name: `${config.name}:page`,
     ...(config.staleTime !== undefined ? { staleTime: config.staleTime } : {}),
@@ -75,12 +85,12 @@ export function infiniteQuery<Args, A, Param, E = never, R = never>(
     ...(config.groups ? { groups: config.groups } : {}),
     ...(config.staleTime !== undefined ? { staleTime: config.staleTime } : {}),
     ...(config.unused ? { unused: config.unused } : {}),
-    load: (args: Args, previous?: InfiniteData<A, Param>) => {
+    load: (args: Args, retained?: InfiniteData<A, Param>) => {
       return Effect.gen(function* () {
-        const count = config.refresh !== 'first' ? Math.max(1, previous?.pages.length ?? 0) : 1;
+        const count = config.refresh !== 'first' ? Math.max(1, retained?.pages.length ?? 0) : 1;
         const pages: { param: Param; value: A }[] = [];
         let param =
-          config.refresh !== 'first' && previous?.pages.length ? previous.pages[0]!.param : initial;
+          config.refresh !== 'first' && retained?.pages.length ? retained.pages[0]!.param : initial;
         let cursor: Param | undefined;
         for (let index = 0; index < count; index++) {
           const value = yield* config.load(args, param);
@@ -89,11 +99,16 @@ export function infiniteQuery<Args, A, Param, E = never, R = never>(
           if (cursor === undefined) break;
           param = cursor;
         }
-        return { pages, next: cursor };
+        const first = pages[0]!;
+        return {
+          pages,
+          next: cursor,
+          ...(previous ? { previous: previous(first.value, first.param) } : {}),
+        };
       });
     },
   });
-  return Object.freeze({ query: root, page, next, paramKey });
+  return Object.freeze({ query: root, page, next, previous, paramKey });
 }
 
 export interface InfiniteResource<Args, A, Param, E = never> extends QueryResource<
@@ -103,6 +118,7 @@ export interface InfiniteResource<Args, A, Param, E = never> extends QueryResour
 > {
   /** Load the next page of the selected arguments, as `fetchNextPage(cache, query, args)` does. */
   fetchNextPage(): Effect.Effect<InfiniteData<A, Param>, E>;
+  fetchPreviousPage(): Effect.Effect<InfiniteData<A, Param>, E>;
   seed(args: Args, data: InfiniteData<A, Param>): InfiniteData<A, Param>;
 }
 
@@ -130,12 +146,19 @@ function loadPage<Args, A, Param, E, R>(
   cache: QueryCache<R>,
   definition: InfiniteQuery<Args, A, Param, E, NoInfer<R> | Scope.Scope>,
   args: Args,
+  direction: 'next' | 'previous' = 'next',
 ): Effect.Effect<InfiniteData<A, Param>, E> {
   const internal = cacheInternals(cache);
   const book = operationBook(cache, definition.query);
+  const cursor = (snapshot: InfiniteData<A, Param>) => {
+    const first = snapshot.pages[0];
+    if (direction === 'previous' && !('previous' in snapshot) && first)
+      return definition.previous?.(first.value, first.param);
+    return snapshot[direction];
+  };
   return Effect.gen(function* () {
     const current = yield* cache.prefetch(definition.query, args);
-    const param = current.next;
+    const param = cursor(current);
     if (param === undefined) return current;
     const pageKey = definition.paramKey(param);
     const retained = current.pages.some((page) => definition.paramKey(page.param) === pageKey);
@@ -163,15 +186,19 @@ function loadPage<Args, A, Param, E, R>(
         )
           return;
         const index = latest.pages.findIndex((page) => definition.paramKey(page.param) === pageKey);
-        if (index < 0 && (retained || definition.paramKey(latest.next) !== pageKey)) return;
+        if (index < 0 && (retained || definition.paramKey(cursor(latest)) !== pageKey)) return;
         if (index >= 0 && latest.pages[index]!.value === value) return;
         const pages = [...latest.pages];
         const page = { param, value } as { param: Param; value: A };
         if (index >= 0) pages[index] = page;
+        else if (direction === 'previous') pages.unshift(page);
         else pages.push(page);
         const last = pages[pages.length - 1]!;
         result = cache.setQueryData(definition.query, args, {
           pages,
+          ...(definition.previous
+            ? { previous: definition.previous(pages[0]!.value, pages[0]!.param) }
+            : {}),
           next: definition.next(last.value, last.param),
         } as InfiniteData<A, Param>);
         state.revision = internal.revision(definition.query, args);
@@ -195,6 +222,13 @@ export const fetchNextPage = <Args, A, Param, E, R>(
   args: Args,
 ): Effect.Effect<InfiniteData<A, Param>, E> => loadPage(cache, definition, args);
 
+/** Load the page before the first retained page. */
+export const fetchPreviousPage = <Args, A, Param, E, R>(
+  cache: QueryCache<R>,
+  definition: InfiniteQuery<Args, A, Param, E, NoInfer<R> | Scope.Scope>,
+  args: Args,
+): Effect.Effect<InfiniteData<A, Param>, E> => loadPage(cache, definition, args, 'previous');
+
 /** Cache-owned results, observer-owned subscriptions. Operations return typed Effects for task composition. */
 export function infiniteResource<Args, A, Param, E, R>(
   cache: QueryCache<R>,
@@ -209,9 +243,13 @@ export function infiniteResource<Args, A, Param, E, R>(
   return {
     read: resource.read,
     subscribe: resource.subscribe,
-    select(args: Args | undefined) {
-      selected = args;
-      resource.select(args);
+    select(...selection) {
+      selected = selection.length ? selection[0] : (true as Args);
+      resource.select(selected);
+    },
+    clear() {
+      selected = undefined;
+      resource.clear();
     },
     refresh: resource.refresh,
     fetchNextPage: () =>
@@ -220,8 +258,19 @@ export function infiniteResource<Args, A, Param, E, R>(
           ? Effect.interrupt
           : loadPage(cache, definition, selected),
       ),
+    fetchPreviousPage: () =>
+      Effect.suspend(() =>
+        disposed || selected === undefined
+          ? Effect.interrupt
+          : loadPage(cache, definition, selected, 'previous'),
+      ),
     seed(args: Args, data: InfiniteData<A, Param>) {
       if (!data.pages.length) throw new RangeError('Seed at least one page.');
+      if (definition.previous && !('previous' in data)) {
+        const first = data.pages[0]!;
+        data = { ...data, previous: definition.previous(first.value, first.param) };
+      }
+      definition.paramKey(data.previous);
       definition.paramKey(data.next);
       const keys = data.pages.map((page) => definition.paramKey(page.param));
       if (new Set(keys).size !== keys.length)

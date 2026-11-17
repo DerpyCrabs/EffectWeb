@@ -46,3 +46,32 @@ for (const family of ['dialog', 'alert', 'popover', 'sheet', 'drawer']) {
     await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   });
 }
+
+test('a dialog mounted by its parent realm stays modal when its file picker cancels', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const path = '/tests/fixtures/overlayPartsFixture.tsx';
+    const fixture = (await import(path)) as typeof import('../fixtures/overlayPartsFixture');
+    const frame = document.body.appendChild(document.createElement('iframe'));
+    fixture.mountOverlayPartsFixture(frame.contentDocument!.body);
+  });
+  const frame = page.frameLocator('iframe');
+  const trigger = frame.getByRole('button', { name: 'Split dialog' });
+  await trigger.click();
+  const dialog = frame.getByRole('dialog', { name: 'Dialog title' });
+  await expect(dialog).toBeVisible();
+  expect(
+    await dialog.evaluate((element) => {
+      const input = element.appendChild(element.ownerDocument.createElement('input'));
+      input.type = 'file';
+      input.dispatchEvent(new Event('cancel', { bubbles: true }));
+      return element.matches(':modal');
+    }),
+  ).toBe(true);
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+});

@@ -6,6 +6,7 @@ mod lower;
 mod owned_work;
 mod profile_sites;
 mod render_lint;
+mod snapshot_writes;
 mod sourcemap;
 use oxc::{
     allocator::Allocator,
@@ -100,6 +101,16 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
         index.visit_program(&program);
         index.refs.sort_by_key(|r| r.span.start);
         index.calls.sort_by_key(|c| c.span.start);
+        for span in snapshot_writes::check(&index, import_source) {
+            let mut diagnostic = lower::diagnostic(
+                source,
+                filename,
+                span,
+                "Writing to a published model bypasses its subscribers. Use owner.patch or owner.edit and return a new value.",
+            );
+            diagnostic.code = "EW1007".into();
+            diagnostics.push(diagnostic);
+        }
         for span in finalizers::check(&index) {
             let mut diagnostic = lower::diagnostic(
                 source,
@@ -175,8 +186,6 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
                 }
             }
         }
-    }
-    if options.diagnostics_only && options.lint {
         let mut rows = list_identity::MapRows::new(&program, import_source);
         rows.visit_program(&program);
         for span in rows.positional {
@@ -249,6 +258,11 @@ pub fn compile_source(source: &str, filename: &str, options: &str) -> Result<Str
         }
         let mut bindings = list_identity::InlineBindings::new(&program, import_source);
         bindings.visit_program(&program);
+        bindings.spans.extend(list_identity::factory_bindings(
+            &program,
+            &index,
+            import_source,
+        ));
         for span in bindings.spans {
             let mut diagnostic = lower::diagnostic(
                 source,

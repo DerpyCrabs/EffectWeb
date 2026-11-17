@@ -47,3 +47,4 @@ export * from './meter.js';
 export * from './otp-field.js';
 export * from './preview-card.js';
 export * from './form.js';
+export { Button } from './button.js';

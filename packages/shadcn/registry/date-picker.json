@@ -1,0 +1,18 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "date-picker",
+  "type": "registry:ui",
+  "title": "Date Picker",
+  "registryDependencies": [
+    "@effectweb/calendar",
+    "@effectweb/popover"
+  ],
+  "files": [
+    {
+      "path": "ui/date-picker.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/date-picker.tsx",
+      "content": "import { view, type JSX } from 'effectweb';\nimport { Calendar, type CalendarProps } from '@/components/ui/calendar';\nimport { Popover, type PopoverProps } from '@/components/ui/popover';\n/** A calendar in a popover, with a caller-owned selection handle and trigger. */\nexport const DatePicker = view<\n  CalendarProps & Pick<PopoverProps, 'open' | 'onOpenChange'> & { trigger: JSX.Element }\n>(({ open, onOpenChange, trigger, ...calendar }) => (\n  <Popover open={open} onOpenChange={onOpenChange} trigger={trigger}>\n    <Calendar {...calendar} />\n  </Popover>\n));\n"
+    }
+  ]
+}

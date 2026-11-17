@@ -1,7 +1,8 @@
+import { scrollAffectsPosition } from './position-anchor.js';
 import { OverlayPortal, type OverlayPortalProps } from './overlay-portal.js';
 import type { PopupFocusOptions } from './popup-focus.js';
 import { composeMounts } from 'effectweb';
-import { domBinding, list, observe, view, type JSX } from 'effectweb';
+import { domBinding, list, observe, view, viewWindow, type JSX } from 'effectweb';
 import { Positioner, Arrow } from './positioner.js';
 import { popupBinding, type PositionOptions } from './overlay.js';
 import { createTypeahead, enabledItems } from './collection.js';
@@ -108,62 +109,83 @@ export const SelectTrigger = view<SelectTriggerProps>(
 export type SelectPopupProps = Native<'div'> &
   PositionOptions &
   PopupFocusOptions & { readonly select: Handle; readonly alignItemWithTrigger?: boolean };
-const alignmentBinding = (input: { select: Handle; enabled: boolean; configure?: boolean }) =>
-  domBinding(input, (element: HTMLElement, current) => {
+type AlignmentInput = { select: Handle; enabled: boolean; configure?: boolean };
+const acquireAlignment = (element: HTMLElement, current: () => AlignmentInput) => {
+  const window = viewWindow(element);
+  const configure = () => {
     if (current().configure) current().select.configureAlignment?.(current().enabled);
-    let frame = 0;
-    const align = () => {
-      const { select, enabled } = current();
-      if (!enabled || select.alignment?.() === false || !select.source.model().open) return;
-      const popup = select.overlay.popup();
-      const trigger = select.overlay.trigger();
-      const item = popup?.querySelector<HTMLElement>('[aria-selected=true]');
-      if (!popup || !trigger || !item) return;
-      const a = trigger.getBoundingClientRect(),
-        p = popup.getBoundingClientRect(),
-        i = item.getBoundingClientRect();
-      const top = a.top + a.height / 2 - (i.top - p.top + i.height / 2);
-      if (
-        a.top < 20 ||
-        a.bottom > window.innerHeight - 20 ||
-        top < 0 ||
-        top + p.height > window.innerHeight
-      )
-        return;
-      if (popup.style.top !== `${top}px`) popup.style.top = `${top}px`;
-      if (popup.dataset.side !== 'none') popup.dataset.side = 'none';
-      if (element.dataset.side !== 'none') element.dataset.side = 'none';
-      if (popup.dataset.alignTrigger !== 'true') popup.dataset.alignTrigger = 'true';
-    };
-    const schedule = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(align);
-    };
-    const stop = current().select.source.subscribe(schedule);
-    const resize = new ResizeObserver(schedule);
-    resize.observe(element);
-    const changes = new MutationObserver(schedule);
-    changes.observe(element, {
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['style', 'data-side'],
-      childList: true,
-    });
-    window.addEventListener('resize', schedule);
-    window.addEventListener('scroll', schedule, true);
-    schedule();
-    return {
-      update: schedule,
-      dispose: () => {
-        stop();
-        resize.disconnect();
-        changes.disconnect();
-        cancelAnimationFrame(frame);
-        window.removeEventListener('resize', schedule);
-        window.removeEventListener('scroll', schedule, true);
-      },
-    };
+  };
+  configure();
+  let frame = 0;
+  const align = () => {
+    const { select, enabled } = current();
+    if (!enabled || select.alignment?.() === false || !select.source.model().open) return;
+    const popup = select.overlay.popup();
+    const trigger = select.overlay.trigger();
+    const item = popup?.querySelector<HTMLElement>('[aria-selected=true]');
+    if (!popup || !trigger || !item) return;
+    const a = trigger.getBoundingClientRect(),
+      p = popup.getBoundingClientRect(),
+      i = item.getBoundingClientRect();
+    const top = a.top + a.height / 2 - (i.top - p.top + i.height / 2);
+    if (
+      a.top < 20 ||
+      a.bottom > window.innerHeight - 20 ||
+      top < 0 ||
+      top + p.height > window.innerHeight
+    )
+      return;
+    if (popup.style.top !== `${top}px`) popup.style.top = `${top}px`;
+    if (popup.dataset.side !== 'none') popup.dataset.side = 'none';
+    if (element.dataset.side !== 'none') element.dataset.side = 'none';
+    if (popup.dataset.alignTrigger !== 'true') popup.dataset.alignTrigger = 'true';
+  };
+  const schedule = () => {
+    window.cancelAnimationFrame(frame);
+    frame = window.requestAnimationFrame(align);
+  };
+  const stop = current().select.source.subscribe(schedule);
+  const resize = new window.ResizeObserver(schedule);
+  resize.observe(element);
+  const changes = new window.MutationObserver(schedule);
+  changes.observe(element, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['style', 'data-side'],
+    childList: true,
   });
+  window.addEventListener('resize', schedule);
+  const onScroll = (event: Event) => {
+    const select = current().select;
+    const popup = select.overlay.popup();
+    if (
+      popup &&
+      select.source.model().open &&
+      scrollAffectsPosition(event, select.overlay.trigger(), popup)
+    )
+      schedule();
+  };
+  window.addEventListener('scroll', onScroll, true);
+  schedule();
+  return {
+    update: () => {
+      configure();
+      schedule();
+    },
+    dispose: () => {
+      stop();
+      resize.disconnect();
+      changes.disconnect();
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('scroll', onScroll, true);
+    },
+  };
+};
+const alignmentBinding = (input: AlignmentInput) => ({
+  ...domBinding(input, acquireAlignment),
+  identity: input.select,
+});
 /** The listbox popup of a select. */
 export const SelectPopup = view<SelectPopupProps>(
   ({
@@ -285,24 +307,24 @@ export const SelectValue = view<SelectValueProps>(({ select, placeholder, childr
     </span>
   )),
 );
-const formBinding = (select: Handle) =>
-  domBinding(select, (element: HTMLInputElement) => {
-    const reset = (event: Event) =>
-      queueMicrotask(() => {
-        if (!event.defaultPrevented) select.reset();
-      });
-    const form = element.form;
-    form?.addEventListener('reset', reset);
-    const invalid = (event: Event) => {
-      event.preventDefault();
-      select.overlay.trigger()?.focus();
-    };
-    element.addEventListener('invalid', invalid);
-    return () => {
-      form?.removeEventListener('reset', reset);
-      element.removeEventListener('invalid', invalid);
-    };
-  });
+const acquireForm = (element: HTMLInputElement, current: () => Handle) => {
+  const reset = (event: Event) =>
+    queueMicrotask(() => {
+      if (!event.defaultPrevented) current().reset();
+    });
+  const form = element.form;
+  form?.addEventListener('reset', reset);
+  const invalid = (event: Event) => {
+    event.preventDefault();
+    current().overlay.trigger()?.focus();
+  };
+  element.addEventListener('invalid', invalid);
+  return () => {
+    form?.removeEventListener('reset', reset);
+    element.removeEventListener('invalid', invalid);
+  };
+};
+const formBinding = (select: Handle) => domBinding(select, acquireForm);
 /** A visually hidden validity control plus one successful form entry per selected value. */
 export const SelectHiddenInput = view<Native<'input'> & { readonly select: Handle }>(
   ({ select, name, required, form, ...rest }) =>
@@ -369,55 +391,63 @@ export const SelectItemIndicator = view<
     />
   )),
 );
-const scrollBinding = (input: { select: Handle; direction: number }) =>
-  domBinding(input, (element: HTMLElement, current) => {
-    let timer: ReturnType<typeof setInterval> | undefined;
-    const popup = () => current().select.overlay.popup();
-    const sync = () => {
-      // A retained closed popup still receives every captured window scroll; reading its
-      // scroll geometry there would force layout for an arrow nobody can see.
-      const target = current().select.source.model().open ? popup() : null;
-      const available =
-        !!target &&
-        (current().direction < 0
-          ? target.scrollTop > 0
-          : target.scrollTop + target.clientHeight < target.scrollHeight - 1);
-      element.style.visibility = available ? 'visible' : 'hidden';
-      element.toggleAttribute('data-visible', available);
-      if (!available) clearInterval(timer);
-    };
-    const scroll = () => {
-      const target = popup();
-      if (target) target.scrollTop += current().direction * 24;
-      sync();
-    };
-    const stop = () => clearInterval(timer);
-    const start = () => {
+type ScrollInput = { select: Handle; direction: number };
+const acquireScroll = (element: HTMLElement, current: () => ScrollInput) => {
+  const window = viewWindow(element);
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const popup = () => current().select.overlay.popup();
+  const sync = () => {
+    // A retained closed popup still receives every captured window scroll; reading its
+    // scroll geometry there would force layout for an arrow nobody can see.
+    const target = current().select.source.model().open ? popup() : null;
+    const available =
+      !!target &&
+      (current().direction < 0
+        ? target.scrollTop > 0
+        : target.scrollTop + target.clientHeight < target.scrollHeight - 1);
+    element.style.visibility = available ? 'visible' : 'hidden';
+    element.toggleAttribute('data-visible', available);
+    if (!available) clearInterval(timer);
+  };
+  const scroll = () => {
+    const target = popup();
+    if (target) target.scrollTop += current().direction * 24;
+    sync();
+  };
+  const stop = () => clearInterval(timer);
+  const start = () => {
+    stop();
+    scroll();
+    timer = setInterval(scroll, 50);
+  };
+  const stopSource = current().select.source.subscribe(() => queueMicrotask(sync));
+  const resize = new window.ResizeObserver(sync);
+  if (popup()) resize.observe(popup()!);
+  const onScroll = (event: Event) => {
+    if (event.target === popup()) sync();
+  };
+  window.addEventListener('scroll', onScroll, true);
+  element.addEventListener('pointerenter', start);
+  element.addEventListener('pointerleave', stop);
+  element.addEventListener('pointercancel', stop);
+  queueMicrotask(sync);
+  return {
+    update: sync,
+    dispose: () => {
       stop();
-      scroll();
-      timer = setInterval(scroll, 50);
-    };
-    const stopSource = current().select.source.subscribe(() => queueMicrotask(sync));
-    const resize = new ResizeObserver(sync);
-    if (popup()) resize.observe(popup()!);
-    window.addEventListener('scroll', sync, true);
-    element.addEventListener('pointerenter', start);
-    element.addEventListener('pointerleave', stop);
-    element.addEventListener('pointercancel', stop);
-    queueMicrotask(sync);
-    return {
-      update: sync,
-      dispose: () => {
-        stop();
-        stopSource();
-        resize.disconnect();
-        window.removeEventListener('scroll', sync, true);
-        element.removeEventListener('pointerenter', start);
-        element.removeEventListener('pointerleave', stop);
-        element.removeEventListener('pointercancel', stop);
-      },
-    };
-  });
+      stopSource();
+      resize.disconnect();
+      window.removeEventListener('scroll', onScroll, true);
+      element.removeEventListener('pointerenter', start);
+      element.removeEventListener('pointerleave', stop);
+      element.removeEventListener('pointercancel', stop);
+    },
+  };
+};
+const scrollBinding = (input: ScrollInput) => ({
+  ...domBinding(input, acquireScroll),
+  identity: input.select,
+});
 /** An element that scrolls the list up while hovered; visible only when there is content above. */
 export const SelectScrollUpArrow = view<Native<'div'> & { readonly select: Handle }>(
   ({ select, ...props }) => (

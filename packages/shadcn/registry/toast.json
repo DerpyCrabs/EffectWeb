@@ -1,0 +1,20 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "toast",
+  "type": "registry:ui",
+  "title": "Toast",
+  "dependencies": [
+    "@effectweb/base-ui@0.16.0"
+  ],
+  "registryDependencies": [
+    "@effectweb/sonner"
+  ],
+  "files": [
+    {
+      "path": "ui/toast.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/toast.tsx",
+      "content": "export {\n  createToastManager,\n  ToastProvider,\n  ToastViewport,\n  ToastRoot as Toast,\n  ToastContent,\n  ToastTitle,\n  ToastDescription,\n  ToastAction,\n  ToastClose,\n  ToastPositioner,\n} from '@effectweb/base-ui/toast';\nexport { Toaster } from '@/components/ui/sonner';\n"
+    }
+  ]
+}

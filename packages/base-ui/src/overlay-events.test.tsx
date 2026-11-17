@@ -59,6 +59,17 @@ it('lets the owner cancel outside press and focus-out without publishing a close
   expect(p.handle.source.model().open).toBe(true);
   expect(published).not.toHaveBeenCalled();
 });
+it('skips sibling scrolling and measures after an ancestor scrolls', async () => {
+  const p = await fixture();
+  const ancestor = document.body.appendChild(document.createElement('section'));
+  ancestor.appendChild(p.trigger);
+  p.handle.setOpen(true);
+  const reads = vi.spyOn(p.trigger, 'getBoundingClientRect');
+  for (let i = 0; i < 100; i++) p.outside.dispatchEvent(new Event('scroll'));
+  expect(reads).toHaveBeenCalledTimes(0);
+  ancestor.dispatchEvent(new Event('scroll'));
+  expect(reads).toHaveBeenCalledTimes(1);
+});
 it('uses the Escape event and allows its propagation when requested', async () => {
   const p = await fixture((_open, details) => {
     if (details.reason === 'escape-key') details.allowPropagation();

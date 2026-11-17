@@ -62,6 +62,22 @@ The `theme` item writes `styles/effectweb-shadcn-theme.css` at the project root.
 
 Every family below is a registry item under its kebab-case name (`@effectweb/dropdown-menu`). The shared items are `utils`, `types`, `adapter`, `placement` and `theme`; the CLI adds them when a component needs them.
 
+The catalog also includes Attachment, Bubble, Message, MessageScroller, Marker, Trace and CodeBlock for transcripts, plus InputGroup, Questionnaire, DataTable, DatePicker, Typography, DirectionProvider and Chart. Questionnaire emits a native FormData when the final step passes validation. DataTable accepts a keyed row projection from your own model or TanStack Table. DatePicker uses the same calendar handle as Calendar.
+
+```tsx check
+import { view } from 'effectweb';
+import { Chart } from '@effectweb/shadcn/chart';
+
+export const Sales = view(() => (
+  <Chart
+    label="Quarterly sales"
+    type="bar"
+    config={{ sales: { label: 'Sales', color: 'var(--chart-1)' } }}
+    data={[{ id: 'q1', label: 'Q1', values: { sales: 18 } }]}
+  />
+));
+```
+
 ## A settings dialog
 
 ```tsx check
@@ -192,7 +208,7 @@ The other tokens are `--background`, `--foreground`, `--card`, `--popover`, `--m
 - No React: state lives in your model or in a base-ui handle, not in context. Props such as `trigger`, `items` and `footer` replace children-only composition where that is simpler; the parts are exported where upstream composes parts.
 - Checkbox and Switch are native inputs. Select is a custom listbox; NativeSelect keeps the native element.
 - Overlays use `<dialog>` and the Popover API. Placement is a flip-and-clamp helper against the viewport, not Floating UI, so custom collision boundaries are not available.
-- Drawer has `direction` and the handle bar but no swipe gestures or snap points; its `data-direction` attribute replaces vaul's `data-vaul-drawer-direction` in the animation classes. Accordion panels animate with CSS transitions on `data-open`/`data-closed`, without measured heights. Toast has no swipe, update or promise helpers.
+- Drawer has `direction` and the handle bar but no swipe gestures or snap points; its `data-direction` attribute replaces vaul's `data-vaul-drawer-direction` in the animation classes. Accordion panels animate with CSS transitions on `data-open`/`data-closed`, without measured heights. Toast supports swipe dismissal and manager updates.
 - Command, Calendar, Carousel, Resizable and InputOTP are native ports of the React-only libraries upstream wraps (cmdk, react-day-picker, embla-carousel, react-resizable-panels, input-otp). Command does not reorder items by score; Calendar has no time zone or formatting library; Carousel has no plugins or drag inertia beyond native scrolling.
-- Chart is not ported: upstream renders through Recharts, a React rendering library. Draw charts with your own SVG views or a framework-free chart library.
+- Chart draws bar, line, area, pie, radar and radial charts with native SVG. Pass rows with stable IDs, category labels and numeric values keyed by the series in your config. Each chart includes a readable data table. Pie and radial charts use the sum of each series’s nonnegative values.
 - The upstream React examples need their composition and event props translated; the [package reference](/docs/api-shadcn/) lists every export and its props.

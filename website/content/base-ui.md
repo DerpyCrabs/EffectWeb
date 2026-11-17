@@ -123,5 +123,5 @@ Keyboard routing follows the inherited `dir`: horizontal arrows reverse in RTL, 
 - No React render props or providers; parts are placed explicitly, and content is not moved across the DOM.
 - Collision bounds are the viewport; there are no custom boundaries or virtual anchors beyond the pointer anchor of ContextMenu.
 - No submenu pointer-intent polygons, nested NavigationMenu roots, Drawer swipe gestures, or the full upstream Field validation API.
-- Toast has no swipe, update or promise helpers.
+- Toast supports swipe dismissal and manager updates.
 - Native `<dialog>` and Popover API support is required.

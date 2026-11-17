@@ -38,7 +38,7 @@
       "type": "registry:lib",
       "title": "Adapter",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "files": [
         {
@@ -54,7 +54,7 @@
       "type": "registry:lib",
       "title": "Placement",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "files": [
         {
@@ -86,8 +86,8 @@
       "type": "registry:ui",
       "title": "Accordion",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/base-ui@0.16.0",
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -107,7 +107,7 @@
       "type": "registry:ui",
       "title": "Alert Dialog",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -149,7 +149,7 @@
       "type": "registry:ui",
       "title": "Aspect Ratio",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types"
@@ -164,11 +164,32 @@
     },
     {
       "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "attachment",
+      "type": "registry:ui",
+      "title": "Attachment",
+      "dependencies": [
+        "class-variance-authority"
+      ],
+      "registryDependencies": [
+        "@effectweb/button",
+        "@effectweb/types",
+        "@effectweb/utils"
+      ],
+      "files": [
+        {
+          "path": "ui/attachment.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/attachment.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
       "name": "avatar",
       "type": "registry:ui",
       "title": "Avatar",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -208,7 +229,7 @@
       "type": "registry:ui",
       "title": "Breadcrumb",
       "dependencies": [
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -219,6 +240,26 @@
           "path": "ui/breadcrumb.tsx",
           "type": "registry:ui",
           "target": "components/ui/breadcrumb.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "bubble",
+      "type": "registry:ui",
+      "title": "Bubble",
+      "dependencies": [
+        "class-variance-authority"
+      ],
+      "registryDependencies": [
+        "@effectweb/types",
+        "@effectweb/utils"
+      ],
+      "files": [
+        {
+          "path": "ui/bubble.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/bubble.tsx"
         }
       ]
     },
@@ -269,7 +310,7 @@
       "type": "registry:ui",
       "title": "Calendar",
       "dependencies": [
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/button",
@@ -307,7 +348,7 @@
       "type": "registry:ui",
       "title": "Carousel",
       "dependencies": [
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/button",
@@ -324,12 +365,29 @@
     },
     {
       "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "chart",
+      "type": "registry:ui",
+      "title": "Chart",
+      "registryDependencies": [
+        "@effectweb/types",
+        "@effectweb/utils"
+      ],
+      "files": [
+        {
+          "path": "ui/chart.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/chart.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
       "name": "checkbox",
       "type": "registry:ui",
       "title": "Checkbox",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/base-ui@0.16.0",
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -346,11 +404,33 @@
     },
     {
       "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "code-block",
+      "type": "registry:ui",
+      "title": "Code Block",
+      "dependencies": [
+        "@effectweb/base-ui@0.16.0",
+        "class-variance-authority"
+      ],
+      "registryDependencies": [
+        "@effectweb/button",
+        "@effectweb/types",
+        "@effectweb/utils"
+      ],
+      "files": [
+        {
+          "path": "ui/code-block.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/code-block.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
       "name": "collapsible",
       "type": "registry:ui",
       "title": "Collapsible",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -370,8 +450,8 @@
       "type": "registry:ui",
       "title": "Combobox",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/base-ui@0.16.0",
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -390,7 +470,7 @@
       "type": "registry:ui",
       "title": "Command",
       "dependencies": [
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/dialog",
@@ -411,7 +491,7 @@
       "type": "registry:ui",
       "title": "Context Menu",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -426,12 +506,45 @@
     },
     {
       "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "data-table",
+      "type": "registry:ui",
+      "title": "Data Table",
+      "registryDependencies": [
+        "@effectweb/table"
+      ],
+      "files": [
+        {
+          "path": "ui/data-table.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/data-table.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "date-picker",
+      "type": "registry:ui",
+      "title": "Date Picker",
+      "registryDependencies": [
+        "@effectweb/calendar",
+        "@effectweb/popover"
+      ],
+      "files": [
+        {
+          "path": "ui/date-picker.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/date-picker.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
       "name": "dialog",
       "type": "registry:ui",
       "title": "Dialog",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/base-ui@0.16.0",
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -449,12 +562,28 @@
     },
     {
       "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "direction",
+      "type": "registry:ui",
+      "title": "Direction",
+      "registryDependencies": [
+        "@effectweb/types"
+      ],
+      "files": [
+        {
+          "path": "ui/direction.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/direction.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
       "name": "drawer",
       "type": "registry:ui",
       "title": "Drawer",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/base-ui@0.16.0",
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -476,8 +605,8 @@
       "type": "registry:ui",
       "title": "Dropdown Menu",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/base-ui@0.16.0",
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/placement",
@@ -517,7 +646,7 @@
       "type": "registry:ui",
       "title": "Field",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
+        "@effectweb/base-ui@0.16.0",
         "class-variance-authority"
       ],
       "registryDependencies": [
@@ -540,7 +669,7 @@
       "type": "registry:ui",
       "title": "Form",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -560,7 +689,7 @@
       "type": "registry:ui",
       "title": "Hover Card",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -575,12 +704,35 @@
     },
     {
       "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "input-group",
+      "type": "registry:ui",
+      "title": "Input Group",
+      "dependencies": [
+        "class-variance-authority"
+      ],
+      "registryDependencies": [
+        "@effectweb/button",
+        "@effectweb/input",
+        "@effectweb/textarea",
+        "@effectweb/types",
+        "@effectweb/utils"
+      ],
+      "files": [
+        {
+          "path": "ui/input-group.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/input-group.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
       "name": "input-otp",
       "type": "registry:ui",
       "title": "Input Otp",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/base-ui@0.16.0",
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -600,7 +752,7 @@
       "type": "registry:ui",
       "title": "Input",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -667,12 +819,32 @@
     },
     {
       "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "marker",
+      "type": "registry:ui",
+      "title": "Marker",
+      "dependencies": [
+        "class-variance-authority"
+      ],
+      "registryDependencies": [
+        "@effectweb/types",
+        "@effectweb/utils"
+      ],
+      "files": [
+        {
+          "path": "ui/marker.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/marker.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
       "name": "menubar",
       "type": "registry:ui",
       "title": "Menubar",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/base-ui@0.16.0",
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -687,11 +859,45 @@
     },
     {
       "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "message-scroller",
+      "type": "registry:ui",
+      "title": "Message Scroller",
+      "registryDependencies": [
+        "@effectweb/types",
+        "@effectweb/utils"
+      ],
+      "files": [
+        {
+          "path": "ui/message-scroller.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/message-scroller.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "message",
+      "type": "registry:ui",
+      "title": "Message",
+      "registryDependencies": [
+        "@effectweb/types",
+        "@effectweb/utils"
+      ],
+      "files": [
+        {
+          "path": "ui/message.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/message.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
       "name": "native-select",
       "type": "registry:ui",
       "title": "Native Select",
       "dependencies": [
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -711,7 +917,7 @@
       "type": "registry:ui",
       "title": "Navigation Menu",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -730,7 +936,7 @@
       "type": "registry:ui",
       "title": "Number Field",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -750,7 +956,7 @@
       "type": "registry:ui",
       "title": "Pagination",
       "dependencies": [
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/button",
@@ -771,7 +977,7 @@
       "type": "registry:ui",
       "title": "Popover",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -793,7 +999,7 @@
       "type": "registry:ui",
       "title": "Progress",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -809,11 +1015,30 @@
     },
     {
       "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "questionnaire",
+      "type": "registry:ui",
+      "title": "Questionnaire",
+      "registryDependencies": [
+        "@effectweb/button",
+        "@effectweb/input",
+        "@effectweb/types",
+        "@effectweb/utils"
+      ],
+      "files": [
+        {
+          "path": "ui/questionnaire.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/questionnaire.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
       "name": "radio-group",
       "type": "registry:ui",
       "title": "Radio Group",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -833,7 +1058,7 @@
       "type": "registry:ui",
       "title": "Resizable",
       "dependencies": [
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -853,7 +1078,7 @@
       "type": "registry:ui",
       "title": "Scroll Area",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -873,8 +1098,8 @@
       "type": "registry:ui",
       "title": "Select",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/base-ui@0.16.0",
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -893,7 +1118,7 @@
       "type": "registry:ui",
       "title": "Separator",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -913,8 +1138,8 @@
       "type": "registry:ui",
       "title": "Sheet",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/base-ui@0.16.0",
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -936,7 +1161,7 @@
       "type": "registry:ui",
       "title": "Sidebar",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/input",
@@ -974,7 +1199,7 @@
       "type": "registry:ui",
       "title": "Slider",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -994,7 +1219,7 @@
       "type": "registry:ui",
       "title": "Sonner",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -1014,7 +1239,7 @@
       "type": "registry:ui",
       "title": "Spinner",
       "dependencies": [
-        "@effectweb/lucide@0.15.0"
+        "@effectweb/lucide@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -1033,7 +1258,7 @@
       "type": "registry:ui",
       "title": "Switch",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -1071,7 +1296,7 @@
       "type": "registry:ui",
       "title": "Tabs",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
+        "@effectweb/base-ui@0.16.0",
         "class-variance-authority"
       ],
       "registryDependencies": [
@@ -1105,11 +1330,30 @@
     },
     {
       "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "toast",
+      "type": "registry:ui",
+      "title": "Toast",
+      "dependencies": [
+        "@effectweb/base-ui@0.16.0"
+      ],
+      "registryDependencies": [
+        "@effectweb/sonner"
+      ],
+      "files": [
+        {
+          "path": "ui/toast.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/toast.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
       "name": "toggle-group",
       "type": "registry:ui",
       "title": "Toggle Group",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
+        "@effectweb/base-ui@0.16.0",
         "class-variance-authority"
       ],
       "registryDependencies": [
@@ -1131,7 +1375,7 @@
       "type": "registry:ui",
       "title": "Toggle",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0",
+        "@effectweb/base-ui@0.16.0",
         "class-variance-authority"
       ],
       "registryDependencies": [
@@ -1153,7 +1397,7 @@
       "type": "registry:ui",
       "title": "Toolbar",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -1173,7 +1417,7 @@
       "type": "registry:ui",
       "title": "Tooltip",
       "dependencies": [
-        "@effectweb/base-ui@0.15.0"
+        "@effectweb/base-ui@0.16.0"
       ],
       "registryDependencies": [
         "@effectweb/placement",
@@ -1184,6 +1428,44 @@
           "path": "ui/tooltip.tsx",
           "type": "registry:ui",
           "target": "components/ui/tooltip.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "trace",
+      "type": "registry:ui",
+      "title": "Trace",
+      "dependencies": [
+        "@effectweb/lucide@0.16.0"
+      ],
+      "registryDependencies": [
+        "@effectweb/collapsible",
+        "@effectweb/types",
+        "@effectweb/utils"
+      ],
+      "files": [
+        {
+          "path": "ui/trace.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/trace.tsx"
+        }
+      ]
+    },
+    {
+      "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+      "name": "typography",
+      "type": "registry:ui",
+      "title": "Typography",
+      "registryDependencies": [
+        "@effectweb/types",
+        "@effectweb/utils"
+      ],
+      "files": [
+        {
+          "path": "ui/typography.tsx",
+          "type": "registry:ui",
+          "target": "components/ui/typography.tsx"
         }
       ]
     }

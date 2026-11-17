@@ -51,7 +51,11 @@ export const mountKeycloak = (
                 '',
             ),
             name: String(
-              client.idTokenParsed?.name ?? client.tokenParsed?.preferred_username ?? '',
+              client.idTokenParsed?.name ??
+                client.tokenParsed?.name ??
+                client.idTokenParsed?.preferred_username ??
+                client.tokenParsed?.preferred_username ??
+                '',
             ),
             roles: [...(client.realmAccess?.roles ?? [])],
             refreshError,

@@ -155,3 +155,15 @@ it('preserves custom Rows identity receivers and validates untrusted rows', asyn
   delete duplicate.validated;
   expect(() => identitiesOf(duplicate)).toThrow('indices 0 and 1');
 });
+
+it('shares an appended suffix after aligned edits and moves, and still rejects duplicate keys', () => {
+  const rows = collection<{ id: number }>((row) => row.id);
+  const previous = [{ id: 0 }, { id: 1 }];
+  const tail = { id: 2 };
+  const aligned = rows.share(previous, [{ id: 0 }, previous[1]!, tail]);
+  expect(aligned[0]).toBe(previous[0]);
+  expect(aligned[2]).toBe(tail);
+  const moved = rows.share(previous, [{ id: 1 }, tail, { id: 0 }]);
+  expect(moved[2]).toBe(previous[0]);
+  expect(() => rows.share(previous, [...previous, { id: 0 }])).toThrow(/Duplicate/);
+});

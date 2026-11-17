@@ -1,6 +1,7 @@
 import {
   FieldApi,
   FormApi,
+  getBy,
   type AnyFieldLikeMetaBase,
   type AnyFieldMeta,
   type DeepKeys,
@@ -124,12 +125,23 @@ export interface FormOptions<T extends object, M = never> {
   readonly onError?: ((error: unknown) => string) | undefined;
 }
 
+/** Read a typed field from the specific snapshot being rendered. */
+export function getSnapshotValue<T, K extends DeepKeys<T>>(
+  snapshot: { readonly values: T },
+  path: K,
+): DeepValue<T, K> {
+  return getBy(snapshot.values, String(path)) as DeepValue<T, K>;
+}
+
 /** TanStack owns the editable state; EffectWeb publishes detached snapshots of it. */
 export interface FormController<T extends object, M = never> {
   readonly source: Source<FormSnapshot<T>>;
   /** The TanStack Form API for what the controller does not wrap. Treat its state as read-only. */
   readonly api: Api<T, M>;
+  /** A fresh, independently editable copy of the current values. */
   readonly values: () => T;
+  /** Borrow current values for a projection, including edits awaiting publication. Treat as immutable. */
+  readonly snapshotValues: () => T;
   readonly getFieldValue: <K extends DeepKeys<T>>(name: K) => DeepValue<T, K>;
   readonly getFieldMeta: <K extends DeepKeys<T>>(name: K) => AnyFieldMeta | undefined;
   readonly setFieldValue: <K extends DeepKeys<T>>(
@@ -234,7 +246,7 @@ export function createForm<T extends object, M = never>(
   let disposed = false;
   let active: AbortController | undefined;
   let submitError: string | undefined;
-  const toError = options.onError ?? message;
+  let toError = options.onError ?? message;
   const coreOptions = ({
     defaultValues,
     onSubmit,
@@ -262,12 +274,27 @@ export function createForm<T extends object, M = never>(
         }),
   });
   const core = new FormApi(coreOptions(options) as never) as Api<T, M>;
+  let projectedInput: T | undefined;
   const source = projectionSource<FormSnapshot<T>>({
-    project: () => structuredClone(snapshot(core, submitError)),
+    project: (): FormSnapshot<T> => {
+      const state = snapshot(core, submitError);
+      if (state.values === projectedInput) {
+        const { values: _values, ...metadata } = state;
+        return { ...structuredClone(metadata), values: source.model().values };
+      }
+      const detached = structuredClone(state);
+      projectedInput = state.values;
+      return detached;
+    },
     reconcile: (previous, next) => shareValue<FormSnapshot<T>>(previous, next),
   });
   const unmount = core.mount();
-  const subscription = core.store.subscribe(source.changed);
+  let previousValues = core.state.values;
+  const subscription = core.store.subscribe(() => {
+    if (previousValues !== core.state.values) submitError = undefined;
+    previousValues = core.state.values;
+    source.changed();
+  });
   source.start();
   const assertOpen = () => {
     if (disposed) throw new Error('Cannot update a disposed form.');
@@ -276,13 +303,13 @@ export function createForm<T extends object, M = never>(
   // change and blur handling goes through one mounted plain field per name.
   const fields = new Map<string, { readonly api: PlainField; readonly unmount: () => void }>();
   const fieldFor = (name: DeepKeys<T>) => {
-    let entry = fields.get(name);
-    if (!entry) {
-      const api = new FieldApi({ form: core, name } as never) as unknown as PlainField;
-      entry = { api, unmount: api.mount() };
-      fields.set(name, entry);
-    }
-    return entry.api;
+    const mounted = core.getFieldInfo(name).instance;
+    if (mounted instanceof FieldApi) return mounted;
+    const stale = fields.get(name);
+    stale?.unmount();
+    const api = new FieldApi({ form: core, name } as never) as unknown as PlainField;
+    fields.set(name, { api, unmount: api.mount() });
+    return api;
   };
   const clearSubmitError = () => {
     if (submitError !== undefined) {
@@ -294,6 +321,10 @@ export function createForm<T extends object, M = never>(
     source,
     api: core,
     values: () => structuredClone(core.state.values),
+    snapshotValues: () =>
+      core.state.values === projectedInput
+        ? source.model().values
+        : structuredClone(core.state.values),
     getFieldValue: (name) => structuredClone(core.getFieldValue(name)),
     getFieldMeta: (name) => {
       const meta = core.getFieldMeta(name);
@@ -326,21 +357,42 @@ export function createForm<T extends object, M = never>(
       assertOpen();
       fieldFor(name).handleBlur();
     },
-    deleteField: (name) => core.deleteField(name),
-    resetField: (name) => core.resetField(name),
-    pushFieldValue: (name, value, updateOptions) =>
-      core.pushFieldValue(name, structuredClone(value) as never, updateOptions),
-    insertFieldValue: (name, index, value, updateOptions) =>
-      core.insertFieldValue(name, index, structuredClone(value) as never, updateOptions),
-    replaceFieldValue: (name, index, value, updateOptions) =>
-      core.replaceFieldValue(name, index, structuredClone(value) as never, updateOptions),
-    removeFieldValue: (name, index, updateOptions) =>
-      core.removeFieldValue(name, index, updateOptions),
-    swapFieldValues: (name, first, second, updateOptions) =>
-      core.swapFieldValues(name, first, second, updateOptions),
-    moveFieldValues: (name, from, to, updateOptions) =>
-      core.moveFieldValues(name, from, to, updateOptions),
-    clearFieldValues: (name, updateOptions) => core.clearFieldValues(name, updateOptions),
+    deleteField(name) {
+      assertOpen();
+      return core.deleteField(name);
+    },
+    resetField(name) {
+      assertOpen();
+      return core.resetField(name);
+    },
+    pushFieldValue(name, value, updateOptions) {
+      assertOpen();
+      return core.pushFieldValue(name, structuredClone(value) as never, updateOptions);
+    },
+    insertFieldValue(name, index, value, updateOptions) {
+      assertOpen();
+      return core.insertFieldValue(name, index, structuredClone(value) as never, updateOptions);
+    },
+    replaceFieldValue(name, index, value, updateOptions) {
+      assertOpen();
+      return core.replaceFieldValue(name, index, structuredClone(value) as never, updateOptions);
+    },
+    removeFieldValue(name, index, updateOptions) {
+      assertOpen();
+      return core.removeFieldValue(name, index, updateOptions);
+    },
+    swapFieldValues(name, first, second, updateOptions) {
+      assertOpen();
+      return core.swapFieldValues(name, first, second, updateOptions);
+    },
+    moveFieldValues(name, from, to, updateOptions) {
+      assertOpen();
+      return core.moveFieldValues(name, from, to, updateOptions);
+    },
+    clearFieldValues(name, updateOptions) {
+      assertOpen();
+      return core.clearFieldValues(name, updateOptions);
+    },
     validate: (cause = 'submit') =>
       Effect.promise(async () => {
         if (disposed) return false;
@@ -386,6 +438,7 @@ export function createForm<T extends object, M = never>(
       }),
     update(next) {
       assertOpen();
+      if ('onError' in next) toError = next.onError ?? message;
       core.update({ ...core.options, ...coreOptions(next) } as never);
       source.changed();
     },
@@ -541,19 +594,40 @@ export function createField<T extends object, K extends DeepKeys<T>, M = never>(
       assertOpen();
       field.handleBlur();
     },
-    setMeta: (updater) => field.setMeta(updater as never),
+    setMeta(updater) {
+      assertOpen();
+      return field.setMeta(updater as never);
+    },
     validate: (cause) =>
       Effect.promise(async () => (disposed ? [] : ((await field.validate(cause)) as unknown[]))),
-    pushValue: (value, updateOptions) =>
-      field.pushValue(structuredClone(value) as never, updateOptions),
-    insertValue: (index, value, updateOptions) =>
-      field.insertValue(index, structuredClone(value) as never, updateOptions),
-    replaceValue: (index, value, updateOptions) =>
-      field.replaceValue(index, structuredClone(value) as never, updateOptions),
-    removeValue: (index, updateOptions) => field.removeValue(index, updateOptions),
-    swapValues: (first, second, updateOptions) => field.swapValues(first, second, updateOptions),
-    moveValue: (from, to, updateOptions) => field.moveValue(from, to, updateOptions),
-    clearValues: (updateOptions) => field.clearValues(updateOptions),
+    pushValue(value, updateOptions) {
+      assertOpen();
+      return field.pushValue(structuredClone(value) as never, updateOptions);
+    },
+    insertValue(index, value, updateOptions) {
+      assertOpen();
+      return field.insertValue(index, structuredClone(value) as never, updateOptions);
+    },
+    replaceValue(index, value, updateOptions) {
+      assertOpen();
+      return field.replaceValue(index, structuredClone(value) as never, updateOptions);
+    },
+    removeValue(index, updateOptions) {
+      assertOpen();
+      return field.removeValue(index, updateOptions);
+    },
+    swapValues(first, second, updateOptions) {
+      assertOpen();
+      return field.swapValues(first, second, updateOptions);
+    },
+    moveValue(from, to, updateOptions) {
+      assertOpen();
+      return field.moveValue(from, to, updateOptions);
+    },
+    clearValues(updateOptions) {
+      assertOpen();
+      return field.clearValues(updateOptions);
+    },
     dispose() {
       if (disposed) return;
       disposed = true;

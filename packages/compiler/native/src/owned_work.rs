@@ -67,7 +67,7 @@ struct Transition<'s> {
     found: Vec<Span>,
     mutations: Vec<Span>,
 }
-const MUTATORS: [&str; 9] = [
+pub(super) const MUTATORS: [&str; 9] = [
     "push",
     "pop",
     "shift",

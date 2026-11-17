@@ -1,0 +1,17 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "data-table",
+  "type": "registry:ui",
+  "title": "Data Table",
+  "registryDependencies": [
+    "@effectweb/table"
+  ],
+  "files": [
+    {
+      "path": "ui/data-table.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/data-table.tsx",
+      "content": "import { list, view, type JSX } from 'effectweb';\nimport { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';\n\nexport interface DataTableColumn {\n  readonly id: string;\n  readonly label: string;\n  readonly sort?: 'ascending' | 'descending' | 'none';\n  readonly onSort?: () => void;\n}\nexport interface DataTableRow {\n  readonly id: string;\n  readonly cells: Readonly<Record<string, JSX.Element>>;\n}\n/** Renders a keyed table projection. Sorting and pagination can be owned by TanStack Table or the caller. */\nexport const DataTable = view<{\n  columns: readonly DataTableColumn[];\n  rows: readonly DataTableRow[];\n  empty?: JSX.Element;\n}>(({ columns, rows, empty }) => (\n  <Table>\n    <TableHeader>\n      <TableRow>\n        {list(\n          columns,\n          (c) => c.id,\n          (c) => (\n            <TableHead scope=\"col\" aria-sort={c.sort}>\n              {c.onSort ? (\n                <button type=\"button\" onClick={c.onSort}>\n                  {c.label}\n                </button>\n              ) : (\n                c.label\n              )}\n            </TableHead>\n          ),\n        )}\n      </TableRow>\n    </TableHeader>\n    <TableBody>\n      {list(\n        rows,\n        (r) => r.id,\n        (row) => (\n          <TableRow>\n            {list(\n              columns,\n              (c) => c.id,\n              (c) => (\n                <TableCell>{row.cells[c.id]}</TableCell>\n              ),\n            )}\n          </TableRow>\n        ),\n      )}\n      {!rows.length ? (\n        <TableRow>\n          <TableCell colSpan={Math.max(1, columns.length)}>{empty ?? 'No results'}</TableCell>\n        </TableRow>\n      ) : null}\n    </TableBody>\n  </Table>\n));\n"
+    }
+  ]
+}

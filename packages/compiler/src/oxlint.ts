@@ -74,7 +74,7 @@ function rule(category: Diagnostic['category'] | 'errors' | 'render-safety' | 'b
           for (const diagnostic of diagnostics) {
             const selected =
               category === 'render-safety'
-                ? ['EW1000', 'EW1003', 'EW1004', 'EW1005', 'EW1006', 'EW2001'].includes(
+                ? ['EW1000', 'EW1003', 'EW1004', 'EW1005', 'EW1006', 'EW1007', 'EW2001'].includes(
                     diagnostic.code,
                   )
                 : category === 'identity'

@@ -14,6 +14,7 @@ export { Portal, type PortalProps } from './dom.js';
 type Work =
   | void
   | (() => void)
+  | { update: () => void }
   | { dispose: () => void; update?: () => void }
   | Effect.Effect<unknown, unknown, Scope.Scope>;
 export interface DomMount<T extends Element = Element> {
@@ -32,16 +33,17 @@ export function domMount<T extends Element>(
   };
 }
 /**
- * A DOM lifecycle that follows changing data. Setup runs once; return `{ update, dispose }` and
+ * A DOM lifecycle that follows changing data. Setup runs once; return `{ update }` (plus `dispose` for cleanup) and
  * read the current data through `input()` in `update`, or read `input()` inside the handlers it
- * adds. A value read into a variable during setup never changes (EW3008).
+ * adds. Pass `{ identity: key }` to reacquire when the key changes. A value read into a variable during setup never changes (EW3008).
  */
 export function domBinding<T extends Element, A>(
   data: A,
   acquire: (element: T, input: () => A, lifetime: DomLifetime) => Work,
+  options?: { readonly identity: unknown },
 ): DomMount<T> {
   return {
-    identity: acquire,
+    identity: options ? options.identity : acquire,
     data,
     acquire: (element, input, lifetime) => acquire(element, input as () => A, lifetime),
   };

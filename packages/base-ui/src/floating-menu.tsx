@@ -1,3 +1,4 @@
+import { scrollAffectsPosition } from './position-anchor.js';
 import {
   focusPopupInitially,
   restorePopupFocus,
@@ -6,7 +7,7 @@ import {
 } from './popup-focus.js';
 import { logicalKey, direction } from './direction.js';
 import { createPresence } from './presence.js';
-import { domBinding, view } from 'effectweb';
+import { domBinding, view, viewWindow } from 'effectweb';
 import { createMenu, type MenuHandle, type MenuOptions } from './menu.js';
 import { createListNavigation, enabledItems } from './collection.js';
 import { placeRect, type Box } from './positioning.js';
@@ -78,7 +79,7 @@ export function positionFloating(
 ) {
   return placeRect(anchor.getBoundingClientRect(), element, {
     side: options.side ?? 'bottom',
-    dir: direction(anchor instanceof Element ? anchor : element),
+    dir: direction(anchor instanceof viewWindow(element).Element ? anchor : element),
     align: options.align ?? 'start',
     offset: options.sideOffset ?? 4,
     alignOffset: options.alignOffset ?? 0,
@@ -90,14 +91,21 @@ const acquireFloating = (
   current: () => { menu: FloatingMenuHandle } & PositionOptions & PopupFocusOptions,
 ) => {
   const { menu } = current();
+  const document = element.ownerDocument;
+  const window = viewWindow(element);
   menu.attachPopup(element);
   let shown = false;
   let closeInteraction: CloseInteraction = 'keyboard';
   const presence = createPresence(element);
   const items = () => enabledItems(element, '[role^="menuitem"]');
-  const position = () => {
+  const position = (event?: Event) => {
     const anchor = menu.anchor();
-    if (shown && anchor) positionFloating(anchor, element, { ...current(), ...menu.position() });
+    if (
+      shown &&
+      anchor &&
+      (event?.type !== 'scroll' || scrollAffectsPosition(event, anchor, element))
+    )
+      positionFloating(anchor, element, { ...current(), ...menu.position() });
   };
   const sync = () => {
     const open = menu.source.model().open;
@@ -169,7 +177,7 @@ const acquireFloating = (
       menu.dismiss(false);
   };
   const stop = menu.source.subscribe(sync);
-  const resize = new ResizeObserver(position);
+  const resize = new window.ResizeObserver(() => position());
   resize.observe(element);
   element.addEventListener('keydown', key);
   element.addEventListener('focusout', focusout);
@@ -242,12 +250,14 @@ const acquirePositioner = (
   current: () => { menu: FloatingMenuHandle } & PositionOptions,
 ) => {
   const menu = current().menu;
-  const sync = () => {
+  const window = viewWindow(element);
+  const sync = (event?: Event) => {
     const { side, align, sideOffset, alignOffset, collisionAvoidance } = current();
     menu.configurePosition({ side, align, sideOffset, alignOffset, collisionAvoidance });
     const popup = menu.popup();
     const anchor = menu.anchor();
     if (!popup || !anchor || !menu.source.model().open) return;
+    if (event?.type === 'scroll' && !scrollAffectsPosition(event, anchor, popup)) return;
     positionFloating(anchor, popup, current());
     element.dataset.side = popup.dataset.side;
     element.dataset.align = popup.dataset.align;
@@ -263,7 +273,7 @@ const acquirePositioner = (
       element.style.setProperty(`--${name}`, popup.style.getPropertyValue(`--${name}`));
   };
   const stop = menu.source.subscribe(() => queueMicrotask(sync));
-  const resize = new ResizeObserver(sync);
+  const resize = new window.ResizeObserver(() => sync());
   resize.observe(element);
   window.addEventListener('resize', sync);
   window.addEventListener('scroll', sync, true);

@@ -1,6 +1,6 @@
 import { expect, test } from 'vite-plus/test';
 import { Effect } from 'effect';
-import { createField, createForm } from './index.js';
+import { createField, createForm, getSnapshotValue } from './index.js';
 
 const tick = () => new Promise<void>((resolve) => queueMicrotask(resolve));
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -26,7 +26,8 @@ test('form validators gate submission and publish TanStack state as frozen snaps
   expect(form.source.model().isSubmitSuccessful).toBe(false);
   form.handleChange('rows[0].name', 'Changed');
   await tick();
-  expect(initial.values.rows[0]!.name).toBe('');
+  expect(getSnapshotValue(initial, 'rows[0].name')).toBe('');
+  expect(getSnapshotValue(form.source.model(), 'rows[0].name')).toBe('Changed');
   expect(Object.isFrozen(form.source.model().values.rows)).toBe(true);
   expect(form.source.model().isDirty).toBe(true);
   await Effect.runPromise(form.submit());
@@ -37,6 +38,24 @@ test('form validators gate submission and publish TanStack state as frozen snaps
   expect(form.source.model().values.rows[0]!.name).toBe('');
   expect(form.source.model().isDirty).toBe(false);
   expect(form.source.model().submissionAttempts).toBe(0);
+  form.dispose();
+});
+
+test('snapshotValues reads pending edits and reuses published values across metadata changes', async () => {
+  const form = createForm({ defaultValues: { name: 'first' } });
+  const initial = form.snapshotValues();
+  form.handleChange('name', 'second');
+  expect(form.snapshotValues()).toEqual({ name: 'second' });
+  expect(initial.name).toBe('first');
+  await tick();
+  const published = form.snapshotValues();
+  expect(published).toBe(form.source.model().values);
+  form.handleBlur('name');
+  await tick();
+  expect(form.snapshotValues()).toBe(published);
+  const copy = form.values();
+  copy.name = 'independent';
+  expect(form.snapshotValues().name).toBe('second');
   form.dispose();
 });
 
@@ -190,4 +209,41 @@ test('form listeners and update follow TanStack semantics', async () => {
   expect(() => form.handleChange('name', 'c')).not.toThrow();
   form.dispose();
   expect(() => form.setFieldValue('name', 'd')).toThrow('disposed');
+});
+
+test('form commands use mounted field validators and edits clear the current submit error', async () => {
+  const form = createForm({
+    defaultValues: { name: '', tags: [] as string[] },
+    onSubmit: () => {
+      throw Error('offline');
+    },
+    onError: () => 'first',
+  });
+  let changes = 0;
+  const field = createField(form, {
+    name: 'name',
+    validators: { onChange: ({ value }) => (value ? undefined : 'Required') },
+    listeners: {
+      onChange: () => {
+        changes++;
+      },
+    },
+  });
+  try {
+    form.handleChange('name', '');
+    await tick();
+    expect(changes).toBe(1);
+    expect(field.source.model().meta.errors).toEqual(['Required']);
+    form.handleChange('name', 'valid');
+    form.update({ onError: () => 'updated' });
+    await Effect.runPromise(form.submit());
+    await tick();
+    expect(form.source.model().submitError).toBe('updated');
+    form.pushFieldValue('tags', 'tag');
+    await tick();
+    expect(form.source.model().submitError).toBeUndefined();
+  } finally {
+    field.dispose();
+    form.dispose();
+  }
 });

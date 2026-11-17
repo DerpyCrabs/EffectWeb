@@ -4,7 +4,7 @@ import { Window } from 'happy-dom';
 import { mount, view, list, Portal, block, type SiteNode } from './dom.js';
 import { jsx } from './jsx-runtime.js';
 import { modelOwner } from './owner.js';
-import { controllerView } from './component.js';
+import { controllerView, viewWindow } from './component.js';
 
 function documentHost() {
   const browser = new Window({ url: 'https://example.test/desktop' });
@@ -13,6 +13,14 @@ function documentHost() {
   document.body.append(root);
   return { document, root };
 }
+
+it('resolves the owning Window for controller hosts and bound elements', () => {
+  const first = documentHost();
+  const second = documentHost();
+  expect(viewWindow(first)).toBe(first.document.defaultView);
+  expect(viewWindow(second.root)).toBe(second.document.defaultView);
+  expect(viewWindow(first)).not.toBe(viewWindow(second.root));
+});
 
 it('creates dynamic nodes, templates and list markers in each owning document', () => {
   const first = documentHost(),

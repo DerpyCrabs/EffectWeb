@@ -1,7 +1,7 @@
 import type { DisabledState as ToolbarSnapshot } from './controller.js';
 /** Immutable state belonging to the Toolbar family. */
 export type ToolbarState = ToolbarSnapshot;
-import { observe, view, type View } from 'effectweb';
+import { observe, view, viewWindow, type View } from 'effectweb';
 import { createStateController, type ControllerOptions, type DisabledState } from './controller.js';
 import { rove, rovingBinding } from './collection.js';
 import type { Native } from './types.js';
@@ -24,7 +24,7 @@ export const ToolbarRoot = view<Native<'div'> & { readonly toolbar: ToolbarHandl
           onKeyDown?.(event);
           if (event.defaultPrevented) return;
           if (
-            event.target instanceof HTMLInputElement &&
+            event.target instanceof viewWindow(event.currentTarget).HTMLInputElement &&
             ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)
           )
             return;

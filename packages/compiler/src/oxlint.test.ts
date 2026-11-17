@@ -503,6 +503,7 @@ export const A = view((props) => <div use={domBinding(props.text, onClick)} />);
 export const B = view((props) => <div use={domBinding(props.text, draw)} />);
 export const C = view((props) => <div use={domBinding(props.text, viaEffect)} />);
 const attach = (element, input) => { input().attach(element); return () => {}; };
-export const D = view((props) => <div use={{ ...domBinding(props.handle, attach), identity: props.handle }} />);`;
+export const D = view((props) => <div use={{ ...domBinding(props.handle, attach), identity: props.handle }} />);
+export const E = view((props) => <div use={domBinding(props.handle, attach, { identity: props.handle })} />);`;
   expect(lint(current, 'current.tsx').filter((d) => d.code === 'EW3008')).toEqual([]);
 });

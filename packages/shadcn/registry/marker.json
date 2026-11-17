@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "marker",
+  "type": "registry:ui",
+  "title": "Marker",
+  "dependencies": [
+    "class-variance-authority"
+  ],
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/marker.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/marker.tsx",
+      "content": "import { view } from 'effectweb';\nimport type { Native, Styled } from '@/lib/types';\nimport { cn } from '@/lib/utils';\nimport { cva, type VariantProps } from 'class-variance-authority';\n\n/** Classes for marker variants. */\nexport const markerVariants = cva(\n  \"group/marker relative flex min-h-4 w-full items-center gap-2 text-left text-sm text-muted-foreground [&_svg:not([class*='size-'])]:size-4 [a]:underline [a]:underline-offset-3 [a]:hover:text-foreground\",\n  {\n    variants: {\n      variant: {\n        default: '',\n        separator:\n          'before:mr-1 before:h-px before:min-w-0 before:flex-1 before:bg-border after:ml-1 after:h-px after:min-w-0 after:flex-1 after:bg-border',\n        border: 'border-b border-border pb-2',\n      },\n    },\n  },\n);\n\n/** Marker part of the marker component. */\nexport const Marker = view<(Native<'div'> & Styled) & VariantProps<typeof markerVariants>>(\n  ({ class: className, variant = 'default', ...props }) => {\n    return (\n      <div\n        data-slot=\"marker\"\n        data-variant={variant}\n        class={cn(markerVariants({ variant }), className)}\n        {...props}\n      />\n    );\n  },\n);\n\n/** Marker icon part of the marker component. */\nexport const MarkerIcon = view<Native<'span'> & Styled>(({ class: className, ...props }) => {\n  return (\n    <span\n      data-slot=\"marker-icon\"\n      aria-hidden=\"true\"\n      class={cn(\"size-4 shrink-0 [&_svg:not([class*='size-'])]:size-4\", className)}\n      {...props}\n    />\n  );\n});\n\n/** Marker content part of the marker component. */\nexport const MarkerContent = view<Native<'span'> & Styled>(({ class: className, ...props }) => {\n  return (\n    <span\n      data-slot=\"marker-content\"\n      class={cn(\n        'min-w-0 wrap-break-word group-data-[variant=separator]/marker:flex-none group-data-[variant=separator]/marker:text-center *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',\n        className,\n      )}\n      {...props}\n    />\n  );\n});\n"
+    }
+  ]
+}

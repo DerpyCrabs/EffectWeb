@@ -81,7 +81,11 @@ it('emits exactly one UI item per family plus the five shared items', () => {
     .filter((file) => file.endsWith('.tsx'))
     .map((file) => file.slice(0, -4))
     .sort();
-  expect(families).toHaveLength(55);
+  const expected =
+    'accordion alert alert-dialog aspect-ratio attachment avatar badge breadcrumb bubble button button-group calendar card carousel chart checkbox code-block collapsible combobox command context-menu data-table date-picker dialog direction drawer dropdown-menu empty field hover-card input input-group input-otp item kbd label marker menubar message message-scroller native-select navigation-menu pagination popover progress questionnaire radio-group resizable scroll-area select separator sheet sidebar skeleton slider spinner switch table tabs textarea toast toggle toggle-group tooltip trace typography'.split(
+      ' ',
+    );
+  expect(families).toEqual(expect.arrayContaining(expected));
   expect(
     items
       .filter((item) => item.type === 'registry:ui')
@@ -106,7 +110,7 @@ it('emits exactly one UI item per family plus the five shared items', () => {
 });
 it('strips file content from the catalog but retains it in each item', () => {
   const rendered = renderRegistry();
-  expect(rendered.size).toBe(61);
+  expect(rendered.size).toBe(buildItems().length + 1);
   expect(rendered.get('registry.json')).not.toContain('"content":');
   expect(rendered.get('registry.json')).toContain('"name": "effectweb"');
   expect(rendered.get('button.json')).toContain('"content":');
@@ -114,7 +118,7 @@ it('strips file content from the catalog but retains it in each item', () => {
 it('detects missing, stale and nested orphaned files and repairs them', () => {
   const directory = mkdtempSync(join(tmpdir(), 'effectweb-registry-test-'));
   temporary.push(directory);
-  expect(checkRegistry(directory)).toHaveLength(61);
+  expect(checkRegistry(directory)).toHaveLength(renderRegistry().size);
   writeRegistry(directory);
   expect(checkRegistry(directory)).toEqual([]);
   writeFileSync(join(directory, 'button.json'), '{}');

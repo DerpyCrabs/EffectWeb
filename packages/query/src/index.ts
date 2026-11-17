@@ -13,6 +13,7 @@ export {
   infiniteQuery,
   infiniteResource,
   fetchNextPage,
+  fetchPreviousPage,
   type InfiniteData,
   type InfiniteQuery,
   type InfiniteResource,

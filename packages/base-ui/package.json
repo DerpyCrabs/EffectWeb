@@ -1,6 +1,6 @@
 {
   "name": "@effectweb/base-ui",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Headless UI parts and explicit controllers for EffectWeb",
   "license": "MIT",
   "repository": {
@@ -43,6 +43,10 @@
     "./checkbox-group": {
       "types": "./dist/checkbox-group.d.ts",
       "import": "./dist/checkbox-group.js"
+    },
+    "./button": {
+      "types": "./dist/button.d.ts",
+      "import": "./dist/button.js"
     },
     "./checkbox": {
       "types": "./dist/checkbox.d.ts",
@@ -191,6 +195,6 @@
   },
   "peerDependencies": {
     "effect": "^4.0.0",
-    "effectweb": "0.15.0"
+    "effectweb": "0.16.0"
   }
 }

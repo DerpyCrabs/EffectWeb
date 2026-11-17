@@ -61,7 +61,7 @@ export interface ModelOwner<Model extends object, R = never> extends DisposableO
    * waiting while work for the key is running or queued, keeps its previous value, and is
    * never overwritten by a run that was replaced.
    */
-  readonly task: <Key extends TaskKey<Model>>(
+  readonly task: <const Key extends TaskKey<Model>>(
     key: Key,
     effect: TaskEffect<Model, Key, R>,
     policy: Exclude<RunPolicy, 'parallel'>,
@@ -94,9 +94,24 @@ type RowResultField<Model> = {
 }[keyof Model] &
   (string | number);
 /** `'field'` for a field holding an `AsyncResult`, `['field', id]` for a record of them. */
-export type TaskKey<Model> = ResultField<Model> | readonly [RowResultField<Model>, string | number];
-type TaskResult<Model, Key> = Key extends readonly [infer Field extends keyof Model, unknown]
-  ? Exclude<Model[Field][keyof Model[Field]], undefined>
+export type TaskKey<Model> =
+  | ResultField<Model>
+  | {
+      [F in RowResultField<Model>]: readonly [
+        F,
+        Extract<keyof Model[F], string | number> | (string extends keyof Model[F] ? number : never),
+      ];
+    }[RowResultField<Model>];
+
+type RowEntry<Rows, Id> = Id extends keyof Rows
+  ? Rows[Id]
+  : Id extends number
+    ? string extends keyof Rows
+      ? Rows[string]
+      : never
+    : never;
+type TaskResult<Model, Key> = Key extends readonly [infer Field extends keyof Model, infer Id]
+  ? Exclude<RowEntry<Model[Field], Id>, undefined>
   : Key extends keyof Model
     ? Model[Key]
     : never;
@@ -117,8 +132,8 @@ type WidenResult<T> =
  * The Effect a task accepts. When the field cannot hold the outcome, the parameter names the
  * fix instead: a row record must allow rows that have not run yet.
  */
-type TaskEffect<Model, Key, R> = Key extends readonly [infer Field extends keyof Model, unknown]
-  ? undefined extends Model[Field][keyof Model[Field]]
+type TaskEffect<Model, Key, R> = Key extends readonly [infer Field extends keyof Model, infer Id]
+  ? undefined extends RowEntry<Model[Field], Id>
     ? Effect.Effect<TaskValue<Model, Key>, TaskError<Model, Key>, R | Scope.Scope>
     : 'Declare per-row results as Partial<Record<Id, AsyncResult.AsyncResult<Value, Error>>>'
   : AsyncResult.AsyncResult<TaskValue<Model, Key>, TaskError<Model, Key>> extends TaskResult<
@@ -127,6 +142,15 @@ type TaskEffect<Model, Key, R> = Key extends readonly [infer Field extends keyof
       >
     ? Effect.Effect<TaskValue<Model, Key>, TaskError<Model, Key>, R | Scope.Scope>
     : 'Declare the result field as AsyncResult.AsyncResult<Value, Error>';
+
+/** Forward new props into an owner and hand its lifetime to a controller view. */
+export function ownerController<Model extends { props: unknown }, R>(owner: ModelOwner<Model, R>) {
+  return {
+    source: owner.source,
+    lifetime: owner,
+    receive: (props: Model['props']) => owner.edit('props', () => props),
+  };
+}
 
 type Options = { onDefect?: ReportError };
 /**

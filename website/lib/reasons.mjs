@@ -1,4 +1,5 @@
 export const reasons = {
+  '@effectweb/shadcn:Toast': 'Display a notification associated with its manager and toast data.',
   '@effectweb/shadcn:place':
     'Compute overlay coordinates from anchor, overlay and viewport dimensions, flipping and clamping to fit.',
   Source:
@@ -164,6 +165,7 @@ Object.assign(reasons, {
   Rows: 'A row sequence carrying explicit identity. list consumes this contract to preserve resources when entity positions change.',
   Collection:
     'A reusable identity strategy and its row and structural-sharing operations. Use when several transformations must agree on what counts as the same entity.',
+  viewWindow: 'Resolve the owning Window from a controller host or DOM element.',
   ControllerHost:
     'The owning document passed as the second argument to a controller factory. Capture it for window-specific DOM events and services when one runtime mounts views in several documents.',
   ControllerLifetime:
@@ -277,7 +279,7 @@ Object.assign(reasons, {
   IconName:
     'The exact name union of the pinned generated Lucide catalog, including aliases. isIconName narrows runtime strings to this union.',
   AntDesignIconProps:
-    'Shared native SVG and accessibility props for outlined and filled Ant Design icon views. size defaults to 1em.',
+    'Shared native SVG and accessibility props for outlined, filled and two-tone Ant Design icon views. size defaults to 1em.',
   AntDesignIcon:
     'The common view type of generated Ant Design icons. Use it when a component accepts an icon implementation rather than one fixed import.',
   IconNode:

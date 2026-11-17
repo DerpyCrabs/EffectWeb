@@ -35,6 +35,18 @@ export function taskKeys() {
   const untyped = modelOwner({ saved: AsyncResult.initial() });
   // @ts-expect-error `AsyncResult.initial()` without type arguments holds no value.
   untyped.task('saved', Effect.succeed(1), 'drop');
+  const keyed = modelOwner({
+    rows: {} as {
+      draft?: AsyncResult.AsyncResult<number, string>;
+      final?: AsyncResult.AsyncResult<string, Error>;
+    },
+  });
+  keyed.task(['rows', 'draft'], Effect.succeed(1), 'replace');
+  keyed.task(['rows', 'final'], Effect.fail(new Error()), 'replace');
+  // @ts-expect-error A finite record rejects unknown row ids.
+  keyed.task(['rows', 'typo'], Effect.succeed(1), 'replace');
+  // @ts-expect-error Each row has its own result type.
+  keyed.task(['rows', 'final'], Effect.succeed(1), 'replace');
   const strictRows = modelOwner({
     rows: {} as Record<string, AsyncResult.AsyncResult<number, never>>,
   });

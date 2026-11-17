@@ -36,11 +36,18 @@ function geometry(node) {
 
 let count = 0;
 for (const file of readdirSync(`${upstream}/lib/asn`).sort()) {
-  if (!/(Outlined|Filled)\.js$/.test(file)) continue;
+  if (!/(Outlined|Filled|TwoTone)\.js$/.test(file)) continue;
   const name = file.slice(0, -3);
   const definition = require(`${upstream}/lib/asn/${file}`).default;
+  const icon =
+    typeof definition.icon === 'function'
+      ? definition.icon(
+          'var(--ant-icon-primary, currentColor)',
+          'var(--ant-icon-secondary, color-mix(in srgb, currentColor 20%, transparent))',
+        )
+      : definition.icon;
   const output = `import { antDesignIcon } from '../attributes.js';
-export default /* @__PURE__ */ antDesignIcon(${JSON.stringify(definition.name)}, ${JSON.stringify(definition.icon.attrs.viewBox)}, ${JSON.stringify((definition.icon.children ?? []).map(geometry))});
+export default /* @__PURE__ */ antDesignIcon(${JSON.stringify(definition.name)}, ${JSON.stringify(icon.attrs.viewBox)}, ${JSON.stringify((icon.children ?? []).map(geometry))});
 `;
   writeFileSync(
     `${directory}/icons/${name}.js`,

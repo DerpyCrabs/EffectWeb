@@ -17,14 +17,14 @@
 :root {
   font-family: 'Inter Variable', sans-serif;
   font-synthesis: none;
-  --bg: #fafbf9;
+  --bg: #faf8f4;
   --surface: #fff;
-  --subtle: #f0f3ee;
-  --ink: #202c26;
-  --muted: #657066;
-  --line: #dfe5dc;
-  --accent: #256343;
-  --accent-soft: #eaf3e4;
+  --subtle: #efede9;
+  --ink: #24212a;
+  --muted: #625c68;
+  --line: #ded9d5;
+  --accent: #5943ae;
+  --accent-soft: #ece6fa;
   color: var(--ink);
   background: var(--bg);
   color-scheme: light;
@@ -200,35 +200,11 @@ summary:focus-visible {
   margin: auto;
   padding: 0 36px;
 }
-.hero {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: center;
-  gap: 60px;
-  padding: 90px 0 70px;
-}
 .eyebrow {
   font-size: 11px;
   letter-spacing: 0.1em;
   font-weight: 550;
   color: var(--muted);
-}
-.hero h1 {
-  font-size: clamp(40px, 4.1vw, 58px);
-  line-height: 1.1;
-  letter-spacing: -0.055em;
-  margin-top: 22px;
-}
-.hero h1 em {
-  font-style: normal;
-  color: var(--accent);
-}
-.hero-description {
-  color: var(--muted);
-  max-width: 450px;
-  font-size: 16px;
-  line-height: 1.8;
-  margin-top: 24px;
 }
 .hero-actions {
   display: flex;
@@ -257,48 +233,101 @@ summary:focus-visible {
 .text-button {
   padding-left: 0;
 }
-.hero-example {
-  min-width: 0;
-}
-.example-caption {
-  font-size: 12px;
-  color: var(--muted);
-}
-.file-label {
-  font-family: 'JetBrains Mono Variable', monospace;
-}
-.example-footnote {
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 12px;
-}
-.hero-example .code-block {
-  margin: 10px 0;
-}
-.principles {
+.intro,
+.agent-example {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 36px;
-  border-top: 1px solid var(--line);
-  padding: 32px 0 48px;
+  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
+  align-items: center;
+  gap: clamp(32px, 5vw, 80px);
 }
-.principles h2 {
-  font-size: 20px;
-  letter-spacing: -0.025em;
+.intro {
+  padding: clamp(54px, 7vw, 104px) 0;
 }
-.principles p {
+.intro h1 {
+  font-size: clamp(46px, 4.8vw, 74px);
+  line-height: 1.02;
+  letter-spacing: -0.06em;
+  text-wrap: balance;
+}
+.intro h1 em {
+  display: block;
+  color: var(--accent);
+  font:
+    italic 1.04em/1.03 Georgia,
+    serif;
+  letter-spacing: -0.055em;
+}
+.intro-copy p,
+.agent-example h2 + p {
+  max-width: 49ch;
+  margin-top: 20px;
   color: var(--muted);
-  font-size: 14px;
-  margin-top: 13px;
-  line-height: 1.8;
+  font-size: 16px;
 }
-.principles a {
+.intro-copy p {
+  margin-top: 0;
+}
+.agent-example {
+  border-top: 1px solid var(--line);
+  padding: clamp(40px, 5vw, 76px) 0;
+}
+.agent-example h2 {
+  font-size: clamp(30px, 3vw, 42px);
+  text-wrap: balance;
+}
+.inline-link {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 13px;
+  gap: 6px;
+  font-weight: 550;
+  font-size: 14px;
   color: var(--accent);
-  margin-top: 16px;
+  margin-top: 20px;
+}
+.diagnostic {
+  padding: clamp(16px, 2.4vw, 32px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.diagnostic p {
+  padding-bottom: 16px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.diagnostic a {
+  font:
+    600 0.8rem 'JetBrains Mono Variable',
+    monospace;
+  color: var(--accent);
+  margin-right: 6px;
+}
+.diagnostic samp,
+.diagnostic code {
+  font:
+    0.85rem/1.65 'JetBrains Mono Variable',
+    monospace;
+  overflow-wrap: anywhere;
+}
+.diagnostic div {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 8px;
+  padding: 4px 0;
+}
+.diagnostic span {
+  font-size: 12px;
+  color: var(--muted);
+}
+@media (max-width: 800px) {
+  .intro,
+  .agent-example {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+  .intro h1 {
+    max-width: 14ch;
+  }
 }
 .landing-section {
   padding: 32px 0 48px;
@@ -591,9 +620,6 @@ summary:focus-visible {
   background: var(--surface) !important;
   tab-size: 2;
 }
-.hero .shiki {
-  font-size: 11px;
-}
 [data-theme='dark'] .shiki,
 [data-theme='dark'] .shiki span {
   color: var(--shiki-dark) !important;
@@ -808,12 +834,6 @@ summary:focus-visible {
     gap: 28px;
     padding: 0 24px;
   }
-  .hero {
-    gap: 32px;
-  }
-  .hero .shiki {
-    font-size: 10px;
-  }
 }
 @media (max-width: 1000px) {
   .docs-layout {
@@ -824,15 +844,6 @@ summary:focus-visible {
   }
   .github-link {
     display: none;
-  }
-  .hero {
-    padding: 64px 0 50px;
-  }
-  .hero h1 {
-    font-size: 42px;
-  }
-  .hero-description {
-    font-size: 15px;
   }
 }
 @media (max-width: 700px) {
@@ -870,40 +881,8 @@ summary:focus-visible {
   .landing {
     padding: 0 24px;
   }
-  .hero {
-    grid-template-columns: 1fr;
-    padding: 42px 0;
-    gap: 32px;
-  }
-  .hero h1 {
-    font-size: 44px;
-  }
-  .hero-description {
-    max-width: 100%;
-    font-size: 16px;
-  }
   .hero-actions {
     margin-top: 22px;
-  }
-  .hero .shiki {
-    font-size: 11px;
-  }
-  .hero h1 br {
-    display: none;
-  }
-  .hero h1 em {
-    display: block;
-  }
-  .principles {
-    grid-template-columns: 1fr;
-    gap: 28px;
-    padding-bottom: 30px;
-  }
-  .principles p {
-    margin-top: 8px;
-  }
-  .principles a {
-    margin-top: 8px;
   }
   .section-heading h2 {
     font-size: 26px;

@@ -135,7 +135,7 @@ it('keeps one instance and calls update when setup returns an update method', as
   const updates: string[] = [];
   const keep = (_element: Element, input: () => string) => {
     acquired++;
-    return { update: () => updates.push(input()), dispose: () => {} };
+    return { update: () => updates.push(input()) };
   };
   attach(
     scope,

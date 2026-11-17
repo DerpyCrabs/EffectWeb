@@ -8,9 +8,9 @@ import {
 export type { PopupFocusOptions } from './popup-focus.js';
 import { logicalKey } from './direction.js';
 import { createPresence } from './presence.js';
-import { domBinding } from 'effectweb';
+import { domBinding, viewWindow } from 'effectweb';
 import { createOpenController, type OpenOptions, type OpenHandle } from './controller.js';
-import { resolvePositionAnchor } from './position-anchor.js';
+import { resolvePositionAnchor, scrollAffectsPosition } from './position-anchor.js';
 import { placeElement, type Side, type Align, type CollisionAvoidance } from './positioning.js';
 import { createListNavigation, enabledItems } from './collection.js';
 
@@ -100,18 +100,20 @@ export function createOverlay(options: OverlayOptions = {}): OverlayHandle {
     options.onOpenChange?.(open, details);
     if (open && !details.isCanceled) {
       const event = cause?.event;
+      const realm =
+        trigger?.ownerDocument.defaultView ?? popup?.ownerDocument.defaultView ?? globalThis;
       openInteractions.set(
         handle.trigger,
-        typeof PointerEvent !== 'undefined' && event instanceof PointerEvent
+        typeof realm.PointerEvent !== 'undefined' && event instanceof realm.PointerEvent
           ? event.pointerType === 'touch' || event.pointerType === 'pen'
             ? event.pointerType
             : 'mouse'
-          : (typeof KeyboardEvent !== 'undefined' && event instanceof KeyboardEvent) ||
-              (typeof MouseEvent !== 'undefined' &&
-                event instanceof MouseEvent &&
+          : (typeof realm.KeyboardEvent !== 'undefined' && event instanceof realm.KeyboardEvent) ||
+              (typeof realm.MouseEvent !== 'undefined' &&
+                event instanceof realm.MouseEvent &&
                 event.detail === 0)
             ? 'keyboard'
-            : typeof MouseEvent !== 'undefined' && event instanceof MouseEvent
+            : typeof realm.MouseEvent !== 'undefined' && event instanceof realm.MouseEvent
               ? 'mouse'
               : '',
       );
@@ -259,8 +261,10 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
   const presence = createPresence(element);
   let returningFocus = true;
   let closeInteraction: CloseInteraction = 'keyboard';
-  const isDialog = element instanceof HTMLDialogElement;
-  const place = () => {
+  const doc = element.ownerDocument;
+  const window = viewWindow(element);
+  const isDialog = element instanceof window.HTMLDialogElement;
+  const place = (event?: Event) => {
     const {
       anchor: suppliedAnchor,
       side,
@@ -270,7 +274,12 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
       collisionAvoidance,
     } = { ...current(), ...handle.position() };
     const anchor = resolvePositionAnchor(suppliedAnchor, handle.trigger());
-    if (!isDialog && anchor && handle.source.model().open) {
+    if (
+      !isDialog &&
+      anchor &&
+      handle.source.model().open &&
+      (event?.type !== 'scroll' || scrollAffectsPosition(event, anchor, element))
+    ) {
       placeElement(anchor, element, {
         side: side ?? 'bottom',
         align: align ?? 'center',
@@ -360,6 +369,7 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
     if (details.isCanceled) returningFocus = previous;
   };
   const cancel = (event: Event) => {
+    if (event.target !== element) return;
     event.preventDefault();
     if (current().kind !== 'alertdialog' && current().dismissible !== false)
       handle.hide({ reason: 'escape-key', event });
@@ -439,9 +449,6 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
   const close = () => {
     if (handle.source.model().open) handle.hide();
   };
-  const doc = element.ownerDocument;
-  const window = doc.defaultView;
-  if (!window) throw new Error('Overlay requires an owning Window');
   const pointerInteraction = (event: PointerEvent) => {
     if (handle.source.model().open)
       closeInteraction =
@@ -464,7 +471,7 @@ const acquirePopup = (element: HTMLElement, current: () => PopupInput) => {
   element.addEventListener('focusout', focusout);
   window.addEventListener('resize', place);
   window.addEventListener('scroll', place, true);
-  const resize = new window.ResizeObserver(place);
+  const resize = new window.ResizeObserver(() => place());
   resize.observe(element);
   if (handle.trigger()) resize.observe(handle.trigger()!);
   const unsubscribe = handle.source.subscribe(sync);

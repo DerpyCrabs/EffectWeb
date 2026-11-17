@@ -31,12 +31,14 @@ export {
   type ViewController,
   type ControllerLifetime,
   type ControllerHost,
+  viewWindow,
   type ControllerModel,
 } from './component.js';
 
 // Controllers and programs
 export {
   modelOwner,
+  ownerController,
   type ModelOwner,
   type ModelFields,
   type DisposableOwner,

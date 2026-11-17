@@ -1,0 +1,17 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "direction",
+  "type": "registry:ui",
+  "title": "Direction",
+  "registryDependencies": [
+    "@effectweb/types"
+  ],
+  "files": [
+    {
+      "path": "ui/direction.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/direction.tsx",
+      "content": "import { view } from 'effectweb';\nimport type { Native, Styled } from '@/lib/types';\n/** Provides inherited direction to text, native controls and Base UI keyboard navigation. */\nexport const DirectionProvider = view<Native<'div'> & Styled & { dir: 'ltr' | 'rtl' | 'auto' }>(\n  (props) => <div {...props} />,\n);\n"
+    }
+  ]
+}

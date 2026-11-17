@@ -177,3 +177,25 @@ it('does not reconcile stale later slots after an update publishes a newer group
   await Effect.runPromise(lifetime.close());
   expect(events).toEqual(['stable', 'stable:close']);
 });
+
+it('reuses a keyed setup for data updates and replaces it when the identity changes', async () => {
+  const events: string[] = [];
+  const binding = (identity: string, data: number) =>
+    domBinding(
+      data,
+      (_element, read) => {
+        events.push('open ' + identity);
+        return {
+          update: () => events.push('data ' + read()),
+          dispose: () => events.push('close ' + identity),
+        };
+      },
+      { identity },
+    );
+  const lifetime = prepareMount(document.createElement('div'), composeMounts([binding('a', 1)]));
+  lifetime.start();
+  lifetime.update(composeMounts([binding('a', 2)]));
+  lifetime.update(composeMounts([binding('b', 3)]));
+  await Effect.runPromise(lifetime.close());
+  expect(events).toEqual(['open a', 'data 2', 'close a', 'open b', 'close b']);
+});

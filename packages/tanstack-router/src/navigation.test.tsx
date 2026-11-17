@@ -10,6 +10,7 @@ import {
   createRouterController,
   isActiveLocation,
   matchRoute,
+  routerLocation,
   RootRoute,
   Route,
 } from './index.js';
@@ -196,4 +197,92 @@ test('matchRoute and canGoBack follow navigations', async () => {
   expect(files.model()).toEqual({ name: 'a' });
   expect(canGoBack(controller.source.model().location)).toBe(true);
   controller.dispose();
+});
+
+test('preloads an updated destination on the retained anchor and allows native click cancellation', async () => {
+  const { router } = build();
+  const controller = createRouterController(router);
+  await controller.start();
+  const loaded: string[] = [];
+  router.preloadRoute = ((opts: { to: string }) => {
+    loaded.push(opts.to);
+    return Promise.resolve([]);
+  }) as typeof router.preloadRoute;
+  const Link = createLink(router);
+  const owner = modelOwner<{ to: '/' | '/files' }>({ to: '/files' });
+  const root = document.createElement('div');
+  document.body.append(root);
+  const app = mount(
+    root,
+    view((m: { to: '/' | '/files' }) => (
+      <Link to={m.to} preload="render" onClick={(e) => e.preventDefault()}>
+        Go
+      </Link>
+    )),
+    owner.source,
+  );
+  try {
+    await tick();
+    const anchor = root.querySelector('a')!;
+    owner.patch({ to: '/' });
+    await tick();
+    expect(root.querySelector('a')).toBe(anchor);
+    expect(loaded).toEqual(['/files', '/']);
+    owner.patch({ to: '/files' });
+    await tick();
+    anchor.click();
+    await tick();
+    expect(router.state.location.pathname).toBe('/');
+  } finally {
+    app.dispose();
+    owner.dispose();
+    controller.dispose();
+    root.remove();
+  }
+});
+
+test('publishes state-only location changes and observes configured intent proximity', async () => {
+  const { router } = build();
+  const controller = createRouterController(router);
+  await controller.start();
+  const location = routerLocation(router);
+  const original = location.model();
+  let publications = 0;
+  const stop = location.subscribe(() => {
+    publications++;
+  });
+  const Link = createLink(router);
+  const owner = modelOwner({});
+  const root = document.createElement('div');
+  const loaded: string[] = [];
+  router.preloadRoute = ((options: { to: string }) => {
+    loaded.push(options.to);
+    return Promise.resolve([]);
+  }) as typeof router.preloadRoute;
+  const app = mount(
+    root,
+    view(() => (
+      <Link to="/files" preload="intent" preloadIntentProximity={12}>
+        Files
+      </Link>
+    )),
+    owner.source,
+  );
+  try {
+    router.stores.location.set({ ...original, state: { ...original.state, __TSR_index: 10 } });
+    expect(location.model().href).toBe(original.href);
+    expect(location.model().state.__TSR_index).toBe(10);
+    expect(publications).toBe(1);
+    await tick();
+    const anchor = root.querySelector('a')!;
+    anchor.getBoundingClientRect = () => new DOMRect(100, 100, 20, 20);
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 90, clientY: 110 }));
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 92, clientY: 110 }));
+    expect(loaded).toEqual(['/files']);
+  } finally {
+    app.dispose();
+    owner.dispose();
+    stop();
+    controller.dispose();
+  }
 });

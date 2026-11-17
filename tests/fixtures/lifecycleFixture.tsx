@@ -12,8 +12,8 @@ export async function lifecycleFixture() {
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const binding = (label: string) =>
-    domMount(() => {
+  const binding = (label: string) => ({
+    ...domMount(() => {
       events.push(`start:${label}`);
       return Effect.never.pipe(
         Effect.ensuring(
@@ -24,7 +24,9 @@ export async function lifecycleFixture() {
           }),
         ),
       );
-    });
+    }),
+    identity: label,
+  });
   const portalBinding = binding('portal');
   const Root = view((model: { version: number }) => (
     <section>

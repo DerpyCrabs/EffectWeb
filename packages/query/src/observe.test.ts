@@ -22,7 +22,7 @@ it('selects typed query arguments, shares across sessions, and clears values acr
   second.select('alice');
   expect(value()).toBe('first:alice');
   expect(load).toHaveBeenCalledTimes(1);
-  first.select(undefined);
+  first.clear();
   expect(value()).toBeUndefined();
   expect(Option.getOrUndefined(AsyncResult.value(second.read()))).toBe('first:alice');
   first.select('alice');
@@ -52,8 +52,9 @@ it('retains same-query values during failed refreshes and does not refresh on or
   });
   const cache = queryCache();
   const source = queryResource({ cache, changed() {} }, data);
+  source.select();
   source.select(true);
-  source.select(true);
+  expect(querySource(cache, data)).toBe(querySource(cache, data, true));
   expect(calls).toBe(1);
   source.refresh();
   expect(source.read()._tag).toBe('Failure');

@@ -71,6 +71,8 @@ export const Chat = controllerView(
 | `own(resource)`               | Release a cache, subscription or cleanup function with the owner.                             |
 | `dispose()`, `close()`        | Stop all work. `close()` is an Effect that waits for cleanup.                                 |
 
+For an owner created with `modelOwner({ props, ...state })`, return `{ ...ownerController(owner), save }` to forward new props and expose the owner’s source and lifetime. Supply a custom `receive` when changing props requires additional work.
+
 Inside an Effect scope, `Effect.acquireRelease(Effect.sync(() => modelOwner(initial)), (owner) => owner.close())` creates an owner that closes with the scope. `close()` never fails; cleanup errors go to the `onDefect` option.
 
 A controller with no state of its own, such as one that combines other sources, uses `modelOwner({})` for its resources and work.
@@ -126,9 +128,8 @@ export const complete = (id: string) =>
 ## Controllers in several documents
 
 A controller factory receives `host` as its second argument. `host.document` is the document
-containing that placement, including an iframe or another application window. Capture its
-`defaultView` for window-specific subscriptions instead of reading the runtime's global
-`window`. Asynchronous callbacks retain the captured host; opening or closing another view
+containing that placement, including an iframe or another application window. Use `viewWindow(host)` for window-specific subscriptions. A DOM binding can call
+`viewWindow(element)` to obtain the same window. Asynchronous callbacks retain the captured host; opening or closing another view
 does not change it. Release subscriptions through the controller lifetime.
 
 DOM bindings obtain the same ownership through `element.ownerDocument`. Default portals

@@ -1,5 +1,14 @@
+import { scrollAffectsPosition } from './position-anchor.js';
 import { createPresence } from './presence.js';
-import { domBinding, modelOwner, observe, view, type JSX, type Source } from 'effectweb';
+import {
+  domBinding,
+  modelOwner,
+  observe,
+  view,
+  viewWindow,
+  type JSX,
+  type Source,
+} from 'effectweb';
 import { placeElement } from './positioning.js';
 import type { Native } from './types.js';
 export interface ToastData<Data = unknown> {
@@ -179,7 +188,8 @@ type ToastViewManager = Pick<ToastManager, 'close' | 'pause' | 'resume' | 'attac
   readonly update: (id: string, changes: Pick<ToastData, 'height'>) => void;
 };
 const acquireViewport = (element: HTMLElement, current: () => ToastViewManager) => {
-  const window = element.ownerDocument.defaultView!;
+  const document = element.ownerDocument;
+  const window = viewWindow(element);
   const blur = () => current().pause('window');
   const focus = () => current().resume('window');
   const visibility = () =>
@@ -268,7 +278,8 @@ const acquireToast = (
     element.toggleAttribute('data-expanded', current().manager?.source.model().paused ?? false);
   expansion();
   const stopExpansion = current().manager?.source.subscribe(expansion);
-  const resize = new ResizeObserver(measure);
+  const window = viewWindow(element);
+  const resize = new window.ResizeObserver(measure);
   resize.observe(element);
   let origin: { x: number; y: number; pointer: number } | undefined;
   const reset = () => {
@@ -397,7 +408,8 @@ const positionToast = (
   element: HTMLElement,
   current: () => { toast: ToastData; sideOffset?: number | undefined },
 ) => {
-  const place = () => {
+  const window = viewWindow(element);
+  const place = (event?: Event) => {
     const { toast, sideOffset } = current();
     const options = toast.positionerProps;
     const target = options?.anchor;
@@ -407,7 +419,8 @@ const positionToast = (
         : target && 'current' in target
           ? target.current
           : target;
-    if (!anchor) return;
+    if (!anchor || (event?.type === 'scroll' && !scrollAffectsPosition(event, anchor, element)))
+      return;
     placeElement(anchor, element, {
       side: options?.side ?? 'top',
       align: options?.align ?? 'center',
@@ -415,7 +428,7 @@ const positionToast = (
       alignOffset: options?.alignOffset ?? 0,
     });
   };
-  const observer = new ResizeObserver(place);
+  const observer = new window.ResizeObserver(() => place());
   observer.observe(element);
   window.addEventListener('scroll', place, true);
   window.addEventListener('resize', place);

@@ -14,7 +14,7 @@ export const SearchBox = view<{}>(() => <input use={autofocus} />);
 
 The setup can return a cleanup function, which runs when the element is removed. It can also return `{ update?, dispose }` or an Effect, which is interrupted on removal.
 
-Declare the setup at module scope, as above. A setup created inside a view is new on every render, so the element's setup would be torn down and run again on every update (EW3002).
+Declare the setup at module scope, as above. A setup created inside a view is new on every render, so the element's setup would be torn down and run again on every update (EW3002). The same rule applies when a helper called from JSX creates the setup. Move the setup function outside the helper and pass changing values as binding data.
 
 Listeners on `window` or `document` belong in a `domMount` too, so they are removed with the element.
 
@@ -24,7 +24,7 @@ Use `composeMounts([first, second])` when one element needs several bindings. Ea
 
 ## Pass data to a widget
 
-`domBinding(data, setup)` keeps one widget instance while its data changes. The setup receives a function that returns the current data, and returns an `update` method called after each change. Read the data through `input()` inside `update` or inside the event handlers you add, not into a variable at setup: setup runs once, so a value read there never changes (EW3008). When the setup attaches the element to something named by the data, such as a handle, key the binding by it with `{ ...domBinding(handle, setup), identity: handle }` so another handle acquires again. Declare the setup once outside the view: its identity decides whether the binding is kept (EW3002).
+`domBinding(data, setup)` keeps one widget instance while its data changes. The setup receives a function that returns the current data, and returns an `update` method called after each change. Return `{ update }` for an element-only update, or `{ update, dispose }` to release resources. Read the data through `input()` inside `update` or inside the event handlers you add, not into a variable at setup: setup runs once, so a value read there never changes (EW3008). When the setup attaches the element to something named by the data, such as a handle, key the binding by it with `domBinding(handle, setup, { identity: handle })` so another handle acquires again. Declare the setup once outside the view: its identity decides whether the binding is kept (EW3002).
 
 ```tsx check
 import { domBinding, view } from 'effectweb';

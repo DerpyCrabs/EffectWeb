@@ -242,3 +242,43 @@ it('uses the fresh feed identity for subsequent pages and preserves the first se
   ]);
   await Effect.runPromise(cache.close());
 });
+
+it('prepends and appends concurrently and refreshes from the first retained cursor', async () => {
+  const calls: number[] = [];
+  const q = infiniteQuery({
+    name: 'timeline',
+    initial: 2,
+    load: (_: string, p: number) =>
+      Effect.promise(async () => {
+        await Promise.resolve();
+        calls.push(p);
+        return p;
+      }),
+    next: (_, p) => (p < 3 ? p + 1 : undefined),
+    previous: (_, p) => (p > 1 ? p - 1 : undefined),
+  });
+  const cache = queryCache();
+  const resource = infiniteResource(cache, q);
+  try {
+    resource.seed('all', { pages: [{ param: 2, value: 2 }], next: 3 });
+    resource.select('all');
+    await Promise.all(
+      [resource.fetchPreviousPage(), resource.fetchNextPage(), resource.fetchPreviousPage()].map(
+        (effect) => Effect.runPromise(effect),
+      ),
+    );
+    expect(cache.getQueryData(q.query, 'all')).toEqual({
+      pages: [1, 2, 3].map((param) => ({ param, value: param })),
+      previous: undefined,
+      next: undefined,
+    });
+    expect(calls.sort((a, b) => a - b)).toEqual([1, 3]);
+    await Effect.runPromise(resource.fetchPreviousPage());
+    resource.refresh();
+    await Effect.runPromise(cache.prefetch(q.query, 'all'));
+    expect(calls.slice(2)).toEqual([1, 2, 3]);
+  } finally {
+    resource.dispose();
+    cache.dispose();
+  }
+});

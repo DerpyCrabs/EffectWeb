@@ -1,4 +1,4 @@
-import { controllerView, modelOwner, view, type JSX } from 'effectweb';
+import { controllerView, modelOwner, ownerController, view, type JSX } from 'effectweb';
 import { createTooltip, TooltipPopup } from '@effectweb/base-ui';
 import { tooltipHostBinding } from '@effectweb/base-ui/tooltip-host';
 import { cn } from './cn.js';
@@ -18,12 +18,7 @@ function tooltipController(props: TooltipProps) {
   const owner = modelOwner({ props });
   const tooltip = createTooltip();
   owner.own(tooltip.lifetime);
-  return {
-    source: owner.source,
-    tooltip,
-    lifetime: owner,
-    receive: (next: TooltipProps) => owner.patch({ props: next }),
-  };
+  return { ...ownerController(owner), tooltip };
 }
 /** Shown while the trigger is hovered or focused; Escape hides it. A manual popover, so it sits in the top layer. */
 export const Tooltip = controllerView(

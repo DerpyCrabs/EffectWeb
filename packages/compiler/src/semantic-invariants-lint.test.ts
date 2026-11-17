@@ -309,3 +309,37 @@ it.each([
     ),
   ).toThrow(/mutat|borrowed|random/u);
 });
+
+it('follows a binding factory from use while respecting lexical identity', () => {
+  const source = `import {view, domBinding as bind} from 'effectweb';
+    const fresh = data => bind(data, () => {});
+    const stable = bind({}, () => {});
+    const setup = () => {};
+    function good(data) { return bind(data, setup); }
+    const owned = data => ({...bind(data, () => {}), identity: data.handle});
+    view(m => <div use={fresh(m)}/>);
+    view(m => <div use={good(m)}/>);
+    view(m => <div use={stable}/>);
+    view(m => <div use={owned(m)}/>);
+    const keyed = data => bind(data, () => {}, { identity: data.handle });
+    view(m => <div use={keyed(m)}/>);
+    view(m => <div use={bind(m, () => {}, {identity: m.handle})}/>);
+    function external(fresh) { return <div use={fresh(1)}/>; }`;
+  expect(
+    lint(source, 'factory.tsx')
+      .filter((d) => d.code === 'EW3002')
+      .map((d) => d.line),
+  ).toEqual([7]);
+});
+
+it('tracks plain snapshot writes through owner imports, source reads and local aliases', () => {
+  const source = `import {modelOwner as make} from 'effectweb';
+    const owner = make({rows: [] as string[], filter: {text: ''}, node: document.body});
+    const rows = owner.read().rows;
+    rows.push('bad');
+    owner.source.model().filter.text = 'bad';
+    const copy = [...rows]; copy.push('fine');
+    owner.read().node.title = 'fine';
+    const other = { read: () => ({rows: []}) }; other.read().rows.push('fine');`;
+  expect(lint(source, 'controller.ts').map((issue) => issue.code)).toEqual(['EW1007', 'EW1007']);
+});

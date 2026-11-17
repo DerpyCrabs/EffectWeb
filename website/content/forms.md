@@ -97,6 +97,10 @@ See the [form API](/docs/api-integrations/#effectweb-tanstack-form) for every op
 
 ## Fields
 
+Use `form.snapshotValues()` when building another immutable projection of the current draft. It reuses published values when available and includes edits made in the current turn. Use `form.values()` for an independently editable copy.
+
+Use `getSnapshotValue(snapshot, path)` to render a field from a particular publication. It accepts TanStack field paths such as `rows[0].name` and infers the value type from the path.
+
 `createField` mounts one field of a form, the counterpart of TanStack's `useField`. Field validators and listeners run with the form's validators of the same cause, and the field's meta joins the form snapshot.
 
 ```ts check
@@ -119,4 +123,4 @@ export const tags = createField(form, { name: 'tags' });
 
 A field publishes `{ value, meta }`. Bind an input with `handleChange` and `handleBlur`; array fields add `pushValue`, `insertValue`, `replaceValue`, `removeValue`, `swapValues`, `moveValue` and `clearValues`. The form offers the same array helpers by path, and `handleChange(path, value)` and `handleBlur(path)` for inputs without a field of their own. Dispose a field with the view that renders it.
 
-Validators receive TanStack's arguments and run against the live draft; snapshots and values returned by `values()` and `getValue()` are detached copies. Every snapshot is frozen, so keep edits on the form.
+Validators run against the live draft. Treat published snapshots as immutable and use the form or field methods to edit the draft. Development builds freeze plain snapshot data to catch accidental writes.

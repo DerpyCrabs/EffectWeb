@@ -1,9 +1,10 @@
+import { scrollAffectsPosition } from './position-anchor.js';
 import type { ValueState as NavigationMenuSnapshot } from './controller.js';
 /** Immutable state belonging to the NavigationMenu family. */
 export type NavigationMenuState = NavigationMenuSnapshot;
 import { logicalKey } from './direction.js';
 import { createPresence } from './presence.js';
-import { domBinding, observe, view } from 'effectweb';
+import { domBinding, observe, view, viewWindow } from 'effectweb';
 import { createValueController, type ValueOptions } from './controller.js';
 import { enabledItems, nextIndex } from './collection.js';
 import { positionFloating } from './floating-menu.js';
@@ -269,17 +270,20 @@ const acquirePositioner = (
   current: () => { navigationMenu: NavigationMenuHandle } & PositionOptions,
 ) => {
   const { navigationMenu: handle } = current();
+  const document = element.ownerDocument;
+  const window = viewWindow(element);
   handle.attachPositioner(element);
   let shown = false;
   const presence = createPresence(element, true);
   const surfaces = [
     ...element.querySelectorAll<HTMLElement>('[data-navigation-popup], [data-navigation-viewport]'),
   ].map((surface) => createPresence(surface));
-  const measure = () => {
+  const measure = (event?: Event) => {
     const value = handle.source.model().value;
     const trigger = handle.triggers.get(value);
     const content = handle.contents.get(value);
     if (!shown || !trigger || !content) return;
+    if (event?.type === 'scroll' && !scrollAffectsPosition(event, trigger, element)) return;
     const rect = { width: content.offsetWidth, height: content.offsetHeight };
     for (const target of [
       element,
@@ -323,7 +327,7 @@ const acquirePositioner = (
     if (shown && !handle.contains(event.target as Node)) handle.hide();
   };
   const stop = handle.source.subscribe(sync);
-  const resize = new ResizeObserver(measure);
+  const resize = new window.ResizeObserver(() => measure());
   // Observe content after all child parts have attached, including inactive panels.
   queueMicrotask(() => {
     for (const content of handle.contents.values()) resize.observe(content);

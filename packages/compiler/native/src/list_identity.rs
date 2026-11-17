@@ -439,6 +439,12 @@ fn inline_function(argument: Option<&Argument<'_>>) -> bool {
         Some(Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
     )
 }
+fn explicit_identity(call: &CallExpression<'_>) -> bool {
+    matches!(call.arguments.get(2).and_then(Argument::as_expression), Some(Expression::ObjectExpression(options))
+        if options.properties.iter().any(|p| matches!(p, ObjectPropertyKind::ObjectProperty(p)
+            if p.key.static_name().is_some_and(|key| key == "identity"))))
+}
+
 impl<'a> Visit<'a> for InlineBindings {
     fn visit_call_expression(&mut self, call: &CallExpression<'a>) {
         let name = Self::callee(call);
@@ -450,6 +456,7 @@ impl<'a> Visit<'a> for InlineBindings {
                 .map(Expression::without_parentheses)
             && self.once_readers.iter().any(|r| r == setup.name.as_str())
             && !self.keyed.contains(&call.span)
+            && !explicit_identity(call)
         {
             self.stale_reads.push(call.span);
         }
@@ -464,7 +471,10 @@ impl<'a> Visit<'a> for InlineBindings {
             } else {
                 None
             };
-            if argument.is_some_and(inline_function) {
+            if argument.is_some_and(inline_function)
+                && !explicit_identity(call)
+                && !self.keyed.contains(&call.span)
+            {
                 self.spans.push(call.span);
             }
             // A source or collection built during render is new on every
@@ -503,6 +513,87 @@ impl<'a> Visit<'a> for InlineBindings {
         walk::walk_jsx_attribute(self, attribute);
         self.depth -= 1;
     }
+}
+
+/// Resolve same-module factories used directly by an element's `use` attribute.
+/// Follow the returned binding only: a module-level binding or an explicit identity is stable.
+pub fn factory_bindings<'a>(
+    program: &'a Program<'a>,
+    index: &crate::analysis::Index<'a, '_>,
+    import_source: &str,
+) -> Vec<Span> {
+    struct Factories<'a, 's, 'i> {
+        index: &'i crate::analysis::Index<'a, 's>,
+        import_source: &'i str,
+        spans: Vec<Span>,
+    }
+    fn returned<'a>(body: &'a FunctionBody<'a>) -> Option<&'a Expression<'a>> {
+        match body.statements.last()? {
+            Statement::ReturnStatement(statement) => statement.argument.as_ref(),
+            _ => None,
+        }
+    }
+    impl<'a> Factories<'a, '_, '_> {
+        fn unstable(&self, expression: &Expression<'a>) -> Option<()> {
+            let Expression::CallExpression(factory) = expression.without_parentheses() else {
+                return None;
+            };
+            let Expression::Identifier(id) = factory.callee.without_parentheses() else {
+                return None;
+            };
+            let symbol = self.index.symbol(id)?;
+            if self.index.scoping.symbol_is_mutated(symbol) {
+                return None;
+            }
+            let result = if let Some(function) = self.index.functions.get(&symbol) {
+                returned(function.body.as_ref()?)?
+            } else {
+                match self.index.initializers.get(&symbol)?.without_parentheses() {
+                    Expression::ArrowFunctionExpression(f) => match &f.body {
+                        ArrowFunctionBody::FunctionBody(body) => returned(body)?,
+                        expr => expr.as_expression()?,
+                    },
+                    Expression::FunctionExpression(f) => returned(f.body.as_ref()?)?,
+                    _ => return None,
+                }
+            };
+            let Expression::CallExpression(binding) = result.without_parentheses() else {
+                return None;
+            };
+            let Expression::Identifier(id) = binding.callee.without_parentheses() else {
+                return None;
+            };
+            let (module, path) = self.index.imports.get(&self.index.symbol(id)?)?;
+            if module != self.import_source {
+                return None;
+            }
+            let slot = match path.first()?.as_str() {
+                "domBinding" if !explicit_identity(binding) => 1,
+                "domMount" => 0,
+                _ => return None,
+            };
+            inline_function(binding.arguments.get(slot)).then_some(())
+        }
+    }
+    impl<'a> Visit<'a> for Factories<'a, '_, '_> {
+        fn visit_jsx_attribute(&mut self, attr: &JSXAttribute<'a>) {
+            if matches!(&attr.name, JSXAttributeName::Identifier(name) if name.name == "use")
+                && let Some(JSXAttributeValue::ExpressionContainer(value)) = &attr.value
+                && let Some(expr) = value.expression.as_expression()
+                && self.unstable(expr).is_some()
+            {
+                self.spans.push(expr.span());
+            }
+            walk::walk_jsx_attribute(self, attr);
+        }
+    }
+    let mut factories = Factories {
+        index,
+        import_source,
+        spans: vec![],
+    };
+    factories.visit_program(program);
+    factories.spans
 }
 
 /// Module-level functions used as `domBinding` setups that call their `input` parameter while

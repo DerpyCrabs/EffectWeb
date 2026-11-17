@@ -1,0 +1,18 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "message",
+  "type": "registry:ui",
+  "title": "Message",
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/message.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/message.tsx",
+      "content": "import { view } from 'effectweb';\nimport type { Native, Styled } from '@/lib/types';\nimport { cn } from '@/lib/utils';\n\n/** Message group part of the message component. */\nexport const MessageGroup = view<Native<'div'> & Styled>(({ class: className, ...props }) => {\n  return (\n    <div\n      data-slot=\"message-group\"\n      class={cn('flex min-w-0 flex-col gap-2', className)}\n      {...props}\n    />\n  );\n});\n\n/** Message part of the message component. */\nexport const Message = view<(Native<'div'> & Styled) & { align?: 'start' | 'end' }>(\n  ({ class: className, align = 'start', ...props }) => {\n    return (\n      <div\n        data-slot=\"message\"\n        data-align={align}\n        class={cn(\n          'group/message relative flex w-full min-w-0 gap-2 text-sm data-[align=end]:flex-row-reverse',\n          className,\n        )}\n        {...props}\n      />\n    );\n  },\n);\n\n/** Message avatar part of the message component. */\nexport const MessageAvatar = view<Native<'div'> & Styled>(({ class: className, ...props }) => {\n  return (\n    <div\n      data-slot=\"message-avatar\"\n      class={cn(\n        'flex w-fit min-w-8 shrink-0 items-center justify-center self-end overflow-hidden rounded-full bg-muted group-has-data-[slot=message-footer]/message:-translate-y-8',\n        className,\n      )}\n      {...props}\n    />\n  );\n});\n\n/** Message content part of the message component. */\nexport const MessageContent = view<Native<'div'> & Styled>(({ class: className, ...props }) => {\n  return (\n    <div\n      data-slot=\"message-content\"\n      class={cn(\n        'flex w-full min-w-0 flex-col gap-2.5 wrap-break-word group-data-[align=end]/message:*:data-slot:self-end',\n        className,\n      )}\n      {...props}\n    />\n  );\n});\n\n/** Message header part of the message component. */\nexport const MessageHeader = view<Native<'div'> & Styled>(({ class: className, ...props }) => {\n  return (\n    <div\n      data-slot=\"message-header\"\n      class={cn(\n        'flex max-w-full min-w-0 items-center px-3 text-xs font-medium text-muted-foreground group-has-data-[variant=ghost]/message:px-0',\n        className,\n      )}\n      {...props}\n    />\n  );\n});\n\n/** Message footer part of the message component. */\nexport const MessageFooter = view<Native<'div'> & Styled>(({ class: className, ...props }) => {\n  return (\n    <div\n      data-slot=\"message-footer\"\n      class={cn(\n        'flex max-w-full min-w-0 items-center px-3 text-xs font-medium text-muted-foreground group-has-data-[variant=ghost]/message:px-0 group-data-[align=end]/message:justify-end',\n        className,\n      )}\n      {...props}\n    />\n  );\n});\n"
+    }
+  ]
+}

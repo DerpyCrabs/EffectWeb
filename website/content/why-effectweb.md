@@ -1,21 +1,18 @@
-EffectWeb is a UI framework for applications written with Effect. It exists for two reasons: to use Effect in the UI without an adapter layer, and to leave fewer ways for UI code to be wrong.
+As a browser app grows, more features share data and start work of their own. EffectWeb gives those features a common structure. A view describes the screen in JSX, a component or controller owns its state, and an owner runs each Effect.
 
 ## Effect without an adapter layer
 
-React and Solid each have their own model of state and time: hooks and a render cycle, or signals and a dependency graph. Using Effect inside them means translating between the two models. Effects are started from hooks or signal effects, their results are copied into the framework's state, cancellation is tied to a lifecycle that was not designed for it, and services have to be threaded through providers or module scope. Each translation is a place where a request outlives its component, a result lands in stale state, or an error type is lost.
-
-EffectWeb has no second model. Views are plain functions of immutable data. Work is an `Effect` run by an owner under a `Scope`; services come from a `Context`; the status of a request is an `AsyncResult`; a `Stream` feeds a reducer as a command. Disposing a component or controller interrupts its work through Effect's own interruption. What you know about Effect applies unchanged, and what the type checker knows about an Effect, its errors and its services, reaches the view that shows the result. [Core concepts](/docs/concepts/)
+A feature can use the same Effect services, typed errors and cancellation rules as the rest of the application. For example, a search controller starts a request with `owner.task`. Its view reads the task state to show progress, results or an error. Closing the controller interrupts its work. [Core concepts](/docs/concepts/)
 
 ## Fewer ways to be wrong
 
-Code that compiles and passes the lint has fewer ways to be wrong than in a framework that trusts the author. This matters most for code written by an AI agent from the documentation.
+When two searches overlap, the author chooses what should happen. With the `replace` policy, a new search interrupts the previous one and the earlier result cannot overwrite the latest one. The same policy applies anywhere the team uses that API. [Async work](/docs/tasks/)
 
-- Published data is immutable and typed as you declared it. Development builds freeze it, so a mutation throws where it happens instead of showing up as a stale screen later.
-- Overlapping work has a key and a policy, such as `replace`, `drop` or `queue`, instead of flags and timers. `owner.task` publishes waiting, success and failure without hand-written state. [Async work](/docs/tasks/)
-- Work belongs to an owner, so it cannot outlive the feature that started it. [Controllers](/docs/controllers/)
-- Rows are keyed by identity, so focus, drafts and running work stay with the right item. Rendering rows with `.map` is a lint error. [Lists](/docs/lists/)
-- The lint rejects impure render work, dispatching while rendering, async event handlers, writes inside a pure `update`, finalizers that overwrite newer work, and `use…` names borrowed from React. Each diagnostic names its fix. [Compiler and lint](/docs/compiler/)
-- Where a type error alone would be cryptic, the type carries the fix as its message: a `props` field returned from `init`, actions nested in a controller, a custom query `key`.
+The compiler and lint rules give authors feedback while they edit. A list rendered with an inline JSX `.map` callback gets a diagnostic with the keyed-list syntax. An agent can read that diagnostic, apply the change and run the check again. The installed package also includes the guides for its own version. [Compiler and lint](/docs/compiler/) · [Which API to use](/docs/choosing-apis/)
+
+## Testing with coding agents
+
+We tested several AI models on the same app-building tasks with EffectWeb, React, and Solid. On average, the apps they built with EffectWeb passed more of our browser tests.
 
 ## What it adds to Effect
 

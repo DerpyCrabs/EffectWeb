@@ -1,7 +1,16 @@
 import * as Base from '@effectweb/base-ui/menu';
 import ChevronRight from '@effectweb/lucide/icons/chevron-right';
 import type { Native } from '@effectweb/base-ui/types';
-import { controllerView, list, modelOwner, observe, sequence, view, type JSX } from 'effectweb';
+import {
+  controllerView,
+  list,
+  modelOwner,
+  ownerController,
+  observe,
+  sequence,
+  view,
+  type JSX,
+} from 'effectweb';
 import { createMenu, menuAnchorBinding, nextIndex, type MenuHandle } from '@effectweb/base-ui';
 import Check from '@effectweb/lucide/icons/check';
 import { cn } from './cn.js';
@@ -85,12 +94,7 @@ function submenuController(props: SubmenuProps) {
   const owner = modelOwner({ props });
   const submenu = createMenu({ parent: props.menu });
   owner.own(submenu.lifetime);
-  return {
-    source: owner.source,
-    submenu,
-    lifetime: owner,
-    receive: (next: SubmenuProps) => owner.patch({ props: next }),
-  };
+  return { ...ownerController(owner), submenu };
 }
 const Submenu = controllerView(
   { controller: submenuController },

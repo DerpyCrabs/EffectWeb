@@ -1,0 +1,18 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry-item.json",
+  "name": "typography",
+  "type": "registry:ui",
+  "title": "Typography",
+  "registryDependencies": [
+    "@effectweb/types",
+    "@effectweb/utils"
+  ],
+  "files": [
+    {
+      "path": "ui/typography.tsx",
+      "type": "registry:ui",
+      "target": "components/ui/typography.tsx",
+      "content": "import { view } from 'effectweb';\nimport { cn } from '@/lib/utils';\nimport type { Native, Styled } from '@/lib/types';\n/** Styled h1 for h1 typography. */\nexport const TypographyH1 = view<Native<'h1'> & Styled>(({ class: className, ...props }) => (\n  <h1 class={cn('text-4xl font-extrabold tracking-tight', className)} {...props} />\n));\n/** Styled h2 for h2 typography. */\nexport const TypographyH2 = view<Native<'h2'> & Styled>(({ class: className, ...props }) => (\n  <h2 class={cn('border-b pb-2 text-3xl font-semibold tracking-tight', className)} {...props} />\n));\n/** Styled h3 for h3 typography. */\nexport const TypographyH3 = view<Native<'h3'> & Styled>(({ class: className, ...props }) => (\n  <h3 class={cn('text-2xl font-semibold', className)} {...props} />\n));\n/** Styled h4 for h4 typography. */\nexport const TypographyH4 = view<Native<'h4'> & Styled>(({ class: className, ...props }) => (\n  <h4 class={cn('text-xl font-semibold', className)} {...props} />\n));\n/** Styled p for p typography. */\nexport const TypographyP = view<Native<'p'> & Styled>(({ class: className, ...props }) => (\n  <p class={cn('leading-7', className)} {...props} />\n));\n/** Styled blockquote for blockquote typography. */\nexport const TypographyBlockquote = view<Native<'blockquote'> & Styled>(\n  ({ class: className, ...props }) => (\n    <blockquote class={cn('border-l-2 pl-6 italic', className)} {...props} />\n  ),\n);\n/** Styled ul for list typography. */\nexport const TypographyList = view<Native<'ul'> & Styled>(({ class: className, ...props }) => (\n  <ul class={cn('ml-6 list-disc', className)} {...props} />\n));\n/** Styled code for inlinecode typography. */\nexport const TypographyInlineCode = view<Native<'code'> & Styled>(\n  ({ class: className, ...props }) => (\n    <code class={cn('rounded bg-muted px-1 font-mono text-sm', className)} {...props} />\n  ),\n);\n/** Styled p for lead typography. */\nexport const TypographyLead = view<Native<'p'> & Styled>(({ class: className, ...props }) => (\n  <p class={cn('text-xl text-muted-foreground', className)} {...props} />\n));\n/** Styled div for large typography. */\nexport const TypographyLarge = view<Native<'div'> & Styled>(({ class: className, ...props }) => (\n  <div class={cn('text-lg font-semibold', className)} {...props} />\n));\n/** Styled small for small typography. */\nexport const TypographySmall = view<Native<'small'> & Styled>(({ class: className, ...props }) => (\n  <small class={cn('text-sm font-medium', className)} {...props} />\n));\n/** Styled p for muted typography. */\nexport const TypographyMuted = view<Native<'p'> & Styled>(({ class: className, ...props }) => (\n  <p class={cn('text-sm text-muted-foreground', className)} {...props} />\n));\n"
+    }
+  ]
+}

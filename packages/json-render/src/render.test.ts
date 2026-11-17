@@ -36,3 +36,42 @@ test('reordering and removing spec children keeps drafts and focus with element 
     host.remove();
   }
 });
+
+test('resolves keyed repeats, named slots, and watch actions with current state', async () => {
+  const host = document.createElement('div');
+  const actions: string[] = [];
+  const props: RendererProps = {
+    state: { rows: [{ id: 'a' }, { id: 'b' }], country: 'UK' },
+    dispatch: (event) => actions.push(String(event.params.country)),
+    registry: {
+      Frame: ({ children, slots }) => [slots?.title, children],
+      Label: ({ props }) => String(props.label),
+    },
+    spec: {
+      root: 'root',
+      elements: {
+        root: {
+          type: 'Frame',
+          props: {},
+          slots: { title: ['title'] },
+          repeat: { statePath: '/rows', key: 'id' },
+          children: ['row'],
+          watch: { '/country': { action: 'reload', params: { country: { $state: '/country' } } } },
+        },
+        title: { type: 'Label', props: { label: 'Rows:' } },
+        row: { type: 'Label', props: { label: { $item: 'id' } } },
+      },
+    },
+  };
+  const app = renderView(host, Renderer, props);
+  try {
+    expect(host.textContent).toBe('Rows:ab');
+    expect(actions).toEqual([]);
+    app.update({ ...props, state: { rows: [{ id: 'b' }, { id: 'a' }], country: 'DE' } });
+    await Promise.resolve();
+    expect(host.textContent).toBe('Rows:ba');
+    expect(actions).toEqual(['DE']);
+  } finally {
+    app.dispose();
+  }
+});
