@@ -96,6 +96,109 @@ it('keeps cyclic graphs opaque without overflowing or constructing a broken cycl
   expect(shareValue(oldDag, { a: newChild, b: newChild })).toBe(oldDag);
 });
 
+it('checks hidden back-references before invoking field sharers', () => {
+  const previous = { items: [{ id: 1 }], meta: {} };
+  const next = { items: [{ id: 1 }], meta: {} };
+  Object.defineProperty(next.meta, Symbol('owner'), { value: next });
+  let calls = 0;
+  const fields = {
+    items: (old: typeof previous.items) => {
+      calls++;
+      return old;
+    },
+  };
+  expect(shareValue(previous, next, fields)).toBe(next);
+  expect(calls).toBe(0);
+  const acyclic = { items: [{ id: 1 }], meta: {}, revision: 1 };
+  expect(shareValue(next, acyclic, fields).items).toBe(next.items);
+  expect(calls).toBe(1);
+});
+
+it('compares a repeated incoming record against each previous counterpart independently', () => {
+  const previous = { left: { id: 1 }, right: { id: 2 } };
+  const shared = { id: 1 };
+  const next = { left: shared, right: shared };
+  for (const fields of [undefined, { left: shareValue, right: shareValue }]) {
+    const result = shareValue(previous, next, fields);
+    expect(result.left).toBe(previous.left);
+    expect(result.right).toBe(shared);
+    expect(result.right).not.toBe(previous.right);
+  }
+});
+
+it('compares a shared leaf once across many paths through an immutable snapshot', () => {
+  let reads = 0;
+  function snapshot() {
+    let node: object = new Proxy(
+      { id: 1 },
+      {
+        get(target, key, receiver): unknown {
+          if (key === 'id') reads++;
+          return Reflect.get(target, key, receiver);
+        },
+      },
+    );
+    for (let level = 0; level < 18; level++) node = { left: node, right: node };
+    return node;
+  }
+  const previous = snapshot();
+  expect(shareValue(previous, snapshot())).toBe(previous);
+  expect(reads).toBeLessThan(10);
+});
+
+it('respects the field reconciler for equal lists and checks new rows for back-references', () => {
+  type Row = { id: number; parent?: { items: Row[] } };
+  const previous = { items: [{ id: 1 }] as Row[] };
+  const next = structuredClone(previous);
+  const chosen: Row[] = [];
+  let calls = 0;
+  const fields = {
+    items: () => {
+      calls++;
+      return chosen;
+    },
+  };
+  expect(shareValue(previous, next, fields).items).toBe(chosen);
+  const circular = { items: [...next.items, { id: 2 }] as Row[] };
+  circular.items[1]!.parent = circular;
+  expect(shareValue(previous, circular, fields)).toBe(circular);
+  expect(calls).toBe(1);
+});
+
+it('uses ordinary property reads for field reconciliation after checking the incoming graph', () => {
+  const previous = { row: { id: 1 } };
+  const row = new Proxy(
+    { id: 1 },
+    {
+      get(target, key, receiver): unknown {
+        return key === 'id' ? 2 : Reflect.get(target, key, receiver);
+      },
+    },
+  );
+  const fields = { row: shareValue };
+  expect(shareValue(previous, { row }, fields).row).toBe(row);
+  const fromProxy = new Proxy(
+    { row: { id: 9 } },
+    {
+      get(target, key, receiver): unknown {
+        return key === 'row' ? { id: 1 } : Reflect.get(target, key, receiver);
+      },
+    },
+  );
+  expect(shareValue(previous, fromProxy)).toBe(previous);
+  const old = new Proxy(
+    { id: 1, self: null as unknown },
+    {
+      get() {
+        throw new Error('read previous before ruling out an incoming cycle');
+      },
+    },
+  );
+  const circular = { id: 1, self: null as unknown };
+  circular.self = circular;
+  expect(shareValue(old, circular, { id: (before) => before })).toBe(circular);
+});
+
 it('borrows frozen and unfrozen publications, including custom shared branches', () => {
   for (const frozen of [true, false]) {
     const item = { count: 1 };

@@ -1,94 +1,165 @@
-// Internal representation-level sharing. Public callers borrow through share.ts.
-// Immutable snapshots can reach the renderer through several projections. Reuse an
-// already compared object pair without retaining either snapshot after its owners release it.
-const sharedPairs = new WeakMap<object, WeakMap<object, unknown>>();
-const cyclicData = new WeakMap<object, boolean>();
+// Snapshot inputs are immutable. Validate the entire incoming graph before invoking a
+// field reconciler, and reuse the property names discovered by that traversal.
+type Shape = { readonly keys: readonly string[]; readonly array: boolean; repeated: boolean };
+const opaque = Symbol();
+const circular = Symbol();
+const graphs = new WeakMap<object, Shape | typeof opaque | typeof circular>();
+const oldShapes = new WeakMap<object, Shape | typeof opaque>();
+const comparisons = new WeakMap<object, WeakMap<object, unknown>>();
+let comparingFields = false;
 
-function cyclic(value: object, active: Set<object>): boolean {
-  const cached = cyclicData.get(value);
-  if (cached !== undefined) return cached;
-  const prototype: unknown = Object.getPrototypeOf(value);
-  if (!Array.isArray(value) && prototype !== Object.prototype) return false;
-  if (active.has(value)) return true;
-  active.add(value);
-  const found = Reflect.ownKeys(value).some((key) => {
+function dataProperty(descriptor: PropertyDescriptor): boolean {
+  return descriptor.enumerable === true && Object.hasOwn(descriptor, 'value');
+}
+
+// A record supplied only on the previous side needs a shallow descriptor check.
+function previousShape(value: object) {
+  const checked = graphs.get(value);
+  if (checked && checked !== circular) return checked;
+  const cached = oldShapes.get(value);
+  if (cached) return cached;
+  const array = Array.isArray(value);
+  if (
+    (!array && Object.getPrototypeOf(value) !== Object.prototype) ||
+    Object.getOwnPropertySymbols(value).length
+  ) {
+    oldShapes.set(value, opaque);
+    return opaque;
+  }
+  const keys = Object.getOwnPropertyNames(value);
+  if (array) keys.splice(keys.indexOf('length'), 1);
+  const shape = keys.every((key) => dataProperty(Object.getOwnPropertyDescriptor(value, key)!))
+    ? { keys, array, repeated: false }
+    : opaque;
+  oldShapes.set(value, shape);
+  return shape;
+}
+
+function inspect(value: object, ancestors: Set<object>): Shape | typeof opaque | typeof circular {
+  const cached = graphs.get(value);
+  if (cached) {
+    if (cached !== opaque && cached !== circular) cached.repeated = true;
+    return cached;
+  }
+  const array = Array.isArray(value);
+  if (!array && Object.getPrototypeOf(value) !== Object.prototype) {
+    graphs.set(value, opaque);
+    return opaque;
+  }
+  if (ancestors.has(value)) return circular;
+  const names = Object.getOwnPropertyNames(value);
+  if (array) names.splice(names.indexOf('length'), 1);
+  const symbols = Object.getOwnPropertySymbols(value);
+  const keys: (string | symbol)[] = symbols.length ? [...names, ...symbols] : names;
+  let plain = !symbols.length;
+  let entered = false;
+  for (const key of keys) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+    if (!dataProperty(descriptor)) plain = false;
     const child: unknown = descriptor.value;
-    return child !== null && typeof child === 'object' && cyclic(child, active);
-  });
-  active.delete(value);
-  cyclicData.set(value, found);
-  return found;
+    if (child !== null && typeof child === 'object') {
+      if (!entered) {
+        ancestors.add(value);
+        entered = true;
+      }
+      if (inspect(child, ancestors) === circular) {
+        graphs.set(value, circular);
+        return circular;
+      }
+    }
+  }
+  if (entered) ancestors.delete(value);
+  const shape = plain ? { keys: names, array, repeated: false } : opaque;
+  graphs.set(value, shape);
+  return shape;
 }
 
 /** Override sharing for selected fields, for example a collection keyed by domain identity. */
 export type ShareFields<T> = { readonly [K in keyof T]?: (previous: T[K], next: T[K]) => T[K] };
+type RecordFields = ShareFields<Record<string, unknown>>;
 
 /** Share immutable plain data; opaque objects, accessors, hidden fields and cycles retain next. */
 export function shareData<T>(previous: T, next: T, fields?: ShareFields<T>): T {
-  if (Object.is(previous, next)) return previous;
-  // Check the entire next graph, including new branches with no previous counterpart.
-  // Otherwise a partial clone could keep a back-reference to the unshared root.
-  if (next && typeof next === 'object' && cyclic(next, new Set())) return next;
-  return share(previous, next, fields);
+  if (
+    Object.is(previous, next) ||
+    !previous ||
+    !next ||
+    typeof previous !== 'object' ||
+    typeof next !== 'object'
+  )
+    return next;
+  const shape = graphs.get(next) ?? inspect(next, new Set());
+  if (shape === opaque || shape === circular) return next;
+  if (!fields) return share(previous, next, shape, undefined, !comparingFields) as T;
+  const outer = comparingFields;
+  comparingFields = true;
+  try {
+    return share(previous, next, shape, fields as RecordFields, false) as T;
+  } finally {
+    comparingFields = outer;
+  }
 }
 
-function share<T>(previous: T, next: T, fields: ShareFields<T> | undefined): T {
-  if (Object.is(previous, next)) return previous;
-  if (!previous || !next || typeof previous !== 'object' || typeof next !== 'object') return next;
-  const array = Array.isArray(next);
-  if (array !== Array.isArray(previous)) return next;
-  if (
-    !array &&
-    (Object.getPrototypeOf(next) !== Object.prototype ||
-      Object.getPrototypeOf(previous) !== Object.prototype)
-  )
-    return next;
-  let pairs = sharedPairs.get(previous);
-  if (!fields && pairs?.has(next)) return pairs.get(next) as T;
-  const old = previous as Record<string, unknown>;
-  const value = next as Record<string, unknown>;
-  const keys = Object.keys(value);
-  const oldKeys = Object.keys(old);
-  // Symbol and nonenumerable fields are outside the plain-data sharing contract.
-  // Returning next preserves them instead of accidentally claiming value equality.
-  const extra = array ? 1 : 0; // Array length is nonenumerable.
-  if (
-    Reflect.ownKeys(next).length !== keys.length + extra ||
-    Reflect.ownKeys(previous).length !== oldKeys.length + extra ||
-    keys.some((key) => !Object.hasOwn(Object.getOwnPropertyDescriptor(next, key)!, 'value')) ||
-    oldKeys.some((key) => !Object.hasOwn(Object.getOwnPropertyDescriptor(previous, key)!, 'value'))
-  )
-    return next;
-  let equal = keys.length === oldKeys.length && (!array || value.length === old.length);
+function share(
+  previous: object,
+  next: object,
+  shape: Shape,
+  fields: RecordFields | undefined,
+  root: boolean,
+): unknown {
+  if (previous === next) return previous;
+  let pairs = comparisons.get(previous);
+  if (!fields && pairs?.has(next)) return pairs.get(next);
+  if (Array.isArray(previous) !== shape.array) return next;
+  const oldShape = previousShape(previous);
+  if (oldShape === opaque) return next;
+  const old = previous as Record<string, unknown>,
+    value = next as Record<string, unknown>;
+  const keys = shape.keys,
+    oldKeys = oldShape.keys;
+  let equal = keys.length === oldKeys.length && (!shape.array || value.length === old.length);
   let changed: Map<string, unknown> | undefined;
-  for (const key of keys) {
-    const custom = fields && Object.hasOwn(fields, key) ? fields[key as keyof T] : undefined;
-    const item =
-      custom && Object.hasOwn(old, key)
-        ? custom(old[key] as T[keyof T], value[key] as T[keyof T])
-        : share(Object.hasOwn(old, key) ? old[key] : undefined, value[key], undefined);
-    if (!Object.hasOwn(old, key) || !Object.is(item, old[key])) equal = false;
-    if (!Object.is(item, value[key])) (changed ??= new Map()).set(key, item);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]!;
+    const present = oldKeys[i] === key || Object.hasOwn(old, key);
+    const before = present ? old[key] : undefined,
+      after = value[key];
+    const custom = fields && present && Object.hasOwn(fields, key) ? fields[key] : undefined;
+    let item = after;
+    if (custom) item = custom(before, after);
+    else if (present && Object.is(before, after)) continue;
+    else if (after && typeof after === 'object' && before && typeof before === 'object') {
+      // A proxy can return an object different from its own data descriptor.
+      const child = graphs.get(after) ?? inspect(after, new Set());
+      if (child !== opaque && child !== circular)
+        item = share(before, after, child, undefined, false);
+    }
+    if (!present || !Object.is(item, before)) equal = false;
+    if (!Object.is(item, after)) (changed ??= new Map()).set(key, item);
   }
-  let result: T = equal ? previous : next;
+  let result: object = equal ? previous : next;
   if (!equal && changed) {
-    const shared: Record<string, unknown> = array ? ([] as unknown as Record<string, unknown>) : {};
-    if (array) shared.length = value.length;
+    const copy: Record<string, unknown> = shape.array
+      ? ([] as unknown as Record<string, unknown>)
+      : {};
+    if (shape.array) copy.length = value.length;
     for (const key of keys)
-      Object.defineProperty(shared, key, {
+      Object.defineProperty(copy, key, {
         value: changed.has(key) ? changed.get(key) : value[key],
-        writable: true,
         enumerable: true,
+        writable: true,
         configurable: true,
       });
-    result = shared as T;
+    result = copy;
   }
-  if (fields) return result;
-  if (!pairs) {
-    pairs = new WeakMap();
-    sharedPairs.set(previous, pairs);
+  // A partial copy must keep its identity across projections. Equal or unchanged
+  // subtrees already have an identity; memoize these at the root and at shared nodes.
+  if (!fields && (root || shape.repeated || (result !== previous && result !== next))) {
+    if (!pairs) {
+      pairs = new WeakMap();
+      comparisons.set(previous, pairs);
+    }
+    pairs.set(next, result);
   }
-  pairs.set(next, result);
   return result;
 }

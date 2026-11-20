@@ -38,7 +38,7 @@
       "type": "registry:lib",
       "title": "Adapter",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "files": [
         {
@@ -54,7 +54,7 @@
       "type": "registry:lib",
       "title": "Placement",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "files": [
         {
@@ -86,8 +86,8 @@
       "type": "registry:ui",
       "title": "Accordion",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/base-ui@0.16.1",
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -107,7 +107,7 @@
       "type": "registry:ui",
       "title": "Alert Dialog",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -149,7 +149,7 @@
       "type": "registry:ui",
       "title": "Aspect Ratio",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types"
@@ -189,7 +189,7 @@
       "type": "registry:ui",
       "title": "Avatar",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -229,7 +229,7 @@
       "type": "registry:ui",
       "title": "Breadcrumb",
       "dependencies": [
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -310,7 +310,7 @@
       "type": "registry:ui",
       "title": "Calendar",
       "dependencies": [
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/button",
@@ -348,7 +348,7 @@
       "type": "registry:ui",
       "title": "Carousel",
       "dependencies": [
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/button",
@@ -386,8 +386,8 @@
       "type": "registry:ui",
       "title": "Checkbox",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/base-ui@0.16.1",
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -408,7 +408,7 @@
       "type": "registry:ui",
       "title": "Code Block",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
+        "@effectweb/base-ui@0.16.1",
         "class-variance-authority"
       ],
       "registryDependencies": [
@@ -430,7 +430,7 @@
       "type": "registry:ui",
       "title": "Collapsible",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -450,8 +450,8 @@
       "type": "registry:ui",
       "title": "Combobox",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/base-ui@0.16.1",
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -470,7 +470,7 @@
       "type": "registry:ui",
       "title": "Command",
       "dependencies": [
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/dialog",
@@ -491,7 +491,7 @@
       "type": "registry:ui",
       "title": "Context Menu",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -543,8 +543,8 @@
       "type": "registry:ui",
       "title": "Dialog",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/base-ui@0.16.1",
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -582,8 +582,8 @@
       "type": "registry:ui",
       "title": "Drawer",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/base-ui@0.16.1",
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -605,8 +605,8 @@
       "type": "registry:ui",
       "title": "Dropdown Menu",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/base-ui@0.16.1",
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/placement",
@@ -646,7 +646,7 @@
       "type": "registry:ui",
       "title": "Field",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
+        "@effectweb/base-ui@0.16.1",
         "class-variance-authority"
       ],
       "registryDependencies": [
@@ -669,7 +669,7 @@
       "type": "registry:ui",
       "title": "Form",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -689,7 +689,7 @@
       "type": "registry:ui",
       "title": "Hover Card",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -731,8 +731,8 @@
       "type": "registry:ui",
       "title": "Input Otp",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/base-ui@0.16.1",
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -752,7 +752,7 @@
       "type": "registry:ui",
       "title": "Input",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -843,8 +843,8 @@
       "type": "registry:ui",
       "title": "Menubar",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/base-ui@0.16.1",
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -897,7 +897,7 @@
       "type": "registry:ui",
       "title": "Native Select",
       "dependencies": [
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -917,7 +917,7 @@
       "type": "registry:ui",
       "title": "Navigation Menu",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -936,7 +936,7 @@
       "type": "registry:ui",
       "title": "Number Field",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -956,7 +956,7 @@
       "type": "registry:ui",
       "title": "Pagination",
       "dependencies": [
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/button",
@@ -977,7 +977,7 @@
       "type": "registry:ui",
       "title": "Popover",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -999,7 +999,7 @@
       "type": "registry:ui",
       "title": "Progress",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -1038,7 +1038,7 @@
       "type": "registry:ui",
       "title": "Radio Group",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -1058,7 +1058,7 @@
       "type": "registry:ui",
       "title": "Resizable",
       "dependencies": [
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -1078,7 +1078,7 @@
       "type": "registry:ui",
       "title": "Scroll Area",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -1098,8 +1098,8 @@
       "type": "registry:ui",
       "title": "Select",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/base-ui@0.16.1",
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -1118,7 +1118,7 @@
       "type": "registry:ui",
       "title": "Separator",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -1138,8 +1138,8 @@
       "type": "registry:ui",
       "title": "Sheet",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/base-ui@0.16.1",
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -1161,7 +1161,7 @@
       "type": "registry:ui",
       "title": "Sidebar",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/input",
@@ -1199,7 +1199,7 @@
       "type": "registry:ui",
       "title": "Slider",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -1219,7 +1219,7 @@
       "type": "registry:ui",
       "title": "Sonner",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -1239,7 +1239,7 @@
       "type": "registry:ui",
       "title": "Spinner",
       "dependencies": [
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/utils"
@@ -1258,7 +1258,7 @@
       "type": "registry:ui",
       "title": "Switch",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/adapter",
@@ -1296,7 +1296,7 @@
       "type": "registry:ui",
       "title": "Tabs",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
+        "@effectweb/base-ui@0.16.1",
         "class-variance-authority"
       ],
       "registryDependencies": [
@@ -1334,7 +1334,7 @@
       "type": "registry:ui",
       "title": "Toast",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/sonner"
@@ -1353,7 +1353,7 @@
       "type": "registry:ui",
       "title": "Toggle Group",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
+        "@effectweb/base-ui@0.16.1",
         "class-variance-authority"
       ],
       "registryDependencies": [
@@ -1375,7 +1375,7 @@
       "type": "registry:ui",
       "title": "Toggle",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0",
+        "@effectweb/base-ui@0.16.1",
         "class-variance-authority"
       ],
       "registryDependencies": [
@@ -1397,7 +1397,7 @@
       "type": "registry:ui",
       "title": "Toolbar",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/types",
@@ -1417,7 +1417,7 @@
       "type": "registry:ui",
       "title": "Tooltip",
       "dependencies": [
-        "@effectweb/base-ui@0.16.0"
+        "@effectweb/base-ui@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/placement",
@@ -1437,7 +1437,7 @@
       "type": "registry:ui",
       "title": "Trace",
       "dependencies": [
-        "@effectweb/lucide@0.16.0"
+        "@effectweb/lucide@0.16.1"
       ],
       "registryDependencies": [
         "@effectweb/collapsible",
